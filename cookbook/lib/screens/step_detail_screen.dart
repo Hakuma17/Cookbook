@@ -1,5 +1,3 @@
-// lib/screens/step_detail_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -26,12 +24,22 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
   late final FlutterTts _tts;
   late int _currentIndex;
   bool _hasSpoken = false;
+  bool _isSpeaking = false;
+  bool _isFemale = true;
 
   @override
   void initState() {
     super.initState();
     _tts = FlutterTts();
     _currentIndex = widget.initialIndex.clamp(0, widget.steps.length - 1);
+    _isFemale = DateTime.now().millisecond % 2 == 0;
+
+    _tts.setCompletionHandler(() {
+      setState(() {
+        _isSpeaking = false;
+        _hasSpoken = true;
+      });
+    });
   }
 
   @override
@@ -40,28 +48,50 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
     super.dispose();
   }
 
-  void _playVoice() {
+  Future<void> _playVoice() async {
     final text = widget.steps[_currentIndex].description;
-    _tts.speak(text);
-    setState(() => _hasSpoken = true);
+
+    await _tts.stop();
+
+    setState(() {
+      _isSpeaking = true;
+      _hasSpoken = false;
+    });
+
+    await _tts.setLanguage('th-TH');
+    await _tts.setVoice({
+      'name':
+          _isFemale ? 'th-th-x-sfg#female_1-local' : 'th-th-x-sfg#male_1-local',
+      'locale': 'th-TH',
+    });
+
+    await _tts.speak(text);
   }
 
-  void _prevStep() {
+  Future<void> _prevStep() async {
     if (_currentIndex > 0) {
+      await _tts.stop();
       setState(() {
+        _isSpeaking = false;
         _currentIndex--;
         _hasSpoken = false;
+        _isFemale = DateTime.now().millisecond % 2 == 0;
       });
     }
   }
 
-  void _nextStep() {
+  Future<void> _nextStep() async {
     if (_currentIndex < widget.steps.length - 1) {
+      await _tts.stop();
       setState(() {
+        _isSpeaking = false;
         _currentIndex++;
         _hasSpoken = false;
+        _isFemale = DateTime.now().millisecond % 2 == 0;
       });
     } else {
+      await _tts.stop();
+      setState(() => _isSpeaking = false);
       Navigator.of(context).pop();
     }
   }
@@ -82,7 +112,11 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.close, size: 24, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () async {
+            await _tts.stop();
+            setState(() => _isSpeaking = false);
+            Navigator.of(context).pop();
+          },
         ),
         title: Text(
           'ขั้นตอนที่ ${_currentIndex + 1}',
@@ -95,7 +129,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
       ),
       body: Column(
         children: [
-          // รูปเมนู
+          // รูปภาพขั้นตอน
           SizedBox(
             height: 272.67,
             width: double.infinity,
@@ -108,6 +142,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
               ),
             ),
           ),
+
           // คำอธิบาย
           Expanded(
             child: SingleChildScrollView(
@@ -117,89 +152,118 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
                 style: const TextStyle(
                   fontFamily: 'Montserrat',
                   fontSize: 20,
-                  height: 24 / 20,
+                  height: 1.2,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF000000),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 16),
+
+          const SizedBox(height: 8),
+
           // ปุ่มฟังเสียง / เล่นซ้ำ
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: OutlinedButton.icon(
-              onPressed: _playVoice,
-              icon: SvgPicture.asset(
-                'lib/assets/icons/check_circle.svg',
-                width: 24,
-                height: 24,
-                color: const Color(0xFF000000),
-              ),
-              label: Text(
-                _hasSpoken ? 'เล่นซ้ำ' : 'ฟังเสียง',
-                style: const TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF000000),
-                  height: 22 / 20,
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: SizedBox(
+              width: double.infinity,
+              height: 64,
+              child: ElevatedButton.icon(
+                onPressed: _isSpeaking ? null : _playVoice,
+                icon: Icon(
+                  _isSpeaking
+                      ? Icons.volume_up
+                      : (_hasSpoken
+                          ? Icons.replay_circle_filled
+                          : Icons.play_circle_fill),
+                  size: 40,
+                  color: Colors.black,
                 ),
-              ),
-              style: OutlinedButton.styleFrom(
-                backgroundColor: Colors.white,
-                side: const BorderSide(color: Color(0xFF828282), width: 2),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(38),
+                label: Text(
+                  _isSpeaking
+                      ? 'กำลังพูด...'
+                      : (_hasSpoken ? 'เล่นซ้ำ' : 'ฟังเสียง'),
+                  style: const TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                    height: 1.2,
+                  ),
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  elevation: 0,
+                  side: const BorderSide(color: Color(0xFF828282), width: 2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(38),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          // ปุ่มกลับและถัดไป
+
+          const SizedBox(height: 24),
+
+          // ปุ่ม กลับ และ ถัดไป
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  // กลับ
                   Opacity(
                     opacity: isFirst ? 0.3 : 1.0,
-                    child: GestureDetector(
-                      onTap: isFirst ? null : _prevStep,
-                      child: SvgPicture.asset(
-                        'lib/assets/icons/play_previous.svg',
-                        width: 32,
-                        height: 32,
-                        color: Colors.black,
-                      ),
+                    child: Column(
+                      children: [
+                        IconButton(
+                          icon: SvgPicture.asset(
+                            'lib/assets/icons/play_previous.svg',
+                            width: 40,
+                            height: 40,
+                            color: Colors.black,
+                          ),
+                          onPressed: isFirst ? null : _prevStep,
+                        ),
+                        const Text(
+                          'กลับ',
+                          style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Opacity(
-                    opacity: 1.0,
-                    child: Text(
-                      isLast ? 'เสร็จสิ้น' : 'ถัดไป',
-                      style: const TextStyle(
-                        fontFamily: 'Montserrat',
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF000000),
-                        height: 22 / 24,
-                      ),
-                    ),
-                  ),
+
+                  // ถัดไป
                   Opacity(
                     opacity: isLast ? 0.3 : 1.0,
-                    child: GestureDetector(
-                      onTap: isLast ? null : _nextStep,
-                      child: SvgPicture.asset(
-                        'lib/assets/icons/play_next.svg',
-                        width: 32,
-                        height: 32,
-                        color: Colors.black,
-                      ),
+                    child: Column(
+                      children: [
+                        IconButton(
+                          icon: SvgPicture.asset(
+                            'lib/assets/icons/play_next.svg',
+                            width: 40,
+                            height: 40,
+                            color: Colors.black,
+                          ),
+                          onPressed: isLast ? null : _nextStep,
+                        ),
+                        Text(
+                          isLast ? 'เสร็จสิ้น' : 'ถัดไป',
+                          style: const TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
