@@ -1,5 +1,3 @@
-// lib/widgets/cart_button.dart
-
 import 'package:flutter/material.dart';
 
 /// CartButton
@@ -45,17 +43,23 @@ class CartButton extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
+
         // ปุ่มเลือกจำนวนเสิร์ฟ
         InkWell(
           onTap: () async {
             final selected = await showModalBottomSheet<int>(
               context: context,
-              isScrollControlled: true, // อนุญาตให้ bottom sheet สูงสุดจอ
+              isScrollControlled: true,
               builder: (_) => _ServingsPicker(
                 initialServings: currentServings,
               ),
             );
-            if (selected != null) onServingsChanged?.call(selected);
+
+            //  เพิ่ม delay เพื่อให้ pop() เสร็จก่อนเรียก callback
+            if (selected != null) {
+              await Future.delayed(Duration.zero);
+              onServingsChanged?.call(selected);
+            }
           },
           borderRadius: BorderRadius.circular(14),
           child: Container(
@@ -100,7 +104,6 @@ class _ServingsPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // กำหนดความสูงไม่เกิน 50% ของหน้าจอ แล้วเลื่อนดูได้
     final maxHeight = MediaQuery.of(context).size.height * 0.5;
 
     return SafeArea(

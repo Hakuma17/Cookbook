@@ -1,7 +1,7 @@
-// lib/screens/recipe_detail_screen.dart
-
+// ส่วน import เหมือนเดิม
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/recipe_detail.dart';
 import '../services/api_service.dart';
@@ -16,6 +16,8 @@ import '../widgets/cart_button.dart';
 import '../widgets/comment_section.dart';
 
 import 'step_detail_screen.dart';
+import '../widgets/custom_bottom_nav.dart';
+import 'login_screen.dart';
 
 class RecipeDetailScreen extends StatefulWidget {
   final int recipeId;
@@ -30,11 +32,23 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   late Future<RecipeDetail> _futureRecipe;
   final PageController _pageController = PageController();
   int _currentPage = 0;
+  int _selectedIndex = 2;
+  bool _isLoggedIn = false;
+
+  int _currentServings = 1;
 
   @override
   void initState() {
     super.initState();
     _futureRecipe = ApiService.fetchRecipeDetail(widget.recipeId);
+    _loadLoginStatus();
+  }
+
+  Future<void> _loadLoginStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    });
   }
 
   @override
@@ -78,7 +92,14 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
             if (snap.hasError) {
               return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
             }
+
             final recipe = snap.requireData;
+            final baseServings = recipe.nServings;
+
+            // ถ้ายังไม่เคยตั้งค่า currentServings เลย ให้ sync กับ recipe ครั้งแรก
+            if (_currentServings == 1 && recipe.currentServings > 1) {
+              _currentServings = recipe.currentServings;
+            }
 
             return SingleChildScrollView(
               child: Column(
@@ -108,18 +129,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                               Icons.close,
                               color: Colors.white,
                               size: 24,
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          top: statusBarHeight + 16,
-                          left: 56,
-                          child: Text(
-                            'ขั้นตอนที่ ${_currentPage + 1}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
@@ -172,8 +181,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 16),
-
-                        // ชื่อ, rating, date, prep time
                         RecipeMetaWidget(
                           name: recipe.name,
                           averageRating: recipe.averageRating,
@@ -181,15 +188,11 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                           createdAt: recipe.createdAt,
                           prepTimeMinutes: recipe.prepTime,
                         ),
-
                         if (recipe.categories.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           TagList(tags: recipe.categories),
                         ],
-
                         const SizedBox(height: 24),
-
-                        // วัตถุดิบ + ปุ่มตะกร้า
                         Row(
                           children: [
                             const Text(
@@ -205,25 +208,30 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                             const Spacer(),
                             CartButton(
                               recipeId: recipe.recipeId,
-                              currentServings: recipe.currentServings,
+                              currentServings: _currentServings,
                               onServingsChanged: (count) {
-                                ApiService.updateCart(recipe.recipeId, count);
-                                setState(() {});
+                                setState(() => _currentServings = count);
                               },
-                              onAddToCart: () {
-                                ApiService.updateCart(
-                                    recipe.recipeId, recipe.currentServings);
-                                setState(() {});
+                              onAddToCart: () async {
+                                await ApiService.updateCart(
+                                  recipe.recipeId,
+                                  _currentServings.toDouble(),
+                                );
+                                setState(() {
+                                  _futureRecipe = ApiService.fetchRecipeDetail(
+                                      widget.recipeId);
+                                });
                               },
                             ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        IngredientTable(items: recipe.ingredients),
-
+                        IngredientTable(
+                          items: recipe.ingredients,
+                          baseServings: baseServings,
+                          currentServings: _currentServings,
+                        ),
                         const SizedBox(height: 24),
-
-                        // โภชนาการ
                         const Text(
                           'โภชนาการ',
                           style: TextStyle(
@@ -235,11 +243,12 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        NutritionSummary(nutrition: recipe.nutrition),
-
+                        NutritionSummary(
+                          nutrition: recipe.nutrition,
+                          baseServings: baseServings,
+                          currentServings: _currentServings,
+                        ),
                         const SizedBox(height: 24),
-
-                        // วิธีทำ (Preview + expand inline)
                         const Text(
                           'วิธีทำ',
                           style: TextStyle(
@@ -264,17 +273,16 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 24),
-
-                        // CTA: เพิ่มเป็นสูตรโปรด
                         SizedBox(
                           width: double.infinity,
                           height: 52.35,
                           child: ElevatedButton.icon(
                             onPressed: () async {
                               await ApiService.toggleFavorite(
-                                  recipe.recipeId, !recipe.isFavorited);
+                                recipe.recipeId,
+                                !recipe.isFavorited,
+                              );
                               setState(() {});
                             },
                             icon: const Icon(Icons.add, size: 26.18),
@@ -282,8 +290,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-
-                        // Voice CTA
                         SizedBox(
                           width: double.infinity,
                           height: 61.18,
@@ -324,13 +330,11 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 32),
                       ],
                     ),
                   ),
 
-                  // ความคิดเห็น
                   CommentSection(
                     comments: recipe.comments,
                     currentRating: recipe.userRating?.toInt() ?? 0,
@@ -341,7 +345,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                       setState(() {});
                     },
                     onCommentPressed: () {
-                      /* เปิด dialog โพสต์ใหม่ */
+                      /* TODO: add comment dialog */
                     },
                   ),
 
@@ -349,6 +353,22 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                 ],
               ),
             );
+          },
+        ),
+        bottomNavigationBar: CustomBottomNav(
+          selectedIndex: _selectedIndex,
+          isLoggedIn: _isLoggedIn,
+          onItemSelected: (index) {
+            if ((index == 2 || index == 3) && !_isLoggedIn) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+              ).then((_) => _loadLoginStatus());
+              return;
+            }
+            if (index != _selectedIndex) {
+              setState(() => _selectedIndex = index);
+            }
           },
         ),
       ),

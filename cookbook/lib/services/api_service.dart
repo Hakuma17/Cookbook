@@ -25,15 +25,12 @@ class ApiService {
 
   // ── Internal helpers for GET/POST with cookie ───────────────────────────
 
-  /// ใช้แทน _client.get() เพื่อแนบ Cookie header ถ้ามี
   static Future<http.Response> _get(Uri uri) {
     final headers = <String, String>{};
     if (_sessionCookie != null) headers['Cookie'] = _sessionCookie!;
     return _client.get(uri, headers: headers).timeout(_timeout);
   }
 
-  /// ใช้แทน _client.post() เพื่อแนบ Cookie header ถ้ามี
-  /// และจับ Set-Cookie หลังล็อกอิน/ลงทะเบียน
   static Future<http.Response> _post(
       String path, Map<String, String> body) async {
     final uri = Uri.parse('$baseUrl$path');
@@ -42,11 +39,9 @@ class ApiService {
     final resp =
         await _client.post(uri, headers: headers, body: body).timeout(_timeout);
 
-    // ถ้านี่ยังไม่มี session cookie ให้เก็บจาก header
     if (_sessionCookie == null) {
       final raw = resp.headers['set-cookie'];
       if (raw != null) {
-        // ตัดเอาแค่ "PHPSESSID=xxx"
         _sessionCookie = raw.split(';').first;
       }
     }
@@ -169,20 +164,21 @@ class ApiService {
     return Comment.fromJson(result['data'] as Map<String, dynamic>);
   }
 
-  // ── Cart ───────────────────────────────────────────────────────────────────
-
+  /// ── Cart ───────────────────────────────────────────────────────────────────
   /// เพิ่มหรืออัปเดตตะกร้า (nServings)
-  static Future<void> updateCart(int recipeId, int count) async {
+  static Future<void> updateCart(int recipeId, double count) async {
+    // เรียก PHP script
     final resp = await _post('update_cart.php', {
       'recipe_id': recipeId.toString(),
       'count': count.toString(),
     });
-    if (resp.statusCode != 200) {
-      throw Exception('Server error: ${resp.statusCode}');
-    }
-    final Map<String, dynamic> jsonMap =
-        jsonDecode(resp.body) as Map<String, dynamic>;
+
+    // decode JSON เสมอ ไม่สน statusCode
+    final Map<String, dynamic> jsonMap = jsonDecode(resp.body);
+
+    // ตรวจว่าฝั่งเซิร์ฟเวอร์ส่ง success=true มาไหม
     if (jsonMap['success'] != true && jsonMap['success'] != 'true') {
+      // ถ้าไม่ ให้โยน Exception พร้อมข้อความจาก server
       throw Exception(jsonMap['message'] ?? 'Unknown error');
     }
   }

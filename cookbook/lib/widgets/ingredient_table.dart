@@ -2,16 +2,23 @@ import 'package:flutter/material.dart';
 import '../models/ingredient_quantity.dart';
 
 /// IngredientTable
-/// - previewCount: จำนวนแถวที่จะโชว์เมื่อยังปิด (default = 5)
-/// - activeCount: ไม่ใช้แล้ว (เพราะ blur แค่แถวสุดท้าย)
+/// - คำนวณปริมาณวัตถุดิบตามจำนวนเสิร์ฟจริง
 class IngredientTable extends StatefulWidget {
   final List<IngredientQuantity>? items;
   final int previewCount;
+
+  /// จำนวนเสิร์ฟในสูตรต้นฉบับ (base)
+  final int baseServings;
+
+  /// จำนวนเสิร์ฟที่ผู้ใช้เลือก (ปัจจุบัน)
+  final int currentServings;
 
   const IngredientTable({
     Key? key,
     this.items,
     this.previewCount = 5,
+    required this.baseServings,
+    required this.currentServings,
   }) : super(key: key);
 
   @override
@@ -24,9 +31,12 @@ class _IngredientTableState extends State<IngredientTable> {
   @override
   Widget build(BuildContext context) {
     final list = widget.items ?? [];
-    if (list.isEmpty) return const SizedBox.shrink();
+    if (list.isEmpty || widget.baseServings <= 0)
+      return const SizedBox.shrink();
 
-    // เลือกแสดงทั้งหมดถ้า expand แล้ว มิฉะนั้น previewCount แรก
+    // สัดส่วนคูณปริมาณ = ปริมาณที่ใช้จริง
+    final scale = widget.currentServings / widget.baseServings;
+
     final displayList =
         _expanded ? list : list.take(widget.previewCount).toList();
 
@@ -42,14 +52,19 @@ class _IngredientTableState extends State<IngredientTable> {
           child: Column(
             children: List.generate(displayList.length, (i) {
               final item = displayList[i];
-              final qty = item.quantity % 1 == 0
-                  ? item.quantity.toStringAsFixed(0)
-                  : item.quantity.toStringAsFixed(2);
 
-              // blur เฉพาะรายการสุดท้าย เมื่อยังไม่ expand
+              // คำนวณปริมาณตามจำนวนเสิร์ฟจริง
+              final adjustedQty = item.quantity * scale;
+              final qty = adjustedQty % 1 == 0
+                  ? adjustedQty.toStringAsFixed(0)
+                  : adjustedQty.toStringAsFixed(2);
+
               final isDisabled = !_expanded && i == displayList.length - 1;
               final textColor =
                   isDisabled ? Colors.grey.shade400 : const Color(0xFF000000);
+
+              final ingredientText =
+                  item.description.isNotEmpty ? item.description : item.name;
 
               return Column(
                 children: [
@@ -58,7 +73,7 @@ class _IngredientTableState extends State<IngredientTable> {
                       Expanded(
                         flex: 3,
                         child: Text(
-                          item.name,
+                          ingredientText,
                           style: TextStyle(
                             fontFamily: 'Roboto',
                             fontSize: 15,

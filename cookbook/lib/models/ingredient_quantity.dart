@@ -1,13 +1,11 @@
-// lib/models/ingredient_quantity.dart
-
 class IngredientQuantity {
   final int ingredientId;
-  final String name;
-  final String imageUrl;
-  final double quantity;
-  final String unit;
-  final double gramsActual;
-  final String description;
+  final String name; // ชื่อมาตรฐานของวัตถุดิบ (จาก ingredients.name)
+  final String imageUrl; // URL ของภาพวัตถุดิบ
+  final double quantity; // จำนวนที่ใช้ในสูตร
+  final String unit; // หน่วย เช่น "ช้อนโต๊ะ", "กรัม"
+  final double gramsActual; // น้ำหนักกรัมที่แท้จริง (ใช้คำนวณโภชนาการ)
+  final String description; // คำอธิบายเฉพาะในสูตร เช่น "หมูสามชั้นหั่นชิ้น"
 
   IngredientQuantity({
     required this.ingredientId,
@@ -37,12 +35,12 @@ class IngredientQuantity {
 
     return IngredientQuantity(
       ingredientId: parseInt(json['ingredient_id']),
-      name: parseString(json['name']),
+      name: parseString(json['name']), // ใช้สำหรับ fallback หรืออ้างอิง
       imageUrl: parseString(json['image_url']),
       quantity: parseDouble(json['quantity']),
       unit: parseString(json['unit']),
       gramsActual: parseDouble(json['grams_actual']),
-      description: parseString(json['descrip']),
+      description: parseString(json['descrip']), // ← เปลี่ยนตรงนี้ให้ชัดเจน
     );
   }
 }

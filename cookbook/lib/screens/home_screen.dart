@@ -1,3 +1,5 @@
+// lib/screens/home_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -6,8 +8,9 @@ import '../models/recipe.dart';
 import '../services/api_service.dart';
 import '../widgets/recipe_card.dart';
 import '../widgets/ingredient_card.dart';
+import '../widgets/custom_bottom_nav.dart';
 import 'login_screen.dart';
-import 'all_ingredients_screen.dart'; // เพิ่มบรรทัดนี้
+import 'all_ingredients_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -32,9 +35,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadLoginStatus(); // โหลดสถานะล็อกอิน
-    _futureIngredients = ApiService.fetchIngredients(); // เรียก API วัตถุดิบ
-    _futurePopular = ApiService.fetchPopularRecipes(); // เรียก API สูตรยอดนิยม
-    _futureNew = ApiService.fetchNewRecipes(); // เรียก API สูตรใหม่
+    _futureIngredients = ApiService.fetchIngredients(); // API วัตถุดิบ
+    _futurePopular = ApiService.fetchPopularRecipes(); // API สูตรยอดนิยม
+    _futureNew = ApiService.fetchNewRecipes(); // API สูตรใหม่
   }
 
   /// โหลดสถานะจาก SharedPreferences (isLoggedIn, profileName, profileImage)
@@ -49,12 +52,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// เมื่อกดแท็บเมนูล่าง
   void _onNavTap(int idx) {
-    // ถ้าไม่ล็อกอินแล้วกดเมนูสูตรหรือฉัน ให้ไปหน้า Login
     if ((idx == 2 || idx == 3) && !_isLoggedIn) {
+      // ถ้าไม่ล็อกอินแล้วกดเมนูสูตรหรือฉัน → ไปหน้า Login
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
-      ).then((_) => _loadLoginStatus()); // รีโหลดสถานะเมื่อกลับมา
+      ).then((_) => _loadLoginStatus());
       return;
     }
     setState(() => _selectedIndex = idx);
@@ -74,157 +77,11 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ─── Section: วัตถุดิบ ─────────────────────
-                  Container(
-                    color: const Color(0xFFFFE3D9), // พื้นหลังสีพีชอ่อน
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildSectionHeader(
-                          title: 'วัตถุดิบ',
-                          actionText: 'ดูทั้งหมด',
-                          actionStyle: const TextStyle(
-                            fontFamily: 'Roboto',
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF0A2533),
-                          ),
-                          onAction: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const AllIngredientsScreen()),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 136,
-                          child: FutureBuilder<List<Ingredient>>(
-                            future: _futureIngredients,
-                            builder: (ctx, snap) {
-                              if (snap.connectionState ==
-                                  ConnectionState.waiting) {
-                                return const Center(
-                                    child: CircularProgressIndicator());
-                              }
-                              final list = snap.data ?? [];
-                              if (list.isEmpty) {
-                                return const Center(
-                                    child: Text('ยังไม่มีวัตถุดิบ'));
-                              }
-                              return ListView.separated(
-                                scrollDirection: Axis.horizontal,
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 24),
-                                itemCount: list.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(width: 12),
-                                itemBuilder: (ctx, i) => IngredientCard(
-                                  ingredient: list[i],
-                                  onTap: () {/* แตะการ์ด */},
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildIngredientSection(), // Section วัตถุดิบ
                   const SizedBox(height: 32),
-
-                  // ─── Section: สูตรอาหารยอดนิยม ─────────────────────
-                  _buildSectionHeader(
-                    title: 'สูตรอาหารยอดนิยม',
-                    actionText: 'ดูเพิ่มเติม',
-                    actionStyle: const TextStyle(
-                      fontFamily: 'Roboto',
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFFF9B05),
-                    ),
-                    onAction: () {/* แตะดูเพิ่มเติม */},
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 200,
-                    child: FutureBuilder<List<Recipe>>(
-                      future: _futurePopular,
-                      builder: (ctx, snap) {
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return const Center(
-                              child: CircularProgressIndicator());
-                        }
-                        final list = snap.data ?? [];
-                        if (list.isEmpty) {
-                          return const Center(
-                              child: Text('ยังไม่มีสูตรยอดนิยม'));
-                        }
-                        return ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          itemCount: list.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (ctx, i) => RecipeCard(
-                            recipe: list[i],
-                            onTap: () => Navigator.pushNamed(
-                              context,
-                              '/recipe_detail',
-                              arguments: list[i],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+                  _buildRecipeSection('สูตรอาหารยอดนิยม', _futurePopular),
                   const SizedBox(height: 32),
-
-                  // ─── Section: สูตรอาหารอัปเดตใหม่ ─────────────────────
-                  _buildSectionHeader(
-                    title: 'สูตรอาหารอัปเดตใหม่',
-                    actionText: 'ดูเพิ่มเติม',
-                    actionStyle: const TextStyle(
-                      fontFamily: 'Roboto',
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFFF9B05),
-                    ),
-                    onAction: () {/* แตะดูเพิ่มเติม */},
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 200,
-                    child: FutureBuilder<List<Recipe>>(
-                      future: _futureNew,
-                      builder: (ctx, snap) {
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return const Center(
-                              child: CircularProgressIndicator());
-                        }
-                        final list = snap.data ?? [];
-                        if (list.isEmpty) {
-                          return const Center(child: Text('ยังไม่มีสูตรใหม่'));
-                        }
-                        return ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          itemCount: list.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (ctx, i) => RecipeCard(
-                            recipe: list[i],
-                            onTap: () => Navigator.pushNamed(
-                              context,
-                              '/recipe_detail',
-                              arguments: list[i],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+                  _buildRecipeSection('สูตรอาหารอัปเดตใหม่', _futureNew),
                   const SizedBox(height: 24),
                 ],
               ),
@@ -234,11 +91,15 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
 
       // ─── Custom Bottom Navigation ─────────────────────
-      bottomNavigationBar: _buildCustomBottomNav(),
+      bottomNavigationBar: CustomBottomNav(
+        selectedIndex: _selectedIndex,
+        isLoggedIn: _isLoggedIn,
+        onItemSelected: _onNavTap,
+      ),
     );
   }
 
-  /// สร้าง AppBar เอง (ไม่มี AppBar widget)
+  /// AppBar ที่มีโปรไฟล์ + ปุ่ม login/logout
   PreferredSizeWidget _buildCustomAppBar() {
     return PreferredSize(
       preferredSize: const Size.fromHeight(79),
@@ -248,7 +109,8 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           border: const Border(
-              bottom: BorderSide(color: Color(0xFFE1E1E1), width: 1)),
+            bottom: BorderSide(color: Color(0xFFE1E1E1), width: 1),
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
@@ -272,6 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   : null,
             ),
             const SizedBox(width: 12),
+
             // ข้อความต้อนรับ
             Expanded(
               child: Text(
@@ -284,7 +147,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            // ปุ่มล็อกอิน/ล็อกเอาท์
+
+            // ปุ่ม login/logout
             IconButton(
               icon: Icon(_isLoggedIn ? Icons.logout : Icons.login_rounded),
               color: const Color(0xFF666666),
@@ -292,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () async {
                 final prefs = await SharedPreferences.getInstance();
                 if (_isLoggedIn) {
-                  // ลบเฉพาะคีย์ล็อกอิน ไม่ลบทั้งหมด
+                  // ลบข้อมูลสถานะการล็อกอิน
                   await prefs.remove('isLoggedIn');
                   await prefs.remove('profileName');
                   await prefs.remove('profileImage');
@@ -311,7 +175,112 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// สร้าง header ของแต่ละ section (ชื่อ + ปุ่ม action)
+  /// Section: วัตถุดิบ (แนวนอน)
+  Widget _buildIngredientSection() {
+    return Container(
+      color: const Color(0xFFFFE3D9),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            title: 'วัตถุดิบ',
+            actionText: 'ดูทั้งหมด',
+            actionStyle: const TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF0A2533),
+            ),
+            onAction: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AllIngredientsScreen()),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 136,
+            child: FutureBuilder<List<Ingredient>>(
+              future: _futureIngredients,
+              builder: (ctx, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final list = snap.data ?? [];
+                if (list.isEmpty) {
+                  return const Center(child: Text('ยังไม่มีวัตถุดิบ'));
+                }
+                return ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  itemCount: list.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (ctx, i) => IngredientCard(
+                    ingredient: list[i],
+                    onTap: () {},
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Section: สูตรอาหาร (ยอดนิยม / ใหม่)
+  Widget _buildRecipeSection(String title, Future<List<Recipe>> future) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(
+          title: title,
+          actionText: 'ดูเพิ่มเติม',
+          actionStyle: const TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFFFF9B05),
+          ),
+          onAction: () {},
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 200,
+          child: FutureBuilder<List<Recipe>>(
+            future: future,
+            builder: (ctx, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final list = snap.data ?? [];
+              if (list.isEmpty) {
+                return const Center(child: Text('ยังไม่มีสูตร'));
+              }
+              return ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                itemCount: list.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (ctx, i) => RecipeCard(
+                  recipe: list[i],
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    '/recipe_detail',
+                    arguments: list[i],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Header ของแต่ละหมวด (เช่น "วัตถุดิบ", "สูตรยอดนิยม")
   Widget _buildSectionHeader({
     required String title,
     required String actionText,
@@ -346,53 +315,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  /// สร้าง bottom navigation bar แบบกำหนดเอง
-  Widget _buildCustomBottomNav() {
-    const items = [
-      Icons.home,
-      Icons.explore,
-      Icons.menu_book,
-      Icons.person_outline,
-    ];
-    return Container(
-      height: 80,
-      padding: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border:
-            const Border(top: BorderSide(color: Color(0xFFE1E1E1), width: 1)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(items.length, (i) {
-          final selected = i == _selectedIndex;
-          return GestureDetector(
-            onTap: () => _onNavTap(i),
-            child: Container(
-              width: 48,
-              height: 48,
-              decoration: selected
-                  ? const BoxDecoration(
-                      border: Border(
-                        bottom:
-                            BorderSide(color: Color(0xFFFF9B05), width: 2.2),
-                      ),
-                    )
-                  : null,
-              child: Icon(
-                items[i],
-                size: 26,
-                color: selected
-                    ? const Color(0xFFFF9B05)
-                    : const Color(0xFFC1C1C1),
-              ),
-            ),
-          );
-        }),
       ),
     );
   }

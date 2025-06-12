@@ -1,88 +1,94 @@
-// lib/widgets/nutrition_summary.dart
-
 import 'package:flutter/material.dart';
 import '../models/nutrition.dart';
 
-/// NutritionSummary
-/// แสดงสรุปโภชนาการ 4 ค่าหลัก (calories, fat, protein, carbs)
-/// ถ้า nutrition เป็น null จะไม่แสดงอะไร
+/// NutritionSummary - แสดงโภชนาการแบบ 4 ช่อง พร้อมปรับ label ยาวขึ้น 2 บรรทัด
 class NutritionSummary extends StatelessWidget {
   final Nutrition? nutrition;
+  final int baseServings;
+  final int currentServings;
 
-  const NutritionSummary({Key? key, this.nutrition}) : super(key: key);
+  const NutritionSummary({
+    Key? key,
+    this.nutrition,
+    required this.baseServings,
+    required this.currentServings,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    if (nutrition == null) return const SizedBox.shrink();
+    if (nutrition == null || baseServings <= 0) return const SizedBox.shrink();
+
+    final portionRatio = currentServings / baseServings;
 
     final items = <_NutItem>[
-      _NutItem(label: 'แคลอรี่', value: nutrition!.calories),
-      _NutItem(label: 'ไขมัน', value: nutrition!.fat),
-      _NutItem(label: 'โปรตีน', value: nutrition!.protein),
-      _NutItem(label: 'คาร์โบไฮเดรต', value: nutrition!.carbs),
+      _NutItem(label: 'แคลอรี่', value: nutrition!.calories * portionRatio),
+      _NutItem(label: 'ไขมัน', value: nutrition!.fat * portionRatio),
+      _NutItem(label: 'โปรตีน', value: nutrition!.protein * portionRatio),
+      _NutItem(label: 'คาร์โบไฮเดรต', value: nutrition!.carbs * portionRatio),
     ];
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // คำนวณความกว้างของแต่ละกล่องให้พอดี 4 ต่อแถว
-          final totalSpacing = 10.96 * (items.length - 1);
-          final itemWidth =
-              (constraints.maxWidth - totalSpacing) / items.length;
+      child: GridView.builder(
+        itemCount: items.length,
+        physics: const NeverScrollableScrollPhysics(),
+        shrinkWrap: true,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 4,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 8,
+          childAspectRatio: 1.0, // ปรับให้เป็นสี่เหลี่ยมจัตุรัส
+        ),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final v = item.value;
+          final s = v >= 10000
+              ? '${(v / 1000).toStringAsFixed(1)}K'
+              : v % 1 == 0
+                  ? v.toStringAsFixed(0)
+                  : v.toStringAsFixed(1);
 
-          return Wrap(
-            spacing: 10.96, // horizontal gap
-            runSpacing: 4.38, // vertical gap
-            children: items.map((item) {
-              final v = item.value;
-              final s =
-                  v % 1 == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
-
-              return SizedBox(
-                width: itemWidth,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10.96,
-                    vertical: 4.38,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border.all(
-                      color: const Color(0xFFFF9B05),
-                      width: 1.09067,
+          return IntrinsicHeight(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFFF9B05), width: 1.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    item.label == 'คาร์โบไฮเดรต'
+                        ? 'คาร์โบ\nไฮเดรต'
+                        : item.label,
+                    textAlign: TextAlign.center,
+                    softWrap: true,
+                    maxLines: 2,
+                    style: const TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      color: Color(0xFFFF9B05),
                     ),
-                    borderRadius: BorderRadius.circular(13.088),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        item.label,
-                        style: const TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13.088,
-                          height: 16 / 13.088,
-                          color: Color(0xFFFF9B05),
-                        ),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '$s g',
+                      style: const TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13.0,
+                        color: Color(0xFF000000),
                       ),
-                      const SizedBox(height: 4.38),
-                      Text(
-                        '$s g',
-                        style: const TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15.2693,
-                          height: 24 / 15.2693,
-                          color: Color(0xFF000000),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              );
-            }).toList(),
+                ],
+              ),
+            ),
           );
         },
       ),

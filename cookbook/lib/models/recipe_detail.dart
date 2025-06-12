@@ -22,6 +22,7 @@ class RecipeDetail {
   final bool isFavorited; // is_favorited
   final double? userRating; // user_rating ของผู้ใช้ปัจจุบัน
   final int currentServings; // current_servings
+  final int nServings; // จำนวนเสิร์ฟต้นฉบับ
 
   RecipeDetail({
     required this.recipeId,
@@ -40,6 +41,7 @@ class RecipeDetail {
     required this.isFavorited,
     this.userRating,
     required this.currentServings,
+    required this.nServings,
   });
 
   factory RecipeDetail.fromJson(Map<String, dynamic> json) {
@@ -95,6 +97,7 @@ class RecipeDetail {
       userRating:
           json['user_rating'] != null ? parseDouble(json['user_rating']) : null,
       currentServings: parseInt(json['current_servings']),
+      nServings: parseInt(json['nServings']),
     );
   }
 }
