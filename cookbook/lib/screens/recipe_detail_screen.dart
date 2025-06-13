@@ -1,4 +1,3 @@
-// ส่วน import เหมือนเดิม
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,7 +34,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   int _selectedIndex = 2;
   bool _isLoggedIn = false;
 
-  int _currentServings = 1;
+  int _currentServings = 1; // ค่าที่ใช้แสดง
+  bool _hasSynced = false; // ป้องกัน sync ซ้ำเมื่อมีค่าใน cart
 
   @override
   void initState() {
@@ -96,16 +96,15 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
             final recipe = snap.requireData;
             final baseServings = recipe.nServings;
 
-            // ถ้ายังไม่เคยตั้งค่า currentServings เลย ให้ sync กับ recipe ครั้งแรก
-            if (_currentServings == 1 && recipe.currentServings > 1) {
+            if (!_hasSynced && recipe.currentServings > 0) {
               _currentServings = recipe.currentServings;
+              _hasSynced = true;
             }
 
             return SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ═══ CAROUSEL + OVERLAY ═══
                   SizedBox(
                     height: statusBarHeight + 272.67 + 13.088,
                     child: Stack(
@@ -125,11 +124,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                           left: 16,
                           child: GestureDetector(
                             onTap: () => Navigator.of(context).pop(),
-                            child: const Icon(
-                              Icons.close,
-                              color: Colors.white,
-                              size: 24,
-                            ),
+                            child: const Icon(Icons.close,
+                                color: Colors.white, size: 24),
                           ),
                         ),
                         Positioned(
@@ -174,7 +170,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                     ),
                   ),
 
-                  // ═══ MAIN CONTENT ═══
+                  // ── MAIN CONTENT ──
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
@@ -210,7 +206,10 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                               recipeId: recipe.recipeId,
                               currentServings: _currentServings,
                               onServingsChanged: (count) {
-                                setState(() => _currentServings = count);
+                                setState(() {
+                                  _currentServings = count;
+                                  _hasSynced = true; // บังคับ sync แล้ว
+                                });
                               },
                               onAddToCart: () async {
                                 await ApiService.updateCart(
@@ -220,6 +219,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                                 setState(() {
                                   _futureRecipe = ApiService.fetchRecipeDetail(
                                       widget.recipeId);
+                                  _hasSynced = false; // ต้อง sync ใหม่รอบหน้า
                                 });
                               },
                             ),
@@ -345,7 +345,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                       setState(() {});
                     },
                     onCommentPressed: () {
-                      /* TODO: add comment dialog */
+                      // TODO: เพิ่มระบบโพสต์คอมเมนต์
                     },
                   ),
 
