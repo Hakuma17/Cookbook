@@ -1,8 +1,6 @@
-// lib/screens/home_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import '../main.dart'; // สำหรับ RouteObserver
 import '../models/ingredient.dart';
 import '../models/recipe.dart';
 import '../services/api_service.dart';
@@ -19,28 +17,30 @@ class HomeScreen extends StatefulWidget {
   _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  // เก็บ Future สำหรับดึงข้อมูลจาก API
+class _HomeScreenState extends State<HomeScreen> with RouteAware {
   late Future<List<Ingredient>> _futureIngredients;
   late Future<List<Recipe>> _futurePopular;
   late Future<List<Recipe>> _futureNew;
 
-  // สถานะผู้ใช้
   bool _isLoggedIn = false;
   String? _profileName;
   String? _profileImage;
-  int _selectedIndex = 0; // ดัชนีเมนูด้านล่าง
+  int _selectedIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadLoginStatus(); // โหลดสถานะล็อกอิน
-    _futureIngredients = ApiService.fetchIngredients(); // API วัตถุดิบ
-    _futurePopular = ApiService.fetchPopularRecipes(); // API สูตรยอดนิยม
-    _futureNew = ApiService.fetchNewRecipes(); // API สูตรใหม่
+    _loadLoginStatus();
+    _loadData();
   }
 
-  /// โหลดสถานะจาก SharedPreferences (isLoggedIn, profileName, profileImage)
+  void _loadData() {
+    _futureIngredients = ApiService.fetchIngredients();
+    _futurePopular = ApiService.fetchPopularRecipes();
+    _futureNew = ApiService.fetchNewRecipes();
+  }
+
+  /// โหลดสถานะจาก SharedPreferences
   Future<void> _loadLoginStatus() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -50,10 +50,8 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// เมื่อกดแท็บเมนูล่าง
   void _onNavTap(int idx) {
     if ((idx == 2 || idx == 3) && !_isLoggedIn) {
-      // ถ้าไม่ล็อกอินแล้วกดเมนูสูตรหรือฉัน → ไปหน้า Login
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -64,20 +62,45 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)! as PageRoute);
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    // กลับจากหน้าล็อกอินหรือหน้ารายละเอียด
+    _loadLoginStatus();
+    _loadData();
+  }
+
+  @override
+  void didPush() {
+    // เข้าหน้านี้ใหม่
+    _loadLoginStatus();
+    _loadData();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // พื้นหลังทั้งหน้าสีอ่อนตามดีไซน์
       backgroundColor: const Color(0xFFFDF7F2),
       body: Column(
         children: [
-          _buildCustomAppBar(), // AppBar กำหนดเอง
+          _buildCustomAppBar(),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.only(top: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildIngredientSection(), // Section วัตถุดิบ
+                  _buildIngredientSection(),
                   const SizedBox(height: 32),
                   _buildRecipeSection('สูตรอาหารยอดนิยม', _futurePopular),
                   const SizedBox(height: 32),
@@ -89,8 +112,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-
-      // ─── Custom Bottom Navigation ─────────────────────
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: _selectedIndex,
         isLoggedIn: _isLoggedIn,
@@ -121,21 +142,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: Row(
           children: [
-            // รูปโปรไฟล์
             CircleAvatar(
               radius: 22,
               backgroundColor: Colors.grey[300],
-              backgroundImage: (_profileImage?.isNotEmpty ?? false)
-                  ? NetworkImage(_profileImage!)
-                  : AssetImage('lib/assets/images/default_avatar.png')
-                      as ImageProvider,
-              child: (_profileImage?.isEmpty ?? true)
+              backgroundImage:
+                  (_isLoggedIn && _profileImage?.isNotEmpty == true)
+                      ? NetworkImage(_profileImage!)
+                      : const AssetImage('lib/assets/images/default_avatar.png')
+                          as ImageProvider,
+              child: (!_isLoggedIn || _profileImage?.isEmpty == true)
                   ? const Icon(Icons.person, color: Colors.white, size: 20)
                   : null,
             ),
             const SizedBox(width: 12),
-
-            // ข้อความต้อนรับ
             Expanded(
               child: Text(
                 _isLoggedIn ? 'สวัสดี ${_profileName ?? ''}' : 'ผู้เยี่ยมชม',
@@ -147,8 +166,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-
-            // ปุ่ม login/logout
             IconButton(
               icon: Icon(_isLoggedIn ? Icons.logout : Icons.login_rounded),
               color: const Color(0xFF666666),
@@ -156,11 +173,13 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () async {
                 final prefs = await SharedPreferences.getInstance();
                 if (_isLoggedIn) {
-                  // ลบข้อมูลสถานะการล็อกอิน
-                  await prefs.remove('isLoggedIn');
-                  await prefs.remove('profileName');
-                  await prefs.remove('profileImage');
-                  setState(() => _isLoggedIn = false);
+                  await prefs.clear(); // ✅ ล้างทั้งหมด
+
+                  setState(() {
+                    _isLoggedIn = false;
+                    _profileName = null;
+                    _profileImage = null;
+                  });
                 } else {
                   Navigator.push(
                     context,
@@ -175,7 +194,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Section: วัตถุดิบ (แนวนอน)
   Widget _buildIngredientSection() {
     return Container(
       color: const Color(0xFFFFE3D9),
@@ -200,29 +218,37 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 136,
-            child: FutureBuilder<List<Ingredient>>(
-              future: _futureIngredients,
-              builder: (ctx, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final list = snap.data ?? [];
-                if (list.isEmpty) {
-                  return const Center(child: Text('ยังไม่มีวัตถุดิบ'));
-                }
-                return ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  itemCount: list.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (ctx, i) => IngredientCard(
-                    ingredient: list[i],
-                    onTap: () {},
-                  ),
-                );
-              },
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            switchInCurve: Curves.easeIn,
+            switchOutCurve: Curves.easeOut,
+            transitionBuilder: (child, animation) =>
+                FadeTransition(opacity: animation, child: child),
+            child: SizedBox(
+              key: ValueKey(_futureIngredients),
+              height: 136,
+              child: FutureBuilder<List<Ingredient>>(
+                future: _futureIngredients,
+                builder: (ctx, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final list = snap.data ?? [];
+                  if (list.isEmpty) {
+                    return const Center(child: Text('ยังไม่มีวัตถุดิบ'));
+                  }
+                  return ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (ctx, i) => IngredientCard(
+                      ingredient: list[i],
+                      onTap: () {},
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -230,7 +256,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Section: สูตรอาหาร (ยอดนิยม / ใหม่)
   Widget _buildRecipeSection(String title, Future<List<Recipe>> future) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,40 +272,47 @@ class _HomeScreenState extends State<HomeScreen> {
           onAction: () {},
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          height: 200,
-          child: FutureBuilder<List<Recipe>>(
-            future: future,
-            builder: (ctx, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final list = snap.data ?? [];
-              if (list.isEmpty) {
-                return const Center(child: Text('ยังไม่มีสูตร'));
-              }
-              return ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                itemCount: list.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
-                itemBuilder: (ctx, i) => RecipeCard(
-                  recipe: list[i],
-                  onTap: () => Navigator.pushNamed(
-                    context,
-                    '/recipe_detail',
-                    arguments: list[i],
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 500),
+          switchInCurve: Curves.easeIn,
+          switchOutCurve: Curves.easeOut,
+          transitionBuilder: (child, animation) =>
+              FadeTransition(opacity: animation, child: child),
+          child: SizedBox(
+            key: ValueKey(future),
+            height: 200,
+            child: FutureBuilder<List<Recipe>>(
+              future: future,
+              builder: (ctx, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final list = snap.data ?? [];
+                if (list.isEmpty) {
+                  return const Center(child: Text('ยังไม่มีสูตร'));
+                }
+                return ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  itemCount: list.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (ctx, i) => RecipeCard(
+                    recipe: list[i],
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      '/recipe_detail',
+                      arguments: list[i],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ],
     );
   }
 
-  /// Header ของแต่ละหมวด (เช่น "วัตถุดิบ", "สูตรยอดนิยม")
   Widget _buildSectionHeader({
     required String title,
     required String actionText,

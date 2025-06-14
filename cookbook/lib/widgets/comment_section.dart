@@ -1,162 +1,219 @@
-// lib/widgets/comment_section.dart
-
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/comment.dart';
 import 'comment_card.dart';
+import 'comment_input_field.dart';
 
-/// ส่วนแสดงความคิดเห็นและการให้ดาว (Frame 160)
+/// ส่วนแสดงและจัดการคอมเมนต์ทั้งหมด
 class CommentSection extends StatelessWidget {
-  /// รายการความคิดเห็น
-  final List<Comment>? comments;
-
-  /// คะแนนก่อนหน้านี้ (0–5)
+  final List<Comment> comments;
   final int currentRating;
-
-  /// ระบุว่าผู้ใช้ล็อกอินหรือยัง
   final bool isLoggedIn;
-
-  /// เมื่อผู้ใช้เลือกดาว (1–5)
-  final ValueChanged<int>? onRatingSelected;
-
-  /// เมื่อกดกรอบ “แสดงความคิดเห็น”
-  final VoidCallback? onCommentPressed;
+  final ValueChanged<int> onRatingSelected;
+  final VoidCallback onCommentPressed;
+  final ValueChanged<Comment> onEdit;
+  final ValueChanged<Comment> onDelete;
+  final VoidCallback? onViewAll;
 
   const CommentSection({
     Key? key,
-    this.comments,
-    this.currentRating = 0,
-    this.isLoggedIn = false,
-    this.onRatingSelected,
-    this.onCommentPressed,
+    required this.comments,
+    required this.currentRating,
+    required this.isLoggedIn,
+    required this.onRatingSelected,
+    required this.onCommentPressed,
+    required this.onEdit,
+    required this.onDelete,
+    this.onViewAll,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final totalComments = (comments ?? []).length;
+    final myComment = comments.firstWhere(
+      (c) => c.isMine,
+      orElse: () => Comment.empty(),
+    );
+    final otherComments = comments.where((c) => !c.isMine).toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // ─── กล่องหลัก (Frame 160) ───
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Container(
-            // เอา height:146 ออก → ให้ปรับความสูงอัตโนมัติ
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: const Color(0xFFABABAB), width: 1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // คำถาม (Frame 159)
-                SizedBox(
-                  width: 228,
-                  height: 22,
-                  child: Text(
-                    'คุณคิดอย่างไรกับสูตรนี้บ้าง?',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'Montserrat',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 22 / 12,
-                      color: Color(0xFF000000),
-                    ),
+    return FutureBuilder<SharedPreferences>(
+      future: SharedPreferences.getInstance(),
+      builder: (context, snapshot) {
+        final prefs = snapshot.data;
+
+        final updatedMyComment = (myComment.isMine && prefs != null)
+            ? Comment(
+                userId: myComment.userId,
+                profileName: prefs.getString('profileName') ?? 'คุณ',
+                pathImgProfile: prefs.getString('profileImage') ?? '',
+                rating: myComment.rating,
+                comment: myComment.comment,
+                createdAt: myComment.createdAt,
+                isMine: true,
+              )
+            : myComment;
+
+        final commentCount = comments.isEmpty
+            ? 0
+            : (updatedMyComment.isEmpty
+                ? otherComments.length
+                : otherComments.length + 1);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 16),
+
+            // ความคิดเห็นของฉัน
+            if (isLoggedIn &&
+                updatedMyComment.isMine &&
+                !updatedMyComment.isEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border:
+                        Border.all(color: const Color(0xFF1479F2), width: 1.5),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-
-                // แถวดาว (Frame 158)
-                SizedBox(
-                  height: 32,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(5, (i) {
-                      final filled = i < currentRating;
-                      return GestureDetector(
-                        onTap: () => onRatingSelected?.call(i + 1),
-                        child: Icon(
-                          filled ? Icons.star : Icons.star_outline,
-                          size: 32,
-                          color: const Color(0xFFBFBFBF),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'ความคิดเห็นของคุณ',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1479F2),
                         ),
-                      );
-                    }),
+                      ),
+                      const SizedBox(height: 12),
+                      CommentCard(
+                        comment: updatedMyComment,
+                        onEdit: onEdit,
+                        onDelete: onDelete,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
+              ),
+            ],
 
-                // กล่องแสดงความคิดเห็น (Frame 27)
-                if (isLoggedIn && onCommentPressed != null)
-                  GestureDetector(
-                    onTap: onCommentPressed!,
-                    child: Container(
-                      width: double.infinity,
-                      height: 52,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 16,
-                        horizontal: 12,
+            // กล่องแสดงความคิดเห็น (เมื่อยังไม่เคยโพสต์)
+            if (isLoggedIn && updatedMyComment.isEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border:
+                        Border.all(color: const Color(0xFFDADADA), width: 1),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 5,
+                        offset: const Offset(0, 2),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(
-                            color: const Color(0xFF828282), width: 1),
-                        borderRadius: BorderRadius.circular(12),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'คุณคิดอย่างไรกับสูตรนี้บ้าง?',
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: const [
-                          Icon(
-                            Icons.mode_edit_outline,
-                            size: 20,
-                            color: Color(0xFF838383),
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'แสดงความคิดเห็น',
-                            style: TextStyle(
-                              fontFamily: 'Montserrat',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              height: 22 / 12,
-                              color: Color(0xFF838383),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(5, (i) {
+                          final filled = i < currentRating;
+                          return GestureDetector(
+                            onTap: () => onRatingSelected(i + 1),
+                            child: Icon(
+                              filled ? Icons.star : Icons.star_outline,
+                              size: 30,
+                              color: filled
+                                  ? const Color(0xFFFF9B05)
+                                  : Colors.grey,
                             ),
-                          ),
-                        ],
+                          );
+                        }),
                       ),
+                      const SizedBox(height: 8),
+                      CommentInputField(
+                        onTap: onCommentPressed,
+                        label: 'แสดงความคิดเห็น',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 24),
+
+            // หัวข้อความคิดเห็นทั้งหมด
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'ความคิดเห็น ($commentCount)',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                   ),
-              ],
+                  if (onViewAll != null)
+                    TextButton(
+                      onPressed: onViewAll,
+                      child: const Text('ดูทั้งหมด'),
+                    ),
+                ],
+              ),
             ),
-          ),
-        ),
+            const SizedBox(height: 8),
 
-        const SizedBox(height: 16),
+            // แสดงรายการคอมเมนต์
+            if (otherComments.isNotEmpty)
+              ...otherComments.map(
+                (c) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: CommentCard(
+                    comment: c,
+                    onEdit: onEdit,
+                    onDelete: onDelete,
+                  ),
+                ),
+              ),
 
-        // ─── หัวข้อความคิดเห็น ───
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'ความคิดเห็น ($totalComments)',
-            style: const TextStyle(
-              fontFamily: 'Roboto',
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              height: 24 / 16,
-              color: Color(0xFF000000),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 8),
-
-        // ─── การ์ดแต่ละรีวิว ───
-        if (comments != null)
-          ...comments!.map((c) => CommentCard(comment: c)).toList(),
-      ],
+            // ไม่มีคอมเมนต์เลย
+            if (commentCount == 0)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Text(
+                  'ยังไม่มีความคิดเห็นในขณะนี้',
+                  style: TextStyle(fontSize: 14, color: Color(0xFF666666)),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

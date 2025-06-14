@@ -1,58 +1,60 @@
-// lib/widgets/comment_input_field.dart
-
 import 'package:flutter/material.dart';
 
-/// CommentInputField
-/// กล่องให้กดเพื่อแสดงความคิดเห็น (ตามดีไซน์ Frame 27)
+/// กล่องให้กดเพื่อแสดงความคิดเห็นหรือแก้ไข (ตามดีไซน์ Frame 27)
 class CommentInputField extends StatelessWidget {
-  /// เมื่อกดกล่องนี้
   final VoidCallback onTap;
+  final String label;
 
-  const CommentInputField({Key? key, required this.onTap}) : super(key: key);
+  const CommentInputField({
+    Key? key,
+    required this.onTap,
+    this.label = 'แสดงความคิดเห็น',
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? Colors.grey[700]! : const Color(0xFFDDDDDD);
+    final textColor = isDark ? Colors.grey[300]! : const Color(0xFF666666);
+
     return Padding(
       // ชิดขอบซ้าย–ขวา 16px ตาม mock-up
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: InkWell(
-        onTap: onTap,
+      child: Material(
+        color: isDark ? Colors.grey[850] : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          height: 54, // ตาม Frame 27
-          padding: const EdgeInsets.symmetric(
-            vertical: 16, // ตาม mock-up
-            horizontal: 12, // ตาม mock-up
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(
-              color: const Color(0xFF828282), // ขอบตาม mock-up
-              width: 1, // 1px
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          splashColor:
+              const Color(0xFFFFD180).withOpacity(0.3), // ripple สีส้มอ่อน
+          highlightColor: Colors.transparent,
+          child: Container(
+            height: 54,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: borderColor, width: 1),
+              borderRadius: BorderRadius.circular(12),
             ),
-            borderRadius: BorderRadius.circular(12), // radius 12px
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: const [
-              Icon(
-                Icons.mode_edit_outline,
-                size: 20, // ขนาด 20px ตาม mock-up
-                color: Color(0xFF838383), // สี #838383
-              ),
-              SizedBox(width: 4), // gap 4px
-              Text(
-                'แสดงความคิดเห็น',
-                style: TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 12, // font-size 12px
-                  fontWeight: FontWeight.w600,
-                  height: 22 / 12, // line-height 22px
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.mode_edit_outline,
+                  size: 20,
                   color: Color(0xFF838383),
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

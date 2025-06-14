@@ -1,9 +1,15 @@
-// ใน lib/main.dart
+// lib/main.dart
+
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
+
 import 'screens/splash_screen.dart';
 import 'screens/recipe_detail_screen.dart';
 import 'models/recipe.dart';
+
+// RouteObserver สำหรับใช้ตรวจจับการเปลี่ยนหน้า
+final RouteObserver<ModalRoute<void>> routeObserver =
+    RouteObserver<ModalRoute<void>>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +23,7 @@ class CookingGuideApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = const Color(0xFFFF9B05);
+
     return MaterialApp(
       title: 'Cooking Guide',
       debugShowCheckedModeBanner: false,
@@ -40,7 +47,12 @@ class CookingGuideApp extends StatelessWidget {
           ),
         ),
       ),
+
+      // ติดตั้ง RouteObserver เพื่อตรวจจับการนำทาง
+      navigatorObservers: [routeObserver],
+
       home: const SplashScreen(),
+
       routes: {
         '/recipe_detail': (ctx) {
           final args = ModalRoute.of(ctx)?.settings.arguments;

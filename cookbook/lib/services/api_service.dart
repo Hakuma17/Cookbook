@@ -1,135 +1,153 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
 import '../models/ingredient.dart';
 import '../models/recipe.dart';
 import '../models/recipe_detail.dart';
 import '../models/comment.dart';
 
+/// ApiService: จัดการทุก API call กับ backend (PHP) ทั้งเรื่องล็อกอิน,
+/// ดึงข้อมูลวัตถุดิบ, สูตร, รายละเอียด, โปรด และระบบคอมเมนต์
 class ApiService {
+  // ─── HTTP client & session ───────────────────────────────────────────────
+
+  /// HTTP client เดียวสำหรับทุกคำขอ
   static final _client = http.Client();
+
+  /// Timeout ระหว่างรอผลจาก server
   static const _timeout = Duration(seconds: 30);
 
-  // ── เก็บ PHPSESSID หลังล็อกอินสำเร็จ ──────────────────────────────────
+  /// เก็บ PHPSESSID เมื่อ login สำเร็จ
   static String? _sessionCookie;
 
-  /// Base URL สำหรับเรียก PHP
-  /// - Android emulator ใช้ 10.0.2.2
-  /// - iOS หรือ Desktop ใช้ localhost
+  /// Base URL ของ API
   static String get baseUrl {
     if (defaultTargetPlatform == TargetPlatform.android) {
+      // Android emulator default
       return 'http://10.0.2.2/cookbookapp/';
     }
+    // iOS / Desktop
     return 'http://localhost/cookbookapp/';
   }
 
-  // ── Internal helpers for GET/POST with cookie ───────────────────────────
+  // ─── Internal HTTP Helpers ───────────────────────────────────────────────
 
+  /// GET ธรรมดา พร้อมแนบ session cookie (ถ้าเคย login)
   static Future<http.Response> _get(Uri uri) {
     final headers = <String, String>{};
-    if (_sessionCookie != null) headers['Cookie'] = _sessionCookie!;
+    if (_sessionCookie != null) {
+      headers['Cookie'] = 'PHPSESSID=$_sessionCookie';
+    }
     return _client.get(uri, headers: headers).timeout(_timeout);
   }
 
+  /// POST ธรรมดา พร้อมแนบ session cookie และจับ set-cookie เมื่อ login
   static Future<http.Response> _post(
       String path, Map<String, String> body) async {
     final uri = Uri.parse('$baseUrl$path');
     final headers = <String, String>{};
-    if (_sessionCookie != null) headers['Cookie'] = _sessionCookie!;
+    if (_sessionCookie != null) {
+      headers['Cookie'] = 'PHPSESSID=$_sessionCookie';
+    }
+
+    // ส่ง body และรอ response
     final resp =
         await _client.post(uri, headers: headers, body: body).timeout(_timeout);
 
+    // หากยังไม่มี sessionCookie ให้ดึงจาก header
     if (_sessionCookie == null) {
       final raw = resp.headers['set-cookie'];
       if (raw != null) {
-        _sessionCookie = raw.split(';').first;
+        final match = RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
+        if (match != null) {
+          _sessionCookie = match.group(1);
+        }
       }
     }
     return resp;
   }
 
-  // ── Data Endpoints ───────────────────────────────────────────────────────
+  /// Wrapper สำหรับ GET ที่รับเป็น path
+  static Future<http.Response> _getWithSession(String path) =>
+      _get(Uri.parse('$baseUrl$path'));
 
-  /// ดึงวัตถุดิบทั้งหมด (List<Ingredient>)
+  /// Wrapper สำหรับ POST ที่รับเป็น path
+  static Future<http.Response> _postWithSession(
+          String path, Map<String, String> body) =>
+      _post(path, body);
+
+  // ─── Data Endpoints ───────────────────────────────────────────────────────
+
+  /// ดึงวัตถุดิบทั้งหมด (Ingredient)
   static Future<List<Ingredient>> fetchIngredients() async {
-    final resp = await _get(Uri.parse('${baseUrl}get_ingredients.php'));
+    final resp = await _getWithSession('get_ingredients.php');
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดวัตถุดิบได้');
     }
     final List jsonList = json.decode(resp.body);
-    return jsonList
-        .map((e) => Ingredient.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return jsonList.map((e) => Ingredient.fromJson(e)).toList();
   }
 
-  /// ดึงสูตรยอดนิยม (List<Recipe>)
+  /// ดึงสูตรยอดนิยม (Recipe)
   static Future<List<Recipe>> fetchPopularRecipes() async {
-    final resp = await _get(Uri.parse('${baseUrl}get_popular_recipes.php'));
+    final resp = await _getWithSession('get_popular_recipes.php');
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดสูตรยอดนิยมได้');
     }
     final List jsonList = json.decode(resp.body);
-    return jsonList
-        .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return jsonList.map((e) => Recipe.fromJson(e)).toList();
   }
 
-  /// ดึงสูตรอัปเดตใหม่ (List<Recipe>)
+  /// ดึงสูตรใหม่ล่าสุด (Recipe)
   static Future<List<Recipe>> fetchNewRecipes() async {
-    final resp = await _get(Uri.parse('${baseUrl}get_new_recipes.php'));
+    final resp = await _getWithSession('get_new_recipes.php');
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดสูตรใหม่ได้');
     }
     final List jsonList = json.decode(resp.body);
-    return jsonList
-        .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return jsonList.map((e) => Recipe.fromJson(e)).toList();
   }
 
-  // ── Recipe Detail ────────────────────────────────────────────────────────
-
-  /// ดึงรายละเอียดสูตรอาหาร (RecipeDetail)
+  /// ดึงรายละเอียดสูตร (RecipeDetail)
   static Future<RecipeDetail> fetchRecipeDetail(int id) async {
-    final resp =
-        await _get(Uri.parse('${baseUrl}get_recipe_detail.php?id=$id'));
+    final resp = await _getWithSession('get_recipe_detail.php?id=$id');
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดรายละเอียดสูตรได้');
     }
+    final Map<String, dynamic> jsonMap = json.decode(resp.body);
 
-    final Map<String, dynamic> jsonMap =
-        json.decode(resp.body) as Map<String, dynamic>;
-
-    // ** fallback**: ถ้า API ยังส่งแค่ 'image_url' เดียวมา ให้ห่อเป็น List
+    // รองรับกรณี backend ส่ง image_url เดียว
     if (jsonMap['image_urls'] == null && jsonMap['image_url'] != null) {
       jsonMap['image_urls'] = [jsonMap['image_url'].toString()];
     }
-    // เช็คว่ามี current_servings มั้ย ถ้าไม่ให้ default = 1
+    // ค่า default servings
     jsonMap['current_servings'] ??= 1;
 
     return RecipeDetail.fromJson(jsonMap);
   }
 
-  /// alias ให้โค้ดเก่าเรียก getRecipeDetail ได้
+  /// Alias เรียก fetchRecipeDetail
   static Future<RecipeDetail> getRecipeDetail(int id) => fetchRecipeDetail(id);
 
-  // ── Favorite & Rating ───────────────────────────────────────────────────
+  // ─── Favorite & Rating ───────────────────────────────────────────────────
 
-  /// สลับสถานะโปรด (เพิ่ม/ลบ)
+  /// Toggle favorite สลับสถานะโปรด
   static Future<void> toggleFavorite(int recipeId, bool newStatus) async {
-    final resp = await _post('toggle_favorite.php', {
+    final resp = await _postWithSession('toggle_favorite.php', {
       'recipe_id': recipeId.toString(),
       'favorite': newStatus ? '1' : '0',
     });
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถเปลี่ยนสถานะโปรดได้');
     }
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final data = jsonDecode(resp.body);
     if (data['success'] != true && data['success'] != 'true') {
       throw Exception(data['message'] ?? 'เกิดข้อผิดพลาด');
     }
   }
 
-  /// ส่งคะแนนดาว → คืน average ใหม่
+  /// โพสต์เรตติ้งใหม่ แล้วคืน average_rating (double)
   static Future<double> postRating(int recipeId, double rating) async {
     final result = await _postAndProcess('post_rating.php', {
       'recipe_id': recipeId.toString(),
@@ -138,61 +156,78 @@ class ApiService {
     return (result['data']['average_rating'] as num).toDouble();
   }
 
-  // ── Comments ──────────────────────────────────────────────────────────────
+  // ─── Comments ─────────────────────────────────────────────────────────────
 
-  /// ดึงความคิดเห็นทั้งหมด
+  /// ดึงรีวิวทั้งหมดของสูตร
   static Future<List<Comment>> getComments(int recipeId) async {
-    final resp =
-        await _get(Uri.parse('${baseUrl}get_comments.php?id=$recipeId'));
+    final resp = await _getWithSession('get_comments.php?id=$recipeId');
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดความคิดเห็นได้');
     }
-    final List jsonList = json.decode(resp.body);
-    return jsonList
-        .map((e) => Comment.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final Map<String, dynamic> jsonMap = json.decode(resp.body);
+    if (jsonMap['success'] != true) {
+      throw Exception(jsonMap['message'] ?? 'เกิดข้อผิดพลาด');
+    }
+    final List dataList = jsonMap['data'] as List;
+    return dataList.map((e) => Comment.fromJson(e)).toList();
   }
 
-  /// ส่งความคิดเห็นใหม่ → คืน Comment ที่สร้าง
+  /// สร้างหรืออัปเดตรีวิว (1 รีวิวต่อคนต่อสูตร)
   static Future<Comment> postComment(
       int recipeId, String text, double rating) async {
+    // เรียก API
     final result = await _postAndProcess('post_comment.php', {
       'recipe_id': recipeId.toString(),
       'comment': text,
-      'rating': rating.toString(),
+      'rating': rating.toStringAsFixed(1),
     });
-    return Comment.fromJson(result['data'] as Map<String, dynamic>);
+
+    // backend ส่งกลับตัว object ของคอมเมนต์ใน result['data']
+    final data = result['data'];
+    if (data == null) {
+      throw Exception('ไม่สามารถโพสต์ความคิดเห็นได้');
+    }
+    return Comment.fromJson(data);
   }
 
-  /// ── Cart ───────────────────────────────────────────────────────────────────
-  /// เพิ่มหรืออัปเดตตะกร้า (nServings)
+  /// ลบรีวิวของผู้ใช้ต่อสูตรนั้น
+  static Future<void> deleteComment(int recipeId) async {
+    final resp = await _postWithSession('delete_comment.php', {
+      'recipe_id': recipeId.toString(),
+    });
+    if (resp.statusCode != 200) {
+      throw Exception('ไม่สามารถลบความคิดเห็นได้');
+    }
+    final Map<String, dynamic> jsonMap = json.decode(resp.body);
+    if (jsonMap['success'] != true && jsonMap['success'] != 'true') {
+      throw Exception(jsonMap['message'] ?? 'เกิดข้อผิดพลาด');
+    }
+  }
+
+  // ─── Cart ─────────────────────────────────────────────────────────────────
+
+  /// อัปเดตจำนวนวัตถุดิบในตะกร้า
   static Future<void> updateCart(int recipeId, double count) async {
-    // เรียก PHP script
-    final resp = await _post('update_cart.php', {
+    final resp = await _postWithSession('update_cart.php', {
       'recipe_id': recipeId.toString(),
       'count': count.toString(),
     });
-
-    // decode JSON เสมอ ไม่สน statusCode
     final Map<String, dynamic> jsonMap = jsonDecode(resp.body);
-
-    // ตรวจว่าฝั่งเซิร์ฟเวอร์ส่ง success=true มาไหม
     if (jsonMap['success'] != true && jsonMap['success'] != 'true') {
-      // ถ้าไม่ ให้โยน Exception พร้อมข้อความจาก server
       throw Exception(jsonMap['message'] ?? 'Unknown error');
     }
   }
 
-  // ── Auth / Password Reset / Helpers ────────────────────────────────────────
+  // ─── Auth / Password / OTP ────────────────────────────────────────────────
 
-  /// ล็อกอินด้วย Email/Password
+  /// ล็อกอินด้วย email/password
   static Future<Map<String, dynamic>> login(String email, String password) =>
       _postAndProcess('login.php', {
         'email': email,
         'password': password,
       });
 
-  /// ลงทะเบียน
+  /// ลงทะเบียน user ใหม่
   static Future<Map<String, dynamic>> register(
           String email, String password, String confirmPassword) =>
       _postAndProcess('register.php', {
@@ -207,7 +242,7 @@ class ApiService {
         'id_token': idToken,
       });
 
-  /// ส่ง OTP
+  /// ขอ OTP สำหรับรีเซตรหัสผ่าน
   static Future<Map<String, dynamic>> sendOtp(String email) async {
     final uri = Uri.parse('${baseUrl}reset_password.php');
     final resp =
@@ -215,34 +250,45 @@ class ApiService {
     return _safeProcess(resp);
   }
 
-  static Future<Map<String, dynamic>> verifyOtp(
-          String email, String otp) async =>
+  /// ยืนยัน OTP
+  static Future<Map<String, dynamic>> verifyOtp(String email, String otp) =>
       _postAndProcess('verify_otp.php', {
         'email': email,
         'otp': otp,
       });
 
+  /// รีเซตรหัสผ่านใหม่
   static Future<Map<String, dynamic>> resetPassword(
-          String email, String otp, String newPassword) async =>
+          String email, String otp, String newPassword) =>
       _postAndProcess('new_password.php', {
         'email': email,
         'otp': otp,
         'new_password': newPassword,
       });
 
-  // ── Internal Helpers ───────────────────────────────────────────────────────
+  // ─── Internal Utilities ───────────────────────────────────────────────────
 
+  /// POST แล้ว parse response เป็น Map {'success','message','data'}
+  static Future<Map<String, dynamic>> _postAndProcess(
+      String path, Map<String, String> body) async {
+    final resp = await _post(path, body);
+    return _safeProcess(resp);
+  }
+
+  /// ช่วย parse HTTP response body ให้อยู่ในรูป Map
   static Map<String, dynamic> _safeProcess(http.Response resp) {
     Map<String, dynamic>? jsonMap;
     try {
-      jsonMap = jsonDecode(resp.body.trim()) as Map<String, dynamic>?;
+      jsonMap = jsonDecode(resp.body.trim());
     } catch (_) {
       jsonMap = null;
     }
+
     final bool success = jsonMap != null
         ? (_parseBool(jsonMap['success']) ||
             _parseBool(jsonMap['valid'] ?? false))
         : false;
+
     final String message = jsonMap?['message'] ??
         (success ? 'สำเร็จ' : 'เกิดข้อผิดพลาด (${resp.statusCode})');
 
@@ -253,12 +299,7 @@ class ApiService {
     };
   }
 
-  static Future<Map<String, dynamic>> _postAndProcess(
-      String path, Map<String, String> body) async {
-    final resp = await _post(path, body);
-    return _safeProcess(resp);
-  }
-
+  /// แปลงค่าต่างๆ ให้อยู่ใน boolean
   static bool _parseBool(dynamic val) {
     if (val is bool) return val;
     if (val is String) return val.toLowerCase() == 'true';
