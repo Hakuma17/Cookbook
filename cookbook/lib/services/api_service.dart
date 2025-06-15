@@ -33,6 +33,11 @@ class ApiService {
 
   // ─── Internal HTTP Helpers ───────────────────────────────────────────────
 
+  /// เคลียร์ session cookie หลัง logout
+  static void clearSession() {
+    _sessionCookie = null;
+  }
+
   /// GET ธรรมดา พร้อมแนบ session cookie (ถ้าเคย login)
   static Future<http.Response> _get(Uri uri) {
     final headers = <String, String>{};

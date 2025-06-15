@@ -173,13 +173,16 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               onPressed: () async {
                 final prefs = await SharedPreferences.getInstance();
                 if (_isLoggedIn) {
-                  await prefs.clear(); // ✅ ล้างทั้งหมด
+                  await prefs.clear(); // ล้างข้อมูลล็อกอิน
+                  ApiService.clearSession(); // ล้าง session บน API
 
                   setState(() {
                     _isLoggedIn = false;
                     _profileName = null;
                     _profileImage = null;
                   });
+
+                  _loadData(); // ← รีโหลดข้อมูลให้กลายเป็น guest
                 } else {
                   Navigator.push(
                     context,

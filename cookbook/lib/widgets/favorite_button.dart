@@ -1,6 +1,5 @@
-// lib/widgets/favorite_button.dart
-
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// FavoriteButton
 /// ปุ่มกดเพิ่ม/ลบสูตรโปรด (วงกลมขนาด 43.63×43.63, ขอบ 1.0907px)
@@ -23,22 +22,42 @@ class FavoriteButton extends StatefulWidget {
 class _FavoriteButtonState extends State<FavoriteButton> {
   late bool _isFavorited;
   bool _loading = false;
+  bool _canToggle = false;
 
   @override
   void initState() {
     super.initState();
     _isFavorited = widget.initialIsFavorited;
+    _checkUserStatus();
+  }
+
+  Future<void> _checkUserStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('user_id');
+    setState(() {
+      _canToggle = userId != null;
+    });
   }
 
   @override
   void didUpdateWidget(covariant FavoriteButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialIsFavorited != oldWidget.initialIsFavorited) {
-      _isFavorited = widget.initialIsFavorited;
+      setState(() {
+        _isFavorited = widget.initialIsFavorited;
+      });
     }
+    _checkUserStatus(); // รีเช็ก login ทุกครั้งที่ widget rebuild
   }
 
   Future<void> _toggleFavorite() async {
+    if (!_canToggle) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนเพิ่มรายการโปรด')),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     final newValue = !_isFavorited;
     try {
