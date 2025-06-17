@@ -41,6 +41,7 @@ dependencies:
   intl: ^0.20.2
   flutter_tts: ^4.2.3
   flutter_phoenix: ^1.1.1
+  equatable: ^2.0.7
 
 dev_dependencies:
   flutter_test:
@@ -64,20 +65,22 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   
+
   assets:
-  - lib/assets/icons/google.png
-  - lib/assets/icons/google.svg
-  - lib/assets/images/logo.png
-  - lib/assets/images/email.png
-  - lib/assets/images/default_avatar.png
-  - lib/assets/images/default_ingredients.png
-  - lib/assets/images/default_recipe.png
-  - lib/assets/icons/play_next.svg
-  - lib/assets/icons/play_previous.svg
-  - lib/assets/icons/check_circle.svg
+    - lib/assets/icons/google.png
+    - lib/assets/icons/google.svg
+    - lib/assets/icons/play_next.svg
+    - lib/assets/icons/play_previous.svg
+    - lib/assets/icons/check_circle.svg
+    - lib/assets/images/logo.png
+    - lib/assets/images/email.png
+    - lib/assets/images/default_avatar.png
+    - lib/assets/images/default_ingredients.png
+    - lib/assets/images/default_recipe.png
 
 
-  
+   
+
 
 
   # An image asset can refer to one or more resolution-specific "variants", see

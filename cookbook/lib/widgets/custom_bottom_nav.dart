@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+/// แถบเมนูล่างหลักของแอป
+/// - selectedIndex: ดัชนีแท็บที่ถูกเลือก (0=Home,1=Explore,2=My Recipes,3=Profile)
+/// - onItemSelected: callback เมื่อต้องการสลับแท็บ (Home, Explore)
+/// - isLoggedIn: สถานะล็อกอิน (ใช้ตรวจก่อนเปิด My Recipes / Profile)
 class CustomBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onItemSelected;
@@ -14,11 +18,12 @@ class CustomBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ไอคอนเมนู 4 ตัว
     const items = [
       Icons.home,
       Icons.explore,
-      Icons.menu_book,
-      Icons.person_outline,
+      Icons.list_alt, // คลังของฉัน
+      Icons.person, // โปรไฟล์
     ];
 
     return Container(
@@ -32,14 +37,35 @@ class CustomBottomNav extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: List.generate(items.length, (i) {
           final selected = i == selectedIndex;
+
           return GestureDetector(
             onTap: () {
-              // ถ้าหน้า Recipe หรือ Profile แต่ยังไม่ได้ล็อกอิน
-              if ((i == 2 || i == 3) && !isLoggedIn) {
-                // ให้ไป login แล้วค่อยเรียก callback
-                Navigator.pushNamed(context, '/login');
-              } else {
-                onItemSelected(i);
+              switch (i) {
+                case 0:
+                case 1:
+                  // สลับแท็บ Home / Explore
+                  onItemSelected(i);
+                  break;
+                case 2:
+                  // คลังของฉัน (My Recipes)
+                  if (!isLoggedIn) {
+                    Navigator.pushNamed(context, '/login');
+                  } else {
+                    Navigator.pushNamed(
+                      context,
+                      '/myrecipes',
+                      arguments: 0, // เปิดที่ Favorites
+                    );
+                  }
+                  break;
+                case 3:
+                  // โปรไฟล์
+                  if (!isLoggedIn) {
+                    Navigator.pushNamed(context, '/login');
+                  } else {
+                    Navigator.pushNamed(context, '/profile');
+                  }
+                  break;
               }
             },
             child: Container(
@@ -48,8 +74,10 @@ class CustomBottomNav extends StatelessWidget {
               decoration: selected
                   ? const BoxDecoration(
                       border: Border(
-                        bottom:
-                            BorderSide(color: Color(0xFFFF9B05), width: 2.2),
+                        bottom: BorderSide(
+                          color: Color(0xFFFF9B05),
+                          width: 2.2,
+                        ),
                       ),
                     )
                   : null,
