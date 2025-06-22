@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -17,29 +18,33 @@ class StepDetailScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _StepDetailScreenState createState() => _StepDetailScreenState();
+  State<StepDetailScreen> createState() => _StepDetailScreenState();
 }
 
 class _StepDetailScreenState extends State<StepDetailScreen> {
   late final FlutterTts _tts;
-  late int _currentIndex;
-  bool _hasSpoken = false;
-  bool _isSpeaking = false;
-  bool _isFemale = true;
+  late int _idx;
+  bool _busy = false; // true ระหว่าง speak
+  bool _spoken = false; // เคยพูด step นี้แล้ว
+  late bool _female; // สลับชาย/หญิงเพื่อความหลากหลาย
+  // Removed _errSub as FlutterTts does not provide onError stream
 
   @override
   void initState() {
     super.initState();
-    _tts = FlutterTts();
-    _currentIndex = widget.initialIndex.clamp(0, widget.steps.length - 1);
-    _isFemale = DateTime.now().millisecond % 2 == 0;
+    _idx = widget.initialIndex.clamp(0, widget.steps.length - 1);
+    _female = DateTime.now().millisecond.isEven;
 
+    _tts = FlutterTts();
+    // handler เสร็จเสียง
     _tts.setCompletionHandler(() {
+      if (!mounted) return;
       setState(() {
-        _isSpeaking = false;
-        _hasSpoken = true;
+        _busy = false;
+        _spoken = true;
       });
     });
+    // FlutterTts does not provide an onError stream; errors are handled in try-catch blocks
   }
 
   @override
@@ -48,166 +53,152 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _playVoice() async {
-    final text = widget.steps[_currentIndex].description;
-
-    await _tts.stop();
+  /* ───────────────────── helpers ───────────────────── */
+  Future<void> _speak() async {
+    if (_busy) return; // กันกดรัว
+    final txt = widget.steps[_idx].description.trim();
+    if (txt.isEmpty) {
+      _showSnack('ไม่มีข้อความให้พูด');
+      return;
+    }
 
     setState(() {
-      _isSpeaking = true;
-      _hasSpoken = false;
+      _busy = true;
+      _spoken = false;
     });
 
-    await _tts.setLanguage('th-TH');
-    await _tts.setVoice({
-      'name':
-          _isFemale ? 'th-th-x-sfg#female_1-local' : 'th-th-x-sfg#male_1-local',
-      'locale': 'th-TH',
-    });
-
-    await _tts.speak(text);
-  }
-
-  Future<void> _prevStep() async {
-    if (_currentIndex > 0) {
-      await _tts.stop();
-      setState(() {
-        _isSpeaking = false;
-        _currentIndex--;
-        _hasSpoken = false;
-        _isFemale = DateTime.now().millisecond % 2 == 0;
+    try {
+      await _tts.stop(); // kill ตัวก่อนหน้า
+      await _tts.setLanguage('th-TH');
+      await _tts.setVoice({
+        'name':
+            _female ? 'th-th-x-sfg#female_1-local' : 'th-th-x-sfg#male_1-local',
+        'locale': 'th-TH',
       });
+      await _tts.speak(txt);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _showSnack('พูดไม่สำเร็จ: $e');
+      }
     }
   }
 
-  Future<void> _nextStep() async {
-    if (_currentIndex < widget.steps.length - 1) {
+  void _showSnack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  Future<void> _toPrev() async {
+    if (_idx == 0) return;
+    await _tts.stop();
+    setState(() {
+      _idx--;
+      _busy = false;
+      _spoken = false;
+      _female = DateTime.now().millisecond.isEven;
+    });
+  }
+
+  Future<void> _toNext() async {
+    if (_idx < widget.steps.length - 1) {
       await _tts.stop();
       setState(() {
-        _isSpeaking = false;
-        _currentIndex++;
-        _hasSpoken = false;
-        _isFemale = DateTime.now().millisecond % 2 == 0;
+        _idx++;
+        _busy = false;
+        _spoken = false;
+        _female = DateTime.now().millisecond.isEven;
       });
     } else {
       await _tts.stop();
-      setState(() => _isSpeaking = false);
-      Navigator.of(context).pop();
+      if (mounted) Navigator.pop(context);
     }
   }
 
+  /* ───────────────────── build ───────────────────── */
   @override
   Widget build(BuildContext context) {
-    final isFirst = _currentIndex == 0;
-    final isLast = _currentIndex == widget.steps.length - 1;
-    final step = widget.steps[_currentIndex];
-    final imageUrl = widget.imageUrls.isNotEmpty
-        ? widget.imageUrls.first
-        : 'lib/assets/images/default_recipe.png';
+    final step = widget.steps[_idx];
+    final imgUrl = (widget.imageUrls.length > _idx &&
+            widget.imageUrls[_idx].trim().isNotEmpty)
+        ? widget.imageUrls[_idx]
+        : (widget.imageUrls.isNotEmpty ? widget.imageUrls.first : null);
+
+    final isFirst = _idx == 0;
+    final isLast = _idx == widget.steps.length - 1;
 
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFFFF9B05),
-        elevation: 0,
-        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.close, size: 24, color: Colors.white),
+          icon: const Icon(Icons.close, color: Colors.white),
           onPressed: () async {
             await _tts.stop();
-            setState(() => _isSpeaking = false);
-            Navigator.of(context).pop();
+            if (mounted) Navigator.pop(context);
           },
         ),
-        title: Text(
-          'ขั้นตอนที่ ${_currentIndex + 1}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        title: Text('ขั้นตอนที่ ${_idx + 1}',
+            style: const TextStyle(color: Colors.white)),
+        centerTitle: true,
       ),
       body: Column(
         children: [
-          // รูปภาพขั้นตอน
+          /* ภาพประกอบ */
           SizedBox(
-            height: 272.67,
+            height: 272,
             width: double.infinity,
-            child: Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Image.asset(
-                'lib/assets/images/default_recipe.png',
-                fit: BoxFit.cover,
-              ),
-            ),
+            child: imgUrl != null
+                ? Image.network(imgUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Image.asset(
+                        'assets/images/default_recipe.png',
+                        fit: BoxFit.cover))
+                : Image.asset('assets/images/default_recipe.png',
+                    fit: BoxFit.cover),
           ),
 
-          // คำอธิบาย
+          /* คำอธิบาย */
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              child: Text(
-                step.description,
-                style: const TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 20,
-                  height: 1.2,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF000000),
-                ),
-              ),
+              child: Text(step.description,
+                  style: const TextStyle(
+                      fontSize: 20, height: 1.3, fontWeight: FontWeight.w600)),
             ),
           ),
 
-          const SizedBox(height: 8),
-
-          // ปุ่มฟังเสียง / เล่นซ้ำ
+          /* ปุ่มเสียง */
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: SizedBox(
               width: double.infinity,
               height: 64,
               child: ElevatedButton.icon(
-                onPressed: _isSpeaking ? null : _playVoice,
+                onPressed: _busy ? null : _speak,
                 icon: Icon(
-                  _isSpeaking
+                  _busy
                       ? Icons.volume_up
-                      : (_hasSpoken
+                      : (_spoken
                           ? Icons.replay_circle_filled
-                          : Icons.play_circle_fill),
+                          : Icons.play_arrow),
                   size: 40,
                   color: Colors.black,
                 ),
                 label: Text(
-                  _isSpeaking
-                      ? 'กำลังพูด...'
-                      : (_hasSpoken ? 'เล่นซ้ำ' : 'ฟังเสียง'),
+                  _busy ? 'กำลังพูด...' : (_spoken ? 'เล่นซ้ำ' : 'ฟังเสียง'),
                   style: const TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black,
-                    height: 1.2,
-                  ),
+                      fontSize: 22, fontWeight: FontWeight.w700),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
-                  elevation: 0,
                   side: const BorderSide(color: Color(0xFF828282), width: 2),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(38),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      borderRadius: BorderRadius.circular(38)),
                 ),
               ),
             ),
           ),
-
           const SizedBox(height: 24),
 
-          // ปุ่ม กลับ และ ถัดไป
+          /* ปุ่ม back / next */
           SafeArea(
             top: false,
             child: Padding(
@@ -215,61 +206,57 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // กลับ
-                  Opacity(
-                    opacity: isFirst ? 0.3 : 1.0,
-                    child: Column(
-                      children: [
-                        IconButton(
-                          icon: SvgPicture.asset(
-                            'lib/assets/icons/play_previous.svg',
-                            width: 40,
-                            height: 40,
-                            color: Colors.black,
-                          ),
-                          onPressed: isFirst ? null : _prevStep,
-                        ),
-                        const Text(
-                          'กลับ',
-                          style: TextStyle(
-                            fontFamily: 'Montserrat',
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+                  _NavButton(
+                    enabled: !isFirst,
+                    icon: 'assets/icons/play_previous.svg',
+                    label: 'กลับ',
+                    onTap: _toPrev,
                   ),
-
-                  // ถัดไป
-                  Opacity(
-                    opacity: isLast ? 0.3 : 1.0,
-                    child: Column(
-                      children: [
-                        IconButton(
-                          icon: SvgPicture.asset(
-                            'lib/assets/icons/play_next.svg',
-                            width: 40,
-                            height: 40,
-                            color: Colors.black,
-                          ),
-                          onPressed: isLast ? null : _nextStep,
-                        ),
-                        Text(
-                          isLast ? 'เสร็จสิ้น' : 'ถัดไป',
-                          style: const TextStyle(
-                            fontFamily: 'Montserrat',
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+                  _NavButton(
+                    enabled: true,
+                    icon: 'assets/icons/play_next.svg',
+                    label: isLast ? 'เสร็จสิ้น' : 'ถัดไป',
+                    onTap: _toNext,
+                    dim: isLast,
                   ),
                 ],
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/*───────────── widget ย่อย ─────────────*/
+class _NavButton extends StatelessWidget {
+  final bool enabled;
+  final bool dim;
+  final String icon;
+  final String label;
+  final VoidCallback onTap;
+  const _NavButton({
+    required this.enabled,
+    this.dim = false,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? (dim ? .5 : 1) : .3,
+      child: Column(
+        children: [
+          IconButton(
+            icon: SvgPicture.asset(icon, width: 40, height: 40),
+            onPressed: enabled ? onTap : null,
+          ),
+          Text(label,
+              style:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         ],
       ),
     );

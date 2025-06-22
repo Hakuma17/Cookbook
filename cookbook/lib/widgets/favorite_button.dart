@@ -1,5 +1,5 @@
+import 'package:cookbook/services/auth_service.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 /// FavoriteButton
 /// ปุ่มกดเพิ่ม/ลบสูตรโปรด (วงกลมขนาด 43.63×43.63, ขอบ 1.0907px)
@@ -32,10 +32,9 @@ class _FavoriteButtonState extends State<FavoriteButton> {
   }
 
   Future<void> _checkUserStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getInt('user_id');
+    final data = await AuthService.getLoginData();
     setState(() {
-      _canToggle = userId != null;
+      _canToggle = data['userId'] != null;
     });
   }
 

@@ -1,19 +1,22 @@
 // lib/screens/reset_password_screen.dart
-
+import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import 'otp_verification_screen.dart';
 
-/// หน้ารีเซ็ตรหัสผ่าน: กรอกอีเมลเพื่อรับ OTP
 class ResetPasswordScreen extends StatefulWidget {
-  const ResetPasswordScreen({Key? key}) : super(key: key);
+  const ResetPasswordScreen({super.key});
+
   @override
-  _ResetPasswordScreenState createState() => _ResetPasswordScreenState();
+  State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
 }
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _emailCtrl = TextEditingController();
+  final _emailReg = RegExp(r'^[\w\.\-]+@[\w\-]+\.[a-zA-Z]+$');
+
   bool _isLoading = false;
   String? _errorMsg;
 
@@ -23,70 +26,73 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     super.dispose();
   }
 
+  /* ─────────────────────────  helpers  ───────────────────────── */
+
   Future<void> _sendOtp() async {
     final email = _emailCtrl.text.trim();
 
-    // 1) Validate email
-    final emailReg = RegExp(r"^[\w\.\-]+@[\w\-]+\.[a-zA-Z]+$");
-    if (!emailReg.hasMatch(email)) {
-      setState(() => _errorMsg = 'กรุณากรอกอีเมลให้ถูกต้อง');
+    // 1) validate
+    if (!_emailReg.hasMatch(email)) {
+      if (mounted) setState(() => _errorMsg = 'กรุณากรอกอีเมลให้ถูกต้อง');
       return;
     }
 
     FocusScope.of(context).unfocus();
-    setState(() {
-      _isLoading = true;
-      _errorMsg = null;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMsg = null;
+      });
+    }
 
     try {
-      final result = await ApiService.sendOtp(email);
+      final result =
+          await ApiService.sendOtp(email).timeout(const Duration(seconds: 10));
 
-      if (result['success'] == true) {
-        // กรณีส่งสำเร็จตามปกติ
-        if (!mounted) return;
+      if (!mounted) return;
+
+      final ok = result['success'] == true;
+      final msg = result['message'] ?? '';
+
+      if (ok || msg.startsWith('กรุณารออีก')) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('ส่งรหัส OTP ไปยังอีเมลแล้ว')));
+          const SnackBar(content: Text('ส่งรหัส OTP ไปยังอีเมลแล้ว')),
+        );
+        if (!mounted) return;
         Navigator.push(
           context,
           MaterialPageRoute(
               builder: (_) => OtpVerificationScreen(email: email)),
         );
       } else {
-        final msg = result['message'] ?? '';
-        // ถ้าเจอข้อความ "กรุณารออีก" แปลว่ามี OTP เดิมยังไม่หมดอายุ
-        if (msg.startsWith('กรุณารออีก')) {
-          if (!mounted) return;
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) => OtpVerificationScreen(email: email)),
-          );
-        } else {
-          setState(() => _errorMsg = msg);
-        }
+        setState(() => _errorMsg = msg.isEmpty ? 'เกิดข้อผิดพลาด' : msg);
       }
+    } on TimeoutException {
+      if (mounted)
+        setState(() => _errorMsg = 'เซิร์ฟเวอร์ตอบช้า ลองใหม่ภายหลัง');
     } on SocketException {
-      setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+      if (mounted)
+        setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
     } catch (e) {
-      setState(() => _errorMsg = 'เกิดข้อผิดพลาด: $e');
+      if (mounted) setState(() => _errorMsg = 'เกิดข้อผิดพลาด: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  /* ─────────────────────────  UI  ───────────────────────── */
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        foregroundColor: Colors.black87,
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: const BackButton(color: Colors.black87),
         title: const Text(
           'รีเซ็ตรหัสผ่าน',
-          style: TextStyle(
-              color: Colors.black87, fontSize: 20, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
       ),
       body: SingleChildScrollView(
@@ -95,9 +101,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'กรุณากรอกอีเมลที่คุณใช้สมัคร เพื่อรับรหัส OTP สำหรับรีเซ็ตรหัสผ่าน',
+              'กรอกอีเมลที่ใช้สมัครเพื่อรับรหัส OTP สำหรับรีเซ็ตรหัสผ่าน',
               style:
-                  TextStyle(color: Colors.black54, fontSize: 14, height: 1.6),
+                  TextStyle(fontSize: 14, height: 1.6, color: Colors.black54),
             ),
             const SizedBox(height: 24),
             if (_errorMsg != null) ...[
@@ -105,13 +111,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   style: const TextStyle(color: Colors.red, fontSize: 13)),
               const SizedBox(height: 12),
             ],
-            const Text(
-              'อีเมลของคุณ',
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87),
-            ),
+            const Text('อีเมลของคุณ',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             TextField(
               controller: _emailCtrl,
@@ -127,6 +128,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               ),
+              onSubmitted: (_) => _sendOtp(),
             ),
             const SizedBox(height: 32),
             SizedBox(
@@ -136,18 +138,16 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 onPressed: _isLoading ? null : _sendOtp,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFFF8A65),
-                  elevation: 0,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28)),
+                    borderRadius: BorderRadius.circular(28),
+                  ),
                 ),
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text(
                         'ส่งรหัส OTP',
                         style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white),
+                            fontSize: 16, fontWeight: FontWeight.w600),
                       ),
               ),
             ),

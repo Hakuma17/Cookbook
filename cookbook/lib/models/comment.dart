@@ -1,74 +1,103 @@
+/// lib/models/comment.dart
+///
+/// ข้อมูลรีวิว/ความคิดเห็นของผู้ใช้ต่อสูตรอาหาร
+///
+/// * ถ้า `isMine == true` หมายถึงเป็นคอมเมนต์ของผู้ใช้คนปัจจุบัน
 class Comment {
-  final int? userId;
-  final String? profileName;
-  final String? pathImgProfile;
-  final int? rating;
-  final String? comment;
-  final DateTime? createdAt;
-  final bool isMine;
+  final int? userId; // user_id (nullable ─ guest?)
+  final String? profileName; // ชื่อในโปรไฟล์
+  final String? avatarUrl; // URL รูปโปรไฟล์
+  final int? rating; // ดาว 1 – 5 (nullable = ยังไม่ให้ดาว)
+  final String? comment; // เนื้อความรีวิว
+  final DateTime? createdAt; // เวลาโพสต์
+  final bool isMine; // ของเราหรือไม่? (frontend ใช้โชว์ปุ่มลบ/แก้ไข)
 
   const Comment({
     this.userId,
     this.profileName,
-    this.pathImgProfile,
+    this.avatarUrl,
     this.rating,
     this.comment,
     this.createdAt,
     this.isMine = false,
   });
 
+  /* ───────────────────────── factory ───────────────────────── */
+
   factory Comment.fromJson(Map<String, dynamic> json) {
-    int? parseInt(dynamic v) {
-      if (v == null) return null;
-      return int.tryParse(v.toString());
-    }
-
-    String? parseString(dynamic v) {
-      if (v == null) return null;
-      return v.toString();
-    }
-
-    DateTime? parseDate(dynamic v) {
-      if (v == null) return null;
-      return DateTime.tryParse(v.toString());
-    }
-
-    bool parseBool(dynamic v) {
+    int? _int(dynamic v) => v == null ? null : int.tryParse(v.toString());
+    String? _str(dynamic v) => v?.toString();
+    DateTime? _dt(dynamic v) =>
+        v == null ? null : DateTime.tryParse(v.toString());
+    bool _bool(dynamic v) {
       if (v is bool) return v;
-      if (v is int) return v != 0;
+      if (v is num) return v != 0;
       if (v is String) return v == '1' || v.toLowerCase() == 'true';
       return false;
     }
 
     return Comment(
-      userId: parseInt(json['user_id']),
-      profileName: parseString(json['user_name']),
-      pathImgProfile: parseString(json['avatar_url']),
-      rating: parseInt(json['rating']),
-      comment: parseString(json['comment']),
-      createdAt: parseDate(json['created_at']),
-      isMine: parseBool(json['is_mine']),
+      userId: _int(json['user_id']),
+      profileName: _str(json['user_name']),
+      avatarUrl: _str(json['avatar_url']),
+      rating: _int(json['rating']),
+      comment: _str(json['comment']),
+      createdAt: _dt(json['created_at']),
+      isMine: _bool(json['is_mine']),
     );
   }
 
-  /// สำหรับ fallback ค่าเริ่มต้น เมื่อไม่มีคอมเมนต์ของผู้ใช้
-  factory Comment.empty() {
+  /* ───────────────────────── toJson ───────────────────────── */
+
+  Map<String, dynamic> toJson() => {
+        'user_id': userId,
+        'user_name': profileName,
+        'avatar_url': avatarUrl,
+        'rating': rating,
+        'comment': comment,
+        'created_at': createdAt?.toIso8601String(),
+        'is_mine': isMine,
+      };
+
+  /* ───────────────────────── helpers ───────────────────────── */
+
+  /// สำเนาใหม่โดยปรับบางฟิลด์ตามต้องการ
+  Comment copyWith({
+    int? userId,
+    String? profileName,
+    String? avatarUrl,
+    int? rating,
+    String? comment,
+    DateTime? createdAt,
+    bool? isMine,
+  }) {
     return Comment(
-      userId: -1,
-      profileName: '',
-      pathImgProfile: '',
-      rating: 0,
-      comment: '',
-      createdAt: DateTime.now(),
-      isMine: true,
+      userId: userId ?? this.userId,
+      profileName: profileName ?? this.profileName,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      rating: rating ?? this.rating,
+      comment: comment ?? this.comment,
+      createdAt: createdAt ?? this.createdAt,
+      isMine: isMine ?? this.isMine,
     );
   }
 
-  /// สำหรับใช้เช็คว่าคอมเมนต์นี้ว่างหรือไม่
+  /// คอมเมนต์ “เปล่า” ไว้ใช้เป็น placeholder ของผู้ใช้ (ยังไม่รีวิว)
+  factory Comment.empty() => Comment(
+        userId: -1,
+        profileName: '',
+        avatarUrl: '',
+        rating: 0,
+        comment: '',
+        createdAt: DateTime.now(),
+        isMine: true,
+      );
+
+  /// ไม่มีข้อความ & ไม่ให้ดาว  → ถือว่า “ว่าง”
   bool get isEmpty =>
       (comment == null || comment!.trim().isEmpty) &&
       (rating == null || rating == 0);
 
-  /// ความคิดเห็นมีข้อความไหม (safe)
+  /// มีเนื้อความจริง ๆ ให้แสดงผล
   bool get hasContent => comment != null && comment!.trim().isNotEmpty;
 }

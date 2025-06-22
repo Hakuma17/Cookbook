@@ -1,55 +1,72 @@
-// lib/screens/splash_screen.dart
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'welcome_screen.dart';
 
-/// หน้า SplashScreen: แสดงโลโก้ แล้วเปลี่ยนไปหน้า Welcome หลัง 2 วินาที
+import '../services/auth_service.dart'; // ← เพิ่ม
+import 'welcome_screen.dart';
+import 'home_screen.dart'; // ← เพิ่ม
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
 
   @override
-  _SplashScreenState createState() => _SplashScreenState();
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  // ระยะเวลาแสดง splash (วินาที)
-  static const int _durationSeconds = 2;
+  static const _duration = Duration(seconds: 2); // เวลาแสดง
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
 
-    // 1) ตั้ง status bar ให้โปร่งใส + ไอคอนสีเข้ม
+    // สไตล์ status-bar
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
     ));
 
-    // 2) รอสักพัก แล้ว transition ไป WelcomeScreen
-    Timer(const Duration(seconds: _durationSeconds), () {
-      Navigator.of(context).pushReplacement(PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const WelcomeScreen(),
-        transitionDuration: const Duration(milliseconds: 800),
-        transitionsBuilder: (_, animation, __, child) =>
-            FadeTransition(opacity: animation, child: child),
-      ));
-    });
+    // สร้าง timer แต่เก็บไว้ยกเลิกได้
+    _timer = Timer(_duration, _goNext);
   }
 
+  // ยกเลิก timer ถ้า user ออกจากหน้าเร็ว
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  /* ────────────────────────── NAV ────────────────────────── */
+  Future<void> _goNext() async {
+    // ป้องกัน setState / Navigator ตอน widget ถูก dispose ไปแล้ว
+    if (!mounted) return;
+
+    // ตัวอย่าง: ถ้า login แล้ว → ไป Home, ไม่งั้น Welcome
+    final loggedIn = await AuthService.isLoggedIn();
+    final dest = loggedIn ? const HomeScreen() : const WelcomeScreen();
+
+    // ใช้ Fade transition
+    Navigator.of(context).pushReplacement(PageRouteBuilder(
+      pageBuilder: (_, __, ___) => dest,
+      transitionDuration: const Duration(milliseconds: 600),
+      transitionsBuilder: (_, animation, __, child) =>
+          FadeTransition(opacity: animation, child: child),
+    ));
+  }
+
+  /* ────────────────────────── UI ────────────────────────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // พื้นหลังหลักสี brand
-      backgroundColor: const Color(0xFFFFC08D),
+      backgroundColor: const Color(0xFFFFC08D), // สีแบรนด์
       body: SafeArea(
         child: Center(
-          // ใช้ Hero tag 'appLogo' เพื่อเชื่อมอนิเมชันข้ามหน้าได้
           child: Hero(
-            tag: 'appLogo',
+            tag: 'appLogo', // ใช้อนิเมชันข้ามหน้า
             child: Image.asset(
-              'lib/assets/images/logo.png',
+              'assets/images/logo.png',
               width: 160,
               height: 160,
             ),

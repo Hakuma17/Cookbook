@@ -13,84 +13,116 @@ class MyRecipeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 3,
-      borderRadius: BorderRadius.circular(14),
-      color: Colors.white,
-      shadowColor: Colors.black12,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // ─── รูป ───
-            AspectRatio(
-              aspectRatio: 180 / 140,
-              child: ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(14)),
-                child: _buildImage(),
-              ),
-            ),
-
-            // ─── ชื่อสูตร ───
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-              child: Text(
-                recipe.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'Montserrat',
-                  color: Color(0xFF0A2533),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE0E0E0), width: 1.2),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          splashColor: const Color(0xFFFFF1E0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ─── รูปภาพ ───
+              SizedBox(
+                height: 140,
+                child: Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(16),
+                      ),
+                      child: _buildImage(),
+                    ),
+                    if (recipe.hasAllergy)
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.redAccent,
+                          ),
+                          child: const Icon(Icons.priority_high,
+                              size: 16, color: Colors.white),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            ),
 
-            // ─── คะแนน + รีวิว ───
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Row(
-                children: [
-                  const Icon(Icons.star, size: 16, color: Color(0xFFFF9B05)),
-                  const SizedBox(width: 6),
-                  Text(
-                    recipe.averageRating.toStringAsFixed(1),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF999999),
-                      fontWeight: FontWeight.w500,
-                    ),
+              // ─── ชื่อเมนู ───
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                child: Text(
+                  recipe.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'Montserrat',
+                    color: Color(0xFF0A2533),
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '| ${recipe.reviewCount} รีวิว',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF999999),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+
+              // ─── คะแนน + รีวิว ───
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.star, size: 16, color: Color(0xFFFF9B05)),
+                    const SizedBox(width: 6),
+                    Text(
+                      recipe.averageRating.toStringAsFixed(1),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF555555),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '| ${recipe.reviewCount} ความคิดเห็น',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF999999),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildImage() {
-    if (recipe.imageUrl != null && recipe.imageUrl!.isNotEmpty) {
+    if (recipe.imageUrl.isNotEmpty) {
       return Image.network(
-        recipe.imageUrl!,
+        recipe.imageUrl,
         fit: BoxFit.cover,
-        loadingBuilder: (ctx, child, loading) => loading == null
-            ? child
-            : const Center(child: CircularProgressIndicator()),
+        width: double.infinity,
+        height: double.infinity,
         errorBuilder: (_, __, ___) => _fallbackImage(),
       );
     }
@@ -101,6 +133,8 @@ class MyRecipeCard extends StatelessWidget {
     return Image.asset(
       'assets/images/default_recipe.png',
       fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
     );
   }
 }

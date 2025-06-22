@@ -1,15 +1,18 @@
-// lib/models/cart_ingredient.dart
 import 'package:equatable/equatable.dart';
+
 import 'json_parser.dart';
 
-/// Model ของวัตถุดิบในตะกร้า
+/// **วัตถุดิบ 1 รายการ** ที่ถูก *merge* เข้ามาอยู่ในตะกร้า
+/// (เกิดจากการรวมวัตถุดิบของเมนูหลาย ๆ จาน)
 class CartIngredient extends Equatable {
-  final int ingredientId;
-  final String name;
-  final double quantity;
-  final String unit;
-  final String imageUrl;
-  final bool unitConflict;
+  /* ───── fields ───── */
+
+  final int ingredientId; // id วัตถุดิบตาม table `ingredients`
+  final String name; // ชื่อวัตถุดิบมาตรฐาน
+  final double quantity; // ปริมาณ (ตามหน่วย)
+  final String unit; // หน่วย (เช่น “กรัม”, “ช้อนโต๊ะ”)
+  final String imageUrl; // URL ภาพวัตถุดิบ
+  final bool unitConflict; // true ถ้าเมนูอื่นใช้ “หน่วยคนละชนิด”
 
   const CartIngredient({
     required this.ingredientId,
@@ -20,7 +23,8 @@ class CartIngredient extends Equatable {
     this.unitConflict = false,
   });
 
-  /// สร้างจาก JSON map
+  /* ───── factories ───── */
+
   factory CartIngredient.fromJson(Map<String, dynamic> json) {
     return CartIngredient(
       ingredientId: JsonParser.parseInt(json['ingredient_id']),
@@ -32,7 +36,8 @@ class CartIngredient extends Equatable {
     );
   }
 
-  /// แปลงเป็น JSON map
+  /* ───── serialization ───── */
+
   Map<String, dynamic> toJson() => {
         'ingredient_id': ingredientId,
         'name': name,
@@ -42,7 +47,8 @@ class CartIngredient extends Equatable {
         'unit_conflict': unitConflict,
       };
 
-  /// copyWith สำหรับปรับ field บางตัว
+  /* ───── util: copyWith ───── */
+
   CartIngredient copyWith({
     int? ingredientId,
     String? name,
@@ -61,35 +67,36 @@ class CartIngredient extends Equatable {
     );
   }
 
-  /// รวมวัตถุดิบจากหลายเมนู (aggregate) โดยเรียกเมธอดนี้
+  /* ───── static helper: aggregate ─────
+   * รวมวัตถุดิบจากเมนูหลายจาน → หาผลรวม & flag หน่วยไม่ตรง
+   */
   static List<CartIngredient> aggregate(List<CartIngredient> list) {
-    final Map<String, CartIngredient> map = {};
-    final Map<int, Set<String>> tracker = {};
+    final Map<String, CartIngredient> merged = {};
+    final Map<int, Set<String>> unitTracker = {};
 
-    for (var ing in list) {
-      final key = '\${ing.ingredientId}_\${ing.unit}';
-      if (map.containsKey(key)) {
-        final old = map[key]!;
-        map[key] = old.copyWith(quantity: old.quantity + ing.quantity);
-      } else {
-        map[key] = ing;
-      }
-      tracker.putIfAbsent(ing.ingredientId, () => {}).add(ing.unit);
+    for (final ing in list) {
+      final key = '${ing.ingredientId}_${ing.unit}';
+
+      // รวมปริมาณถ้า ingredientId-unit ซ้ำ
+      merged[key] = merged.containsKey(key)
+          ? merged[key]!
+              .copyWith(quantity: merged[key]!.quantity + ing.quantity)
+          : ing;
+
+      // เก็บว่า ingredientId นี้มีหน่วยอะไรบ้าง
+      unitTracker.putIfAbsent(ing.ingredientId, () => {}).add(ing.unit);
     }
 
-    return map.values.map((e) {
-      final conflict = (tracker[e.ingredientId]?.length ?? 0) > 1;
+    // ตรวจ flag หน่วยไม่เหมือนกัน
+    return merged.values.map((e) {
+      final conflict = (unitTracker[e.ingredientId]?.length ?? 0) > 1;
       return e.copyWith(unitConflict: conflict);
     }).toList();
   }
 
+  /* ───── equatable ───── */
+
   @override
-  List<Object?> get props => [
-        ingredientId,
-        name,
-        quantity,
-        unit,
-        imageUrl,
-        unitConflict,
-      ];
+  List<Object?> get props =>
+      [ingredientId, name, quantity, unit, imageUrl, unitConflict];
 }

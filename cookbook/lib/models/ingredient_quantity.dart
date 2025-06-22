@@ -1,13 +1,16 @@
+/// ปริมาณวัตถุดิบที่ใช้ในสูตร (Ingredient + Quantity)
+///
+/// - ใช้ทั้งสำหรับแสดงผลใน UI และคำนวณโภชนาการ
 class IngredientQuantity {
-  final int ingredientId;
-  final String name; // ชื่อมาตรฐานของวัตถุดิบ (จาก ingredients.name)
-  final String imageUrl; // URL ของภาพวัตถุดิบ
-  final double quantity; // จำนวนที่ใช้ในสูตร
-  final String unit; // หน่วย เช่น "ช้อนโต๊ะ", "กรัม"
-  final double gramsActual; // น้ำหนักกรัมที่แท้จริง (ใช้คำนวณโภชนาการ)
-  final String description; // คำอธิบายเฉพาะในสูตร เช่น "หมูสามชั้นหั่นชิ้น"
+  final int ingredientId; // ingredient_id
+  final String name; // ชื่อวัตถุดิบมาตรฐาน (ingredients.name)
+  final String imageUrl; // URL ภาพวัตถุดิบ (ขนาดเล็ก)
+  final double quantity; // จำนวนที่ใช้ตามสูตร
+  final String unit; // หน่วย เช่น “ช้อนโต๊ะ”, “กรัม”
+  final double gramsActual; // น้ำหนักกรัมจริง (สำหรับคำนวณ nutrition)
+  final String description; // คำอธิบายเฉพาะ (เช่น “หมูสามชั้นหั่นชิ้น”)
 
-  IngredientQuantity({
+  const IngredientQuantity({
     required this.ingredientId,
     required this.name,
     required this.imageUrl,
@@ -17,30 +20,36 @@ class IngredientQuantity {
     required this.description,
   });
 
+  /* ───────────────────────── factory ───────────────────────── */
+
   factory IngredientQuantity.fromJson(Map<String, dynamic> json) {
-    int parseInt(dynamic v) {
-      if (v == null) return 0;
-      return int.tryParse(v.toString()) ?? 0;
-    }
-
-    double parseDouble(dynamic v) {
-      if (v == null) return 0.0;
-      return double.tryParse(v.toString()) ?? 0.0;
-    }
-
-    String parseString(dynamic v) {
-      if (v == null) return '';
-      return v.toString();
-    }
+    int _int(dynamic v) =>
+        v == null ? 0 : (v is int ? v : int.tryParse(v.toString()) ?? 0);
+    double _dbl(dynamic v) => v == null
+        ? 0.0
+        : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
+    String _str(dynamic v) => v?.toString() ?? '';
 
     return IngredientQuantity(
-      ingredientId: parseInt(json['ingredient_id']),
-      name: parseString(json['name']), // ใช้สำหรับ fallback หรืออ้างอิง
-      imageUrl: parseString(json['image_url']),
-      quantity: parseDouble(json['quantity']),
-      unit: parseString(json['unit']),
-      gramsActual: parseDouble(json['grams_actual']),
-      description: parseString(json['descrip']), // ← เปลี่ยนตรงนี้ให้ชัดเจน
+      ingredientId: _int(json['ingredient_id']),
+      name: _str(json['name']),
+      imageUrl: _str(json['image_url']),
+      quantity: _dbl(json['quantity']),
+      unit: _str(json['unit']),
+      gramsActual: _dbl(json['grams_actual']),
+      description: _str(json['descrip']), // backend field = “descrip”
     );
   }
+
+  /* ───────────────────────── toJson ───────────────────────── */
+
+  Map<String, dynamic> toJson() => {
+        'ingredient_id': ingredientId,
+        'name': name,
+        'image_url': imageUrl,
+        'quantity': quantity,
+        'unit': unit,
+        'grams_actual': gramsActual,
+        'descrip': description,
+      };
 }

@@ -30,7 +30,7 @@ class IngredientCard extends StatelessWidget {
 
     Widget _buildFallback() {
       return Image.asset(
-        'lib/assets/images/default_ingredients.png',
+        'assets/images/default_ingredients.png',
         width: cardWidth,
         height: imageHeight,
         fit: BoxFit.cover,

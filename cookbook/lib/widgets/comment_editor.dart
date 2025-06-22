@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
 /// Modal Bottom Sheet สำหรับสร้างหรือแก้ไขคอมเมนต์
 class CommentEditor extends StatefulWidget {
@@ -45,10 +46,25 @@ class _CommentEditorState extends State<CommentEditor>
       setState(() => _error = 'กรุณาให้คะแนนก่อนโพสต์');
       return;
     }
+
+    //  เช็คว่าผู้ใช้ยังล็อกอินอยู่หรือไม่
+    final stillLoggedIn = await AuthService.isLoggedIn();
+    if (!stillLoggedIn) {
+      if (mounted) {
+        Navigator.of(context).pop(); // ปิด modal
+        ScaffoldMessenger.of(context).showSnackBar(
+          // แสดง SnackBar แจ้งเตือน
+          const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนโพสต์')),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
     });
+
     try {
       await ApiService.postComment(
         widget.recipeId,

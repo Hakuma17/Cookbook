@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 /// แถบเมนูล่างหลักของแอป
 /// - selectedIndex: ดัชนีแท็บที่ถูกเลือก (0=Home,1=Explore,2=My Recipes,3=Profile)
-/// - onItemSelected: callback เมื่อต้องการสลับแท็บ (Home, Explore)
-/// - isLoggedIn: สถานะล็อกอิน (ใช้ตรวจก่อนเปิด My Recipes / Profile)
+/// - onItemSelected: callback เมื่อต้องการสลับแท็บหรือรีเฟรช
+/// - isLoggedIn: สถานะล็อกอิน (ใช้แสดง icon / สี ตามสถานะ)
 class CustomBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onItemSelected;
@@ -18,12 +18,11 @@ class CustomBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ไอคอนเมนู 4 ตัว
     const items = [
       Icons.home,
       Icons.explore,
-      Icons.list_alt, // คลังของฉัน
-      Icons.person, // โปรไฟล์
+      Icons.list_alt,
+      Icons.person,
     ];
 
     return Container(
@@ -40,31 +39,28 @@ class CustomBottomNav extends StatelessWidget {
 
           return GestureDetector(
             onTap: () {
+              onItemSelected(i); // แจ้ง parent เสมอ
+
+              if (i == selectedIndex) return; // ถ้ากดซ้ำไม่ต้องทำ navigator ซ้ำ
+
               switch (i) {
                 case 0:
+                  Navigator.pushNamedAndRemoveUntil(
+                      context, '/home', (route) => false);
+                  break;
                 case 1:
-                  // สลับแท็บ Home / Explore
-                  onItemSelected(i);
+                  Navigator.pushNamed(context, '/search');
                   break;
                 case 2:
-                  // คลังของฉัน (My Recipes)
-                  if (!isLoggedIn) {
-                    Navigator.pushNamed(context, '/login');
-                  } else {
-                    Navigator.pushNamed(
-                      context,
-                      '/myrecipes',
-                      arguments: 0, // เปิดที่ Favorites
-                    );
-                  }
+                  Navigator.pushReplacementNamed(
+                    context,
+                    '/my_recipes',
+                    arguments:
+                        0, // ← เพิ่มตรงนี้ให้ชัดเจนว่า default ต้องใช้แท็บ 0
+                  );
                   break;
                 case 3:
-                  // โปรไฟล์
-                  if (!isLoggedIn) {
-                    Navigator.pushNamed(context, '/login');
-                  } else {
-                    Navigator.pushNamed(context, '/profile');
-                  }
+                  Navigator.pushReplacementNamed(context, '/profile');
                   break;
               }
             },

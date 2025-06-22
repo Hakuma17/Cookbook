@@ -1,18 +1,23 @@
-// lib/models/cart_item.dart
-import 'package:cookbook/models/json_parser.dart';
 import 'package:equatable/equatable.dart';
-import 'cart_ingredient.dart';
 
-/// Model ของเมนูในตะกร้า
+import 'cart_ingredient.dart';
+import 'json_parser.dart';
+
+/// **ข้อมูล “เมนู​ 1 รายการ” ที่อยู่ในตะกร้า**
+///
+/// * ใช้ร่วมกับ `/get_cart_items.php`
+/// * สามารถนำไปแสดงผล / ปรับจำนวนเสิร์ฟแล้วส่งกลับไปอัปเดตตะกร้า
 class CartItem extends Equatable {
-  final int recipeId;
-  final String name;
-  final int? prepTime;
-  final double averageRating;
-  final int reviewCount;
-  final double nServings;
-  final String imageUrl;
-  final List<CartIngredient> ingredients;
+  /* ───────────────────────── fields ───────────────────────── */
+
+  final int recipeId; // ID สูตรอาหาร
+  final String name; // ชื่อเมนู
+  final int? prepTime; // เวลาทำ (นาที) - อาจไม่มี
+  final double averageRating; // คะแนนเฉลี่ย
+  final int reviewCount; // จำนวนรีวิว
+  final double nServings; // เสิร์ฟที่ผู้ใช้เลือกใส่ตะกร้า
+  final String imageUrl; // URL รูปเมนู (เต็ม)
+  final List<CartIngredient> ingredients; // วัตถุดิบ (หลัง scale)
 
   const CartItem({
     required this.recipeId,
@@ -25,12 +30,12 @@ class CartItem extends Equatable {
     this.ingredients = const [],
   });
 
-  /// สร้างจาก JSON map (รวม ingredients)
+  /* ───────────────────────── factories ───────────────────────── */
+
+  /// จาก JSON ของ **`get_cart_items.php`**
+  /// มีฟิลด์ `ingredients` ติดมาด้วย
   factory CartItem.fromJson(Map<String, dynamic> json) {
-    final ingJson = json['ingredients'] as List?;
-    final ings = ingJson != null
-        ? ingJson.map((e) => CartIngredient.fromJson(e)).toList()
-        : <CartIngredient>[];
+    final rawIng = json['ingredients'] as List<dynamic>? ?? const [];
 
     return CartItem(
       recipeId: JsonParser.parseInt(json['recipe_id']),
@@ -42,11 +47,11 @@ class CartItem extends Equatable {
       reviewCount: JsonParser.parseInt(json['review_count']),
       nServings: JsonParser.parseDouble(json['nServings']),
       imageUrl: JsonParser.parseString(json['image_url']),
-      ingredients: ings,
+      ingredients: rawIng.map((e) => CartIngredient.fromJson(e)).toList(),
     );
   }
 
-  /// สร้างจาก JSON map ฝั่ง Favorites (ไม่มี ingredients)
+  /// จาก JSON ที่มาจาก **รายการ Favorites** (ไม่มี ingredients)
   factory CartItem.fromFavoritesJson(Map<String, dynamic> json) {
     return CartItem(
       recipeId: JsonParser.parseInt(json['recipe_id']),
@@ -61,7 +66,8 @@ class CartItem extends Equatable {
     );
   }
 
-  /// แปลงเป็น JSON map
+  /* ───────────────────────── toJson / copyWith ───────────────────────── */
+
   Map<String, dynamic> toJson() => {
         'recipe_id': recipeId,
         'name': name,
@@ -73,7 +79,6 @@ class CartItem extends Equatable {
         'ingredients': ingredients.map((e) => e.toJson()).toList(),
       };
 
-  /// สร้างสำเนาด้วยค่าที่แก้ไขบางส่วน
   CartItem copyWith({
     int? recipeId,
     String? name,
@@ -95,6 +100,8 @@ class CartItem extends Equatable {
       ingredients: ingredients ?? this.ingredients,
     );
   }
+
+  /* ───────────────────────── equatable ───────────────────────── */
 
   @override
   List<Object?> get props => [

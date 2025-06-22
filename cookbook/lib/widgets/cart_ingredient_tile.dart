@@ -28,13 +28,13 @@ class CartIngredientTile extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: FadeInImage.assetNetwork(
-                placeholder: 'lib/assets/images/default_ingredients.png',
+                placeholder: 'assets/images/default_ingredients.png',
                 image: ingredient.imageUrl,
                 width: 62,
                 height: 62,
                 fit: BoxFit.cover,
                 imageErrorBuilder: (_, __, ___) => Image.asset(
-                  'lib/assets/images/default_ingredients.png',
+                  'assets/images/default_ingredients.png',
                   width: 62,
                   height: 62,
                   fit: BoxFit.cover,

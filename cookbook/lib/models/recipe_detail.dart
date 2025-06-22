@@ -1,5 +1,3 @@
-// lib/models/recipe_detail.dart
-
 import 'ingredient_quantity.dart';
 import 'recipe_step.dart';
 import 'nutrition.dart';
@@ -8,23 +6,34 @@ import 'comment.dart';
 class RecipeDetail {
   final int recipeId;
   final String name;
-  final List<String> imageUrls; // carousel หลายรูป
-  final int? prepTime; // prep_time (นาที)
-  final double averageRating; // average_rating
-  final int reviewCount; // review_count
-  final DateTime createdAt; // created_at
-  final String sourceReference; // source_reference
+
+  /// URL ของรูป (1 – n ภาพ สำหรับ carousel)
+  final List<String> imageUrls;
+
+  /// เวลาเตรียม (นาที) – อาจเป็น null
+  final int? prepTime;
+
+  final double averageRating;
+  final int reviewCount;
+  final DateTime createdAt;
+  final String sourceReference;
+
   final List<IngredientQuantity> ingredients;
   final List<RecipeStep> steps;
   final Nutrition nutrition;
   final List<Comment> comments;
   final List<String> categories;
-  final bool isFavorited; // is_favorited
-  final double? userRating; // user_rating ของผู้ใช้ปัจจุบัน
-  final int currentServings; // current_servings
-  final int nServings; // จำนวนเสิร์ฟต้นฉบับ
 
-  RecipeDetail({
+  final bool isFavorited;
+  final double? userRating;
+
+  /// จำนวนเสิร์ฟปัจจุบันที่ผู้ใช้กำหนดในตะกร้า
+  final int currentServings;
+
+  /// จำนวนเสิร์ฟต้นฉบับของสูตร
+  final int nServings;
+
+  const RecipeDetail({
     required this.recipeId,
     required this.name,
     required this.imageUrls,
@@ -44,38 +53,31 @@ class RecipeDetail {
     required this.nServings,
   });
 
+  /* ───────────────────────── factory ───────────────────────── */
+
   factory RecipeDetail.fromJson(Map<String, dynamic> json) {
-    int parseInt(dynamic v) {
-      if (v == null) return 0;
-      if (v is int) return v;
-      return int.tryParse(v.toString()) ?? 0;
-    }
+    int _int(dynamic v) =>
+        v == null ? 0 : (v is int ? v : int.tryParse(v.toString()) ?? 0);
 
-    double parseDouble(dynamic v) {
-      if (v == null) return 0.0;
-      if (v is num) return v.toDouble();
-      return double.tryParse(v.toString()) ?? 0.0;
-    }
+    double _double(dynamic v) => v == null
+        ? 0.0
+        : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
 
-    DateTime parseDate(dynamic v) {
-      if (v == null) return DateTime.now();
-      return DateTime.tryParse(v.toString()) ?? DateTime.now();
-    }
+    DateTime _date(dynamic v) => v == null
+        ? DateTime.now()
+        : (DateTime.tryParse(v.toString()) ?? DateTime.now());
 
-    // image_urls → List<String>
-    final images = (json['image_urls'] as List<dynamic>?)
-            ?.map((e) => e.toString())
-            .toList() ??
-        <String>[];
+    List<String> _strList(dynamic v) =>
+        (v is List) ? v.map((e) => e.toString()).toList() : <String>[];
 
     return RecipeDetail(
-      recipeId: parseInt(json['recipe_id']),
+      recipeId: _int(json['recipe_id']),
       name: json['name']?.toString() ?? '',
-      imageUrls: images,
-      prepTime: json['prep_time'] != null ? parseInt(json['prep_time']) : null,
-      averageRating: parseDouble(json['average_rating']),
-      reviewCount: parseInt(json['review_count']),
-      createdAt: parseDate(json['created_at']),
+      imageUrls: _strList(json['image_urls']),
+      prepTime: json['prep_time'] == null ? null : _int(json['prep_time']),
+      averageRating: _double(json['average_rating']),
+      reviewCount: _int(json['review_count']),
+      createdAt: _date(json['created_at']),
       sourceReference: json['source_reference']?.toString() ?? '',
       ingredients: (json['ingredients'] as List<dynamic>)
           .map((e) => IngredientQuantity.fromJson(e as Map<String, dynamic>))
@@ -87,17 +89,36 @@ class RecipeDetail {
       comments: (json['comments'] as List<dynamic>)
           .map((e) => Comment.fromJson(e as Map<String, dynamic>))
           .toList(),
-      categories: (json['categories'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          <String>[],
+      categories: _strList(json['categories']),
       isFavorited: json['is_favorited'] == true ||
           json['is_favorited']?.toString().toLowerCase() == 'true' ||
           json['is_favorited'] == 1,
       userRating:
-          json['user_rating'] != null ? parseDouble(json['user_rating']) : null,
-      currentServings: parseInt(json['current_servings']),
-      nServings: parseInt(json['nServings']),
+          json['user_rating'] == null ? null : _double(json['user_rating']),
+      currentServings: _int(json['current_servings']),
+      nServings: _int(json['nServings']),
     );
   }
+
+  /* ───────────────────────── toJson ───────────────────────── */
+
+  Map<String, dynamic> toJson() => {
+        'recipe_id': recipeId,
+        'name': name,
+        'image_urls': imageUrls,
+        'prep_time': prepTime,
+        'average_rating': averageRating,
+        'review_count': reviewCount,
+        'created_at': createdAt.toIso8601String(),
+        'source_reference': sourceReference,
+        'ingredients': ingredients.map((e) => e.toJson()).toList(),
+        'steps': steps.map((e) => e.toJson()).toList(),
+        'nutrition': nutrition.toJson(),
+        'comments': comments.map((e) => e.toJson()).toList(),
+        'categories': categories,
+        'is_favorited': isFavorited,
+        'user_rating': userRating,
+        'current_servings': currentServings,
+        'nServings': nServings,
+      };
 }

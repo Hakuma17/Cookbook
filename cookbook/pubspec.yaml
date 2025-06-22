@@ -42,6 +42,9 @@ dependencies:
   flutter_tts: ^4.2.3
   flutter_phoenix: ^1.1.1
   equatable: ^2.0.7
+  image_picker: ^1.1.2
+  image_cropper: ^9.1.0
+  permission_handler: ^12.0.0+1
 
 dev_dependencies:
   flutter_test:
@@ -59,24 +62,20 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
   uses-material-design: true
-  
 
   assets:
-    - lib/assets/icons/google.png
-    - lib/assets/icons/google.svg
-    - lib/assets/icons/play_next.svg
-    - lib/assets/icons/play_previous.svg
-    - lib/assets/icons/check_circle.svg
-    - lib/assets/images/logo.png
-    - lib/assets/images/email.png
-    - lib/assets/images/default_avatar.png
-    - lib/assets/images/default_ingredients.png
-    - lib/assets/images/default_recipe.png
+    - assets/icons/google.png
+    - assets/icons/google.svg
+    - assets/icons/play_next.svg
+    - assets/icons/play_previous.svg
+    - assets/icons/check_circle.svg
+    - assets/images/logo.png
+    - assets/images/email.png
+    - assets/images/default_avatar.png
+    - assets/images/default_ingredients.png
+    - assets/images/default_recipe.png   # ← ถูกต้องแล้วแบบนี้
+
 
 
    

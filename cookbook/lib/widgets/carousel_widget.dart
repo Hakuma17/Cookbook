@@ -110,7 +110,7 @@ class _CarouselWidgetState extends State<CarouselWidget> {
                   )
                 : Image.asset(
                     // fallback ถ้าไม่มีรูป
-                    'lib/assets/images/default_recipe.png',
+                    'assets/images/default_recipe.png',
                     width: double.infinity,
                     height: widget.height,
                     fit: BoxFit.cover,

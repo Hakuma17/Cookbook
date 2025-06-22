@@ -1,106 +1,167 @@
+// lib/screens/all_ingredients_screen.dart
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/ingredient.dart';
 import '../services/api_service.dart';
 import '../widgets/ingredient_card.dart';
-import 'login_screen.dart';
+import '../widgets/custom_bottom_nav.dart';
+import 'home_screen.dart';
+import 'my_recipes_screen.dart';
+import 'profile_screen.dart';
 
 class AllIngredientsScreen extends StatefulWidget {
-  const AllIngredientsScreen({super.key});
+  const AllIngredientsScreen({Key? key}) : super(key: key);
 
   @override
   State<AllIngredientsScreen> createState() => _AllIngredientsScreenState();
 }
 
 class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
+  /* ─── state ───────────────────────────────────────────── */
   late Future<List<Ingredient>> _futureIngredients;
-  List<Ingredient> _allIngredients = [];
-  List<Ingredient> _filteredIngredients = [];
 
-  final TextEditingController _searchController = TextEditingController();
+  List<Ingredient> _all = [];
+  List<Ingredient> _filtered = [];
 
-  String? _username; // ← ชื่อผู้ใช้จาก SharedPreferences
-  String? _profileImage; // ← URL รูปผู้ใช้จาก SharedPreferences
+  final TextEditingController _searchCtrl = TextEditingController();
+  Timer? _debounce; // 💡 debounce
+  bool _loadingUser = true;
 
+  int _selectedIndex = 1; // Explore tab
+  String? _username;
+  String? _profileImage;
+
+  /* ─── init / dispose ─────────────────────────────────── */
   @override
   void initState() {
     super.initState();
-    _loadUserInfo(); // โหลดข้อมูลผู้ใช้
-    _loadIngredients(); // โหลดวัตถุดิบ
+    _loadUserInfo();
+    _loadIngredients();
+    _searchCtrl.addListener(_onSearchChanged);
   }
 
-  // โหลดข้อมูลผู้ใช้จาก SharedPreferences
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /* ─── data loaders ───────────────────────────────────── */
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _username = prefs.getString('profileName') ?? 'ผู้ใช้';
       _profileImage = prefs.getString('profileImage');
+      _loadingUser = false;
     });
   }
 
-  // โหลดวัตถุดิบจาก API
   void _loadIngredients() {
-    _futureIngredients = ApiService.fetchIngredients();
-    _futureIngredients.then((data) {
+    _futureIngredients = _fetchIngredientsSafe();
+  }
+
+  Future<List<Ingredient>> _fetchIngredientsSafe() async {
+    try {
+      final list = await ApiService.fetchIngredients()
+          .timeout(const Duration(seconds: 10)); // 💡 timeout
+      _all = list;
+      _filtered = _applyFilter(list, _searchCtrl.text);
+      return list;
+    } on TimeoutException {
+      _showSnack('เซิร์ฟเวอร์ไม่ตอบสนอง');
+    } on SocketException {
+      _showSnack('ไม่มีการเชื่อมต่ออินเทอร์เน็ต');
+    } catch (e) {
+      _showSnack('เกิดข้อผิดพลาด: $e');
+    }
+    return []; // fallback
+  }
+
+  /* ─── search ─────────────────────────────────────────── */
+  void _onSearchChanged() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
       setState(() {
-        _allIngredients = data;
-        _filteredIngredients = data;
+        _filtered = _applyFilter(_all, _searchCtrl.text);
       });
     });
   }
 
-  // ค้นหาวัตถุดิบ
-  void _searchIngredients(String query) {
-    setState(() {
-      _filteredIngredients = _allIngredients.where((ingredient) {
-        return ingredient.name.toLowerCase().contains(query.toLowerCase());
-      }).toList();
-    });
+  List<Ingredient> _applyFilter(List<Ingredient> src, String q) {
+    if (q.trim().isEmpty) return List.from(src);
+    final lower = q.toLowerCase();
+    return src.where((i) => i.name.toLowerCase().contains(lower)).toList();
   }
 
+  /* ─── bottom-nav ─────────────────────────────────────── */
+  void _onTabSelected(int idx) {
+    if (idx == _selectedIndex) return;
+
+    setState(() => _selectedIndex = idx);
+    switch (idx) {
+      case 0:
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+        break;
+      case 1:
+        break; // already here
+      case 2:
+        Navigator.pushReplacement(context,
+            MaterialPageRoute(builder: (_) => const MyRecipesScreen()));
+        break;
+      case 3:
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+        break;
+    }
+  }
+
+  /* ─── helpers ────────────────────────────────────────── */
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /* ─── build ──────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      bottomNavigationBar: CustomBottomNav(
+        selectedIndex: _selectedIndex,
+        onItemSelected: _onTabSelected,
+        isLoggedIn: true,
+      ),
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeaderBar(), // Header ผู้ใช้
+            _buildHeaderBar(),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: TextField(
-                controller: _searchController,
-                onChanged: _searchIngredients,
+                controller: _searchCtrl,
                 decoration: InputDecoration(
                   hintText: 'คุณอยากหาวัตถุดิบอะไร?',
                   prefixIcon: const Icon(Icons.search),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                  isDense: true,
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'วัตถุดิบ',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Noto Sans Thai',
-                    color: Color(0xFF0A2533),
-                  ),
-                ),
-              ),
-            ),
+            const SizedBox(height: 8),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: _buildGrid(), // วัตถุดิบแบบ Grid
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildGrid(),
               ),
             ),
           ],
@@ -109,89 +170,76 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     );
   }
 
-  // Header Bar ที่มีโปรไฟล์ + ชื่อ + ปุ่ม Logout
   Widget _buildHeaderBar() {
+    final imgProvider = (_profileImage?.isNotEmpty ?? false)
+        ? NetworkImage(_profileImage!)
+        : const AssetImage('assets/images/profile.jpg') as ImageProvider;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: const Border(
-          bottom: BorderSide(color: Color(0xFFE1E1E1), width: 1.1),
-        ),
+        border: const Border(bottom: BorderSide(color: Color(0xFFE1E1E1))),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           )
         ],
       ),
       child: Row(
         children: [
-          // แสดงรูปโปรไฟล์ ถ้ามี URL
           CircleAvatar(
             radius: 22,
             backgroundColor: Colors.grey[300],
-            backgroundImage: (_profileImage?.isNotEmpty ?? false)
-                ? NetworkImage(_profileImage!)
-                : const AssetImage('assets/images/profile.jpg')
-                    as ImageProvider,
+            backgroundImage: imgProvider,
             child: (_profileImage?.isEmpty ?? true)
                 ? const Icon(Icons.person, color: Colors.white, size: 20)
                 : null,
           ),
           const SizedBox(width: 12),
-          // ชื่อผู้ใช้
           Expanded(
             child: Text(
               'สวัสดี ${_username ?? ''}',
-              style: const TextStyle(
-                fontSize: 17.5,
-                fontWeight: FontWeight.w600,
-              ),
+              style:
+                  const TextStyle(fontSize: 17.5, fontWeight: FontWeight.w600),
             ),
           ),
-          // ปุ่ม Logout
           IconButton(
+            icon: const Icon(Icons.logout, color: Color(0xFF666666)),
             onPressed: () async {
               final prefs = await SharedPreferences.getInstance();
-              await prefs.clear(); // ล้าง session
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-              );
+              await prefs.clear();
+              if (!mounted) return;
+              Navigator.pushNamedAndRemoveUntil(
+                  context, '/login', (_) => false);
             },
-            icon: const Icon(Icons.logout),
-            color: Colors.grey[700],
           ),
         ],
       ),
     );
   }
 
-  // แสดงวัตถุดิบแบบ GridView
   Widget _buildGrid() {
     return FutureBuilder<List<Ingredient>>(
       future: _futureIngredients,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (_, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError || _filteredIngredients.isEmpty) {
+        if (_filtered.isEmpty) {
           return const Center(child: Text('ไม่พบวัตถุดิบ'));
         }
-
         return GridView.builder(
-          itemCount: _filteredIngredients.length,
+          itemCount: _filtered.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 4,
             mainAxisSpacing: 16,
             crossAxisSpacing: 12,
             childAspectRatio: 0.72,
           ),
-          itemBuilder: (context, index) {
-            return IngredientCard(ingredient: _filteredIngredients[index]);
-          },
+          itemBuilder: (_, i) => IngredientCard(ingredient: _filtered[i]),
         );
       },
     );
