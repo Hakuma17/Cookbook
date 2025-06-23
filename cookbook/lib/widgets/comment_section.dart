@@ -156,11 +156,16 @@ class _MyCommentBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: const Color(0xFF1479F2), width: 1.5),
+        border: Border.all(
+          color: primaryColor,
+          width: 1.5,
+        ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -178,7 +183,7 @@ class _MyCommentBox extends StatelessWidget {
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF1479F2),
+              color: Color.fromARGB(255, 0, 0, 0),
             ),
           ),
           const SizedBox(height: 12),

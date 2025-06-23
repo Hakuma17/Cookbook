@@ -61,7 +61,10 @@ class _CommentCardState extends State<CommentCard> {
             // ---------------- Header ----------------
             Row(
               children: [
-                CircleAvatar(radius: 18, backgroundImage: avatarProvider),
+                CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.grey.shade200,
+                    backgroundImage: avatarProvider),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(userName,

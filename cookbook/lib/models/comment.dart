@@ -38,12 +38,12 @@ class Comment {
 
     return Comment(
       userId: _int(json['user_id']),
-      profileName: _str(json['user_name']),
-      avatarUrl: _str(json['avatar_url']),
+      profileName: _str(json['user_name']), // ตาม API
+      avatarUrl: _str(json['avatar_url']), // ตาม API
       rating: _int(json['rating']),
       comment: _str(json['comment']),
       createdAt: _dt(json['created_at']),
-      isMine: _bool(json['is_mine']),
+      isMine: _bool(json['is_mine']), // ตาม API
     );
   }
 
