@@ -50,6 +50,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     setState(() => _signing = true);
 
     try {
+      // เคลียร์ session เดิมก่อนทุกครั้ง เพื่อให้ signIn() ครั้งถัดไปไม่ติด session เก่า
+      await _google.signOut();
+
       // signIn() อาจ throw หรือคืน null หากยกเลิก
       final account = await _google.signIn();
       if (account == null) {
@@ -138,6 +141,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   onPressed: _signing ? null : _startGoogleFlow,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFF2F2F2),
+                    foregroundColor: Colors.black87,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -180,12 +184,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               ),
               const SizedBox(height: 32),
-              if (_error != null) ...[
-                Text(_error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.red)),
-                const SizedBox(height: 16),
-              ],
 
               /*────────── Login link ──────────*/
               Center(
@@ -211,7 +209,33 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              /*────────── Guest Access ──────────*/
+              SizedBox(
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  ),
+                  icon: const Icon(Icons.login),
+                  label: const Text('เข้าใช้งานโดยไม่ต้องล็อกอิน',
+                      style: TextStyle(fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF2F2F2),
+                    foregroundColor: Colors.black87,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+              if (_error != null) ...[
+                Text(_error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.red)),
+                const SizedBox(height: 16),
+              ],
               const Divider(color: Color(0xFFCCCCCC), thickness: 1),
             ],
           ),
