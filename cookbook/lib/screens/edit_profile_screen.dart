@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:cookbook/services/auth_service.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 import '../services/api_service.dart';
 
@@ -63,20 +63,90 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+/*────────────────── ฟังก์ชันขอสิทธิ์ ─────────────────────*/
+  Future<bool> _requestStoragePermission() async {
+    final deviceInfo = DeviceInfoPlugin();
+    final androidInfo = await deviceInfo.androidInfo;
+    final sdkInt = androidInfo.version.sdkInt ?? 0;
+
+    if (sdkInt >= 33) {
+      // Android 13+ ใช้ photos (แทน images ที่ไม่มีใน permission_handler)
+      final status = await Permission.photos.status;
+
+      if (status.isGranted) return true;
+
+      if (status.isDenied) {
+        final result = await Permission.photos.request();
+        return result.isGranted;
+      }
+
+      if (status.isPermanentlyDenied) {
+        _showOpenSettingsDialog(); // ผู้ใช้เคยกดไม่ให้สิทธิ์แบบถาวร
+        return false;
+      }
+
+      return false;
+    } else {
+      // Android 12 หรือต่ำกว่า
+      final status = await Permission.storage.status;
+
+      if (status.isGranted) return true;
+
+      if (status.isDenied) {
+        final result = await Permission.storage.request();
+        return result.isGranted;
+      }
+
+      if (status.isPermanentlyDenied) {
+        _showOpenSettingsDialog(); // ผู้ใช้เคยกดไม่ให้สิทธิ์แบบถาวร
+        return false;
+      }
+
+      return false;
+    }
+  }
+
+/*────────────────── แจ้งเตือนให้ไปเปิดสิทธิ์ใน Settings ─────────────────────*/
+  void _showOpenSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ไม่ได้รับสิทธิ์'),
+        content: const Text('กรุณาเปิดสิทธิ์เข้าถึงรูปภาพในหน้าตั้งค่าแอป'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ยกเลิก'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await openAppSettings(); // เปิดหน้าการตั้งค่าของแอป
+            },
+            child: const Text('เปิดการตั้งค่า'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /*────────────────── เลือกรูป + ครอบ ────────────────────*/
   Future<void> _pickImage() async {
     if (_pickingImage) return;
     _pickingImage = true;
 
     try {
-      // ขอ permission (Android 13+)
-      if (!await Permission.photos.request().isGranted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('ไม่ได้รับสิทธิ์เข้าถึงรูปภาพ')),
-          );
+      // ตรวจเวอร์ชัน Android แล้วขอสิทธิ์ให้ถูกต้อง
+      if (Platform.isAndroid) {
+        final granted = await _requestStoragePermission();
+        if (!granted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('ไม่ได้รับสิทธิ์เข้าถึงรูปภาพ')),
+            );
+          }
+          return;
         }
-        return;
       }
 
       final picked = await _picker.pickImage(source: ImageSource.gallery);
@@ -98,27 +168,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             hideBottomControls: false,
             lockAspectRatio: true,
           ),
-          IOSUiSettings(
-            title: 'Crop Profile Image',
-            aspectRatioLockEnabled: true,
-          ),
         ],
       );
 
       if (cropped != null && mounted) {
         setState(() => _newImageFile = File(cropped.path));
-      }
-    } on PlatformException catch (e) {
-      if (e.code == 'already_active') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('กำลังเปิดตัวเลือกภาพอยู่แล้ว')),
-          );
-        }
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เลือกรูปล้มเหลว: $e')),
-        );
       }
     } catch (e) {
       if (mounted) {
@@ -248,8 +302,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       children: [
                         GestureDetector(
                           onTap: _showImagePreview,
-                          child:
-                              CircleAvatar(radius: 52, backgroundImage: avatar),
+                          child: CircleAvatar(
+                              radius: 52,
+                              backgroundColor: Colors.grey.shade200,
+                              backgroundImage: avatar),
                         ),
                         Positioned(
                           bottom: 0,
@@ -258,7 +314,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             radius: 18,
                             backgroundColor: Colors.white,
                             child: IconButton(
-                              icon: const Icon(Icons.camera_alt, size: 18),
+                              icon: const Icon(Icons.camera_alt,
+                                  color: Colors.black, size: 18),
                               onPressed: _pickingImage ? null : _pickImage,
                               tooltip: 'เปลี่ยนรูปโปรไฟล์',
                             ),

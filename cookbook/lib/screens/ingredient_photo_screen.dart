@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart'; // ใช้ตรวจสอบ Android SDK เวอร์ชัน
 
 import 'ingredient_prediction_result_screen.dart';
 
@@ -77,12 +78,86 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
   Future<bool> _requestPermission(ImageSource src) async {
     if (kIsWeb) return true; // web ไม่ต้อง
     if (src == ImageSource.camera) {
-      final cam = await Permission.camera.request();
-      return cam.isGranted;
+      final cam = await Permission.camera.status;
+
+      if (cam.isGranted) return true;
+
+      if (cam.isDenied) {
+        final result = await Permission.camera.request();
+        return result.isGranted;
+      }
+
+      if (cam.isPermanentlyDenied) {
+        _showOpenSettingsDialog();
+        return false;
+      }
+
+      return false;
     } else {
-      final storage = await Permission.photos.request();
-      return storage.isGranted;
+      //  เช็ค Android เวอร์ชันเพื่อใช้ photos หรือ storage ให้ถูกต้อง
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      final sdkInt = androidInfo.version.sdkInt ?? 0;
+
+      if (sdkInt >= 33) {
+        final status = await Permission.photos.status;
+
+        if (status.isGranted) return true;
+
+        if (status.isDenied) {
+          final result = await Permission.photos.request();
+          return result.isGranted;
+        }
+
+        if (status.isPermanentlyDenied) {
+          _showOpenSettingsDialog();
+          return false;
+        }
+
+        return false;
+      } else {
+        final status = await Permission.storage.status;
+
+        if (status.isGranted) return true;
+
+        if (status.isDenied) {
+          final result = await Permission.storage.request();
+          return result.isGranted;
+        }
+
+        if (status.isPermanentlyDenied) {
+          _showOpenSettingsDialog();
+          return false;
+        }
+
+        return false;
+      }
     }
+  }
+
+/* ────────────────── แจ้งเตือนให้ไปเปิดสิทธิ์ใน Settings ────────────────── */
+  void _showOpenSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ไม่ได้รับสิทธิ์'),
+        content:
+            const Text('กรุณาเปิดสิทธิ์เข้าถึงรูปภาพหรือกล้องในหน้าตั้งค่าแอป'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ยกเลิก'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await openAppSettings();
+            },
+            child: const Text('เปิดการตั้งค่า'),
+          ),
+        ],
+      ),
+    );
   }
 
   /* ────────────────── helpers ────────────────── */
