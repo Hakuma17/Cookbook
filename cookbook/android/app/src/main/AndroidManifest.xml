@@ -1,10 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.cookbook">
 
+    <!-- เพิ่ม permission ที่จำเป็น -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application
         android:label="cookbook"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
 
         <activity
             android:name=".MainActivity"
@@ -24,21 +32,20 @@
             </intent-filter>
         </activity>
 
-        <!-- ✅ UCropActivity ต้องอยู่ข้างใน application -->
+        <!-- UCropActivity -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:screenOrientation="portrait"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
-        <!-- ✅ Flutter meta-data ก็ต้องอยู่ข้างใน -->
+        <!-- Flutter meta-data -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
     </application>
 
-    <!-- ✅ อยู่นอก application ได้ -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
