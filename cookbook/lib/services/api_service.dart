@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:cookbook/main.dart' show navKey; // ← ใช้ navigatorKey
+import 'package:cookbook/services/auth_service.dart';
+
 import '../models/ingredient.dart';
 import '../models/recipe.dart';
 import '../models/recipe_detail.dart';
@@ -11,108 +14,109 @@ import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
 
-/// ApiService: จัดการทุก API call กับ backend (PHP)
+/// จัดการทุก API call กับ backend (PHP)
 class ApiService {
-  // ─── HTTP client & session ───────────────────────────────────────────────
+  /* ───────────── http & session ───────────── */
 
   static final _client = http.Client();
   static const _timeout = Duration(seconds: 30);
   static String? _sessionCookie;
 
-  /// Base URL ของ API (แก้พาธให้ตรงกับ deploy จริง)clearSession
   static String get baseUrl {
     if (defaultTargetPlatform == TargetPlatform.android) {
-      // Android emulator default
       return 'http://10.0.2.2/cookbookapp/';
     }
-    // iOS / Desktop
     return 'http://localhost/cookbookapp/';
   }
 
-  // ─── Internal HTTP Helpers ───────────────────────────────────────────────
+  static void clearSession() => _sessionCookie = null;
 
-  static void clearSession() {
-    _sessionCookie = null;
-  }
+  /* ───────────── low-level helpers ───────────── */
 
-  static Future<http.Response> _get(Uri uri) {
-    final headers = <String, String>{};
-    if (_sessionCookie != null) {
-      headers['Cookie'] = 'PHPSESSID=$_sessionCookie';
-    }
-    return _client.get(uri, headers: headers).timeout(_timeout);
+  static Future<http.Response> _get(Uri uri) async {
+    final h =
+        _sessionCookie == null ? null : {'Cookie': 'PHPSESSID=$_sessionCookie'};
+    final r = await _client.get(uri, headers: h).timeout(_timeout);
+    if (r.statusCode != 200) _throwHttp('GET ${uri.path}', r);
+    return r;
   }
 
   static Future<http.Response> _post(
       String path, Map<String, String> body) async {
     final uri = Uri.parse('$baseUrl$path');
-    final headers = <String, String>{};
-    if (_sessionCookie != null) {
-      headers['Cookie'] = 'PHPSESSID=$_sessionCookie';
-    }
-    final resp =
-        await _client.post(uri, headers: headers, body: body).timeout(_timeout);
+    final h =
+        _sessionCookie == null ? null : {'Cookie': 'PHPSESSID=$_sessionCookie'};
+    final r = await _client.post(uri, headers: h, body: body).timeout(_timeout);
 
-    // Capture PHPSESSID from Set-Cookie header once
+    if (r.statusCode != 200) _throwHttp('POST $path', r);
+
+    // เก็บ PHPSESSID ครั้งแรก
     if (_sessionCookie == null) {
-      final raw = resp.headers['set-cookie'];
-      if (raw != null) {
-        final m = RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
-        if (m != null) _sessionCookie = m.group(1);
-      }
+      final raw = r.headers['set-cookie'];
+      final m =
+          raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
+      if (m != null) _sessionCookie = m.group(1);
     }
-    return resp;
+    return r;
   }
 
-  static Future<http.Response> _getWithSession(String path) =>
-      _get(Uri.parse('$baseUrl$path'));
+  static Future<http.Response> _getWithSession(String p) =>
+      _get(Uri.parse('$baseUrl$p'));
 
   static Future<http.Response> _postWithSession(
-          String path, Map<String, String> body) =>
-      _post(path, body);
+          String p, Map<String, String> b) =>
+      _post(p, b);
 
-  /// POST แล้ว parse response เป็น Map {'success','message','data','debug'}
+  /* ───────────── json-wrapper ───────────── */
+
   static Future<Map<String, dynamic>> _postAndProcess(
       String path, Map<String, String> body) async {
-    final resp = await _post(path, body);
-    return _safeProcess(resp);
+    final r = await _post(path, body);
+    return _safeProcess(r);
   }
 
-  /// แปลง HTTP response → {success,message,data,debug}
-  static Map<String, dynamic> _safeProcess(http.Response resp) {
+  static Map<String, dynamic> _safeProcess(http.Response r) {
     Map<String, dynamic>? j;
     try {
-      j = jsonDecode(resp.body.trim());
-    } catch (_) {
-      j = null;
+      j = jsonDecode(r.body.trim());
+    } catch (_) {/* ignore */}
+
+    // code / status == 401 ภายใน JSON
+    if (j?['code'] == 401 || j?['status'] == 401) {
+      _forceLogout();
+      throw Exception('หมดเวลาการเข้าสู่ระบบ (401)');
     }
 
-    final ok = j != null &&
-        (_parseBool(j['success']) || _parseBool(j['valid'] ?? false));
+    final ok = j != null && (_bool(j['success']) || _bool(j['valid'] ?? false));
+    final msg =
+        j?['message'] ?? (ok ? 'สำเร็จ' : 'เกิดข้อผิดพลาด (${r.statusCode})');
+    final data = (j?['data'] is Map) ? j!['data'] : <String, dynamic>{};
 
-    final msg = j?['message'] ??
-        (ok ? 'สำเร็จ' : 'เกิดข้อผิดพลาด (${resp.statusCode})');
-
-    // ▸ ทำให้ result['data'] เป็น Map ไม่เป็น null
-    final rawData = j?['data'];
-    final safeData =
-        (rawData is Map<String, dynamic>) ? rawData : <String, dynamic>{};
-
-    return {
-      'success': ok,
-      'message': msg,
-      'data': safeData,
-      'debug': j?['debug'],
-    };
+    return {'success': ok, 'message': msg, 'data': data, 'debug': j?['debug']};
   }
 
-  static bool _parseBool(dynamic v) {
+  static bool _bool(dynamic v) {
     if (v is bool) return v;
     if (v is String) return v.toLowerCase() == 'true';
     if (v is num) return v != 0;
     return false;
   }
 
+  /* ════════════ zone-safe logout & http error ════════════ */
+
+  /// **ต้องเป็น static** เพื่อเรียกได้จากเมท็อด static อื่น
+  static Future<void> _forceLogout() async {
+    await AuthService.logout(silent: true);
+    navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
+  }
+
+  static Never _throwHttp(String what, http.Response r) {
+    if (r.statusCode == 401) {
+      _forceLogout();
+      throw Exception('หมดเวลาการเข้าสู่ระบบ (401)');
+    }
+    throw Exception('$what (${r.statusCode})');
+  }
   // ─── Data Endpoints ───────────────────────────────────────────────────────
 
   /// GET: ดึงวัตถุดิบทั้งหมด

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import 'package:cookbook/main.dart' show navKey;
 
 class AuthService {
   static const _keyIsLoggedIn = 'isLoggedIn';
@@ -9,84 +10,74 @@ class AuthService {
   static const _keyProfileImage = 'profileImage';
   static const _keyEmail = 'email';
 
-  static Future<SharedPreferences> get _prefs async =>
-      await SharedPreferences.getInstance();
+  static Future<SharedPreferences> get _prefs =>
+      SharedPreferences.getInstance();
 
-  /// เช็คว่าล็อกอินอยู่หรือไม่
-  static Future<bool> isLoggedIn() async {
-    final prefs = await _prefs;
-    return prefs.getBool(_keyIsLoggedIn) ?? false;
-  }
+  /* ───────────── getters ───────────── */
 
-  /// ดึง userId (ถ้า login)
-  static Future<int?> getUserId() async {
-    final prefs = await _prefs;
-    return prefs.getInt(_keyUserId);
-  }
+  static Future<bool> isLoggedIn() async =>
+      (await _prefs).getBool(_keyIsLoggedIn) ?? false;
 
-  /// ดึงชื่อผู้ใช้
-  static Future<String?> getProfileName() async {
-    final prefs = await _prefs;
-    return prefs.getString(_keyProfileName);
-  }
+  static Future<int?> getUserId() async => (await _prefs).getInt(_keyUserId);
+  static Future<String?> getProfileName() async =>
+      (await _prefs).getString(_keyProfileName);
+  static Future<String?> getProfileImage() async =>
+      (await _prefs).getString(_keyProfileImage);
 
-  /// ดึงรูปโปรไฟล์
-  static Future<String?> getProfileImage() async {
-    final prefs = await _prefs;
-    return prefs.getString(_keyProfileImage);
-  }
+  /* ───────────── save / clear ───────────── */
 
-  /// เซฟข้อมูลผู้ใช้หลังจาก login แบบใช้ค่าแยก
   static Future<void> saveLogin({
     required int userId,
     required String profileName,
     required String profileImage,
     required String email,
   }) async {
-    final prefs = await _prefs;
-    await prefs.setBool(_keyIsLoggedIn, true);
-    await prefs.setInt(_keyUserId, userId);
-    await prefs.setString(_keyProfileName, profileName);
-    await prefs.setString(_keyProfileImage, profileImage);
-    await prefs.setString(_keyEmail, email);
+    final p = await _prefs;
+    await p.setBool(_keyIsLoggedIn, true);
+    await p.setInt(_keyUserId, userId);
+    await p.setString(_keyProfileName, profileName);
+    await p.setString(_keyProfileImage, profileImage);
+    await p.setString(_keyEmail, email);
   }
 
-  /// เซฟข้อมูลผู้ใช้แบบรับ JSON ทั้งก้อน (ใช้ใน login screen)
-  static Future<void> saveLoginData(Map<String, dynamic> data) async {
+  static Future<void> saveLoginData(Map<String, dynamic> d) async {
     await saveLogin(
-      userId: int.tryParse(data['user_id'].toString()) ?? 0,
-      profileName: data['profile_name'] ?? '',
-      profileImage: data['path_imgProfile'] ?? '',
-      email: data['email'] ?? '',
+      userId: int.tryParse(d['user_id'].toString()) ?? 0,
+      profileName: d['profile_name'] ?? '',
+      profileImage: d['path_imgProfile'] ?? '',
+      email: d['email'] ?? '',
     );
   }
 
-  /// เคลียร์ข้อมูลเมื่อ logout
-  static Future<void> logout() async {
-    final prefs = await _prefs;
-    await prefs.clear();
-    ApiService.clearSession(); // ← เพิ่มบรรทัดนี้
+  /// **เพิ่ม** พารามิเตอร์ `silent` (ใช้ตอน force-logout)
+  static Future<void> logout({bool silent = false}) async {
+    final p = await _prefs;
+    await p.clear();
+    ApiService.clearSession();
+
+    // ถ้าไม่ silent → กระโดดกลับ Login ให้ผู้ใช้เห็น
+    if (!silent) {
+      // ใช้ navigatorKey จาก main.dart
+      navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
+    }
   }
 
-  /// ดึงข้อมูลล็อกอินทั้งหมดในครั้งเดียว (userId, name, image)
+  /* ───────────── helpers ───────────── */
+
   static Future<Map<String, dynamic>> getLoginData() async {
-    final prefs = await _prefs;
+    final p = await _prefs;
     return {
-      'isLoggedIn': prefs.getBool(_keyIsLoggedIn) ?? false,
-      'userId': prefs.getInt(_keyUserId),
-      'profileName': prefs.getString(_keyProfileName),
-      'profileImage': prefs.getString(_keyProfileImage),
-      'email': prefs.getString(_keyEmail),
+      'isLoggedIn': p.getBool(_keyIsLoggedIn) ?? false,
+      'userId': p.getInt(_keyUserId),
+      'profileName': p.getString(_keyProfileName),
+      'profileImage': p.getString(_keyProfileImage),
+      'email': p.getString(_keyEmail),
     };
   }
 
-  /// เช็คว่า login แล้วหรือยัง → ถ้าไม่ login จะ redirect ไปหน้า login
-  static Future<bool> checkAndRedirectIfLoggedOut(BuildContext context) async {
-    final isLoggedIn = await AuthService.isLoggedIn();
-    if (!isLoggedIn) {
-      Navigator.of(context).pushReplacementNamed('/login');
-      return false;
-    }
-    return true;
+  static Future<bool> checkAndRedirectIfLoggedOut(BuildContext ctx) async {
+    if (await isLoggedIn()) return true;
+    Navigator.of(ctx).pushReplacementNamed('/login');
+    return false;
   }
 }

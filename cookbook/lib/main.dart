@@ -1,4 +1,3 @@
-// lib/main.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -17,24 +16,41 @@ import 'screens/change_password_screen.dart';
 import 'screens/allergy_screen.dart';
 
 import 'services/auth_service.dart';
+import 'services/api_service.dart';
 import 'models/recipe.dart';
 
 /* ───────────── globals ───────────── */
-final navKey = GlobalKey<NavigatorState>();
+final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 final RouteObserver<ModalRoute<void>> routeObserver =
     RouteObserver<ModalRoute<void>>();
 
 /* ───────────── main ───────────── */
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('th', null);
 
+  // จับ error ที่หลุดออกมาจาก Flutter framework
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('❌ FlutterError: ${details.exception}');
+  };
+
+  // จับ error อื่น ๆ ที่ทะลุ zone
   runZonedGuarded(
     () => runApp(const CookingGuideApp()),
-    (error, stack) {
+    (error, stack) async {
       debugPrint('‼️ Uncaught Zone Error → $error\n$stack');
+
+      // กรณี session หมดอายุ → ลบ token แบบเงียบ ๆ แล้วพาไปหน้า Login
+      if (error.toString().contains('401') ||
+          error.toString().contains('Unauthenticated')) {
+        await AuthService.logout(silent: true);
+        navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
+        return;
+      }
+
       final ctx = navKey.currentContext;
-      if (ctx != null) {
+      if (ctx != null && ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(
           SnackBar(content: Text('เกิดข้อผิดพลาดไม่คาดคิด: $error')),
         );
@@ -85,61 +101,48 @@ class CookingGuideApp extends StatelessWidget {
   Route<dynamic>? _onGenerateRoute(RouteSettings s) {
     switch (s.name) {
       case '/login':
-        return _fade((c) => const LoginScreen(), s);
+        return _fade((_) => const LoginScreen(), s);
 
       case '/home':
-        return _fade((c) => const HomeScreen(), s);
+        return _fade((_) => const HomeScreen(), s);
 
       case '/search':
-        return _material((c) => const SearchScreen(), s);
+        return _material((_) => const SearchScreen(), s);
 
       case '/recipe_detail':
-        if (s.arguments is Recipe) {
-          final r = s.arguments as Recipe;
-          return _material((c) => RecipeDetailScreen(recipeId: r.id), s);
+        if (s.arguments case final Recipe r) {
+          return _material((_) => RecipeDetailScreen(recipeId: r.id), s);
         }
         return _errorRoute('ข้อมูล recipe ไม่ถูกต้อง');
 
       case '/my_recipes':
-        final arg = s.arguments;
-        final tab = (arg is int && (arg == 0 || arg == 1)) ? arg : 0;
+        final tab = (s.arguments is int && (s.arguments as int) <= 1)
+            ? s.arguments as int
+            : 0;
         return _material(
-          (c) => AuthGuard(child: MyRecipesScreen(initialTab: tab)),
+          (_) => AuthGuard(child: MyRecipesScreen(initialTab: tab)),
           s,
         );
 
       case '/profile':
-        return _material(
-          (c) => AuthGuard(child: const ProfileScreen()),
-          s,
-        );
+        return _material((_) => const AuthGuard(child: ProfileScreen()), s);
 
       case '/settings':
-        return _material(
-          (c) => AuthGuard(child: const SettingsScreen()),
-          s,
-        );
+        return _material((_) => const AuthGuard(child: SettingsScreen()), s);
 
       case '/edit_profile':
-        return _material(
-          (c) => AuthGuard(child: const EditProfileScreen()),
-          s,
-        );
+        return _material((_) => const AuthGuard(child: EditProfileScreen()), s);
 
       case '/all_ingredients':
-        return _material((c) => const AllIngredientsScreen(), s);
+        return _material((_) => const AllIngredientsScreen(), s);
 
       case '/change_password':
         return _material(
-          (c) => AuthGuard(child: const ChangePasswordScreen()),
-          s,
-        );
+            (_) => const AuthGuard(child: ChangePasswordScreen()), s);
 
       case '/allergy':
-        return _material(
-          (c) => AuthGuard(child: const AllergyScreen()),
-          s,
-        );
+        return _material((_) => const AuthGuard(child: AllergyScreen()), s);
+
       default:
         return null;
     }
@@ -147,7 +150,7 @@ class CookingGuideApp extends StatelessWidget {
 
   /* ───────────── helpers ───────────── */
   Route<dynamic> _errorRoute(String msg) =>
-      _material((c) => _ErrorPage(message: msg), const RouteSettings());
+      _material((_) => _ErrorPage(message: msg), const RouteSettings());
 
   MaterialPageRoute _material(WidgetBuilder b, RouteSettings s) =>
       MaterialPageRoute(builder: b, settings: s);
@@ -176,7 +179,11 @@ class AuthGuard extends StatelessWidget {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        return snap.data == true ? child : const LoginScreen();
+        if (snap.data == true) return child;
+
+        // token หมดอายุ → ลบ session ฝั่ง client แล้วไปหน้า Login
+        ApiService.clearSession();
+        return const LoginScreen();
       },
     );
   }
