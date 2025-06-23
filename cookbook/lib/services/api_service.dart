@@ -34,9 +34,12 @@ class ApiService {
   /* ───────────── low-level helpers ───────────── */
 
   static Future<http.Response> _get(Uri uri) async {
-    final h =
-        _sessionCookie == null ? null : {'Cookie': 'PHPSESSID=$_sessionCookie'};
-    final r = await _client.get(uri, headers: h).timeout(_timeout);
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      if (_sessionCookie != null) 'Cookie': 'PHPSESSID=$_sessionCookie',
+    };
+    final r = await _client.get(uri, headers: headers).timeout(_timeout);
+
     if (r.statusCode != 200) _throwHttp('GET ${uri.path}', r);
     return r;
   }
@@ -44,9 +47,13 @@ class ApiService {
   static Future<http.Response> _post(
       String path, Map<String, String> body) async {
     final uri = Uri.parse('$baseUrl$path');
-    final h =
-        _sessionCookie == null ? null : {'Cookie': 'PHPSESSID=$_sessionCookie'};
-    final r = await _client.post(uri, headers: h, body: body).timeout(_timeout);
+    // เพิ่ม Content-Type header, คง logic การส่ง PHPSESSID ถ้ามี
+    final headers = <String, String>{
+      'Content-Type': 'application/x-www-form-urlencoded',
+      if (_sessionCookie != null) 'Cookie': 'PHPSESSID=$_sessionCookie',
+    };
+    final r =
+        await _client.post(uri, headers: headers, body: body).timeout(_timeout);
 
     if (r.statusCode != 200) _throwHttp('POST $path', r);
 
