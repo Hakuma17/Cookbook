@@ -1,6 +1,9 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cookbook/screens/ingredient_filter_screen.dart';
 import 'package:flutter/material.dart';
 import '../models/recipe.dart';
 import '../services/api_service.dart';
@@ -11,25 +14,31 @@ import '../widgets/custom_bottom_nav.dart';
 import '../utils/debouncer.dart';
 
 class SearchScreen extends StatefulWidget {
-  final List<String>? ingredients;
-  const SearchScreen({super.key, this.ingredients});
+  final List<String>? ingredients; // include
+  final List<String>? excludeIngredients; // exclude
+
+  const SearchScreen({
+    super.key,
+    this.ingredients,
+    this.excludeIngredients,
+  });
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  /* ──────────────────────  local state  ───────────────────── */
   final _debouncer = Debouncer(delay: const Duration(milliseconds: 400));
 
   List<Recipe> _results = [];
   bool _loading = false;
   String _error = '';
   String _searchQuery = '';
-  int _selectedChip = 0; // filter chip index
+  int _selectedChip = 0;
+  List<String> _includeIds = [];
+  List<String> _excludeIds = [];
 
-  /* bottom-nav */
-  int _selectedIndex = 1; // 0=Home,1=Search,2=MyRecipes,3=Profile
+  int _selectedIndex = 1;
   bool _isLoggedIn = false;
 
   static const _filter = [
@@ -39,13 +48,15 @@ class _SearchScreenState extends State<SearchScreen> {
     ('เมนูแนะนำ', 'recommended'),
   ];
 
-  /* ──────────────────────  init/dispose  ──────────────────── */
   @override
   void initState() {
     super.initState();
     _refreshLoginStatus();
 
-    // ถ้ามาจาก ingredients list ให้ค้นหาอัตโนมัติ
+    if (widget.excludeIngredients?.isNotEmpty ?? false) {
+      _excludeIds = List.from(widget.excludeIngredients!);
+    }
+
     if (widget.ingredients?.isNotEmpty ?? false) {
       _performIngredientSearch(widget.ingredients!);
     }
@@ -62,7 +73,6 @@ class _SearchScreenState extends State<SearchScreen> {
     if (mounted) setState(() => _isLoggedIn = ok);
   }
 
-  /* ──────────────────────  search helpers  ─────────────────── */
   void _onTextChanged(String q) => _debouncer(() => _performSearch(q));
 
   Future<void> _performSearch(String q) async {
@@ -84,8 +94,12 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       final (_, sortKey) = _filter[_selectedChip];
-      final list = await ApiService.searchRecipes(query: q, sort: sortKey)
-          .timeout(const Duration(seconds: 10));
+      final list = await ApiService.searchRecipes(
+        query: q,
+        sort: sortKey,
+        includeIngredientIds: _includeIds.map(int.parse).toList(),
+        excludeIngredientIds: _excludeIds.map(int.parse).toList(),
+      ).timeout(const Duration(seconds: 10));
 
       if (mounted) setState(() => _results = list);
     } on TimeoutException {
@@ -110,7 +124,6 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final list = await ApiService.searchRecipesByIngredientNames(names)
           .timeout(const Duration(seconds: 10));
-
       if (mounted) setState(() => _results = list);
     } on TimeoutException {
       if (mounted) setState(() => _error = 'เซิร์ฟเวอร์ตอบช้า ลองใหม่ภายหลัง');
@@ -123,7 +136,23 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /* ──────────────────────  UI pieces  ─────────────────────── */
+  Future<void> _openFilter() async {
+    final lists = await Navigator.push<List<List<String>>>(
+      context,
+      MaterialPageRoute(builder: (_) => const IngredientFilterScreen()),
+    );
+    if (lists == null) return;
+
+    setState(() {
+      _includeIds = lists[0];
+      _excludeIds = lists[1];
+    });
+
+    if (_includeIds.isNotEmpty || _excludeIds.isNotEmpty) {
+      _performSearch(_searchQuery.isEmpty ? ' ' : _searchQuery);
+    }
+  }
+
   Widget _buildFilterChips() => SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -147,7 +176,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   if (selected) return;
                   setState(() => _selectedChip = i);
                   if (_searchQuery.isNotEmpty && widget.ingredients == null) {
-                    _performSearch(_searchQuery); // re-query
+                    _performSearch(_searchQuery);
                   }
                 },
               ),
@@ -158,7 +187,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildResultArea() {
     if (_loading) return const SizedBox.shrink();
-
     if (_results.isEmpty) {
       return Center(
         child: Text(
@@ -186,12 +214,11 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /* ──────────────────────  bottom-nav  ───────────────────── */
   Future<void> _onBottomNav(int idx) async {
     if (idx == 2 || idx == 3) {
       if (!await AuthService.checkAndRedirectIfLoggedOut(context)) return;
     }
-    if (idx == _selectedIndex) return; // แตะซ้ำไม่ต้องทำอะไร
+    if (idx == _selectedIndex) return;
     setState(() => _selectedIndex = idx);
 
     switch (idx) {
@@ -199,7 +226,7 @@ class _SearchScreenState extends State<SearchScreen> {
         Navigator.pushReplacementNamed(context, '/home');
         break;
       case 1:
-        /* already here */ break;
+        break;
       case 2:
         Navigator.pushReplacementNamed(context, '/my_recipes');
         break;
@@ -209,7 +236,6 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /* ──────────────────────  build  ────────────────────────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -221,6 +247,8 @@ class _SearchScreenState extends State<SearchScreen> {
             CustomSearchBar(
               onChanged: _onTextChanged,
               onSubmitted: _performSearch,
+              onFilterTap: _openFilter,
+              hasActiveFilter: _includeIds.isNotEmpty || _excludeIds.isNotEmpty,
             ),
           if (_searchQuery.isNotEmpty)
             Padding(

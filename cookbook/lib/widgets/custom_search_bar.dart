@@ -4,12 +4,16 @@ import '../utils/debouncer.dart';
 class CustomSearchBar extends StatefulWidget {
   final ValueChanged<String> onChanged;
   final ValueChanged<String>? onSubmitted;
+  final VoidCallback? onFilterTap;
+  final bool? hasActiveFilter; // 🟠 เพิ่ม parameter ใหม่
 
   const CustomSearchBar({
-    Key? key,
+    super.key,
     required this.onChanged,
     this.onSubmitted,
-  }) : super(key: key);
+    this.onFilterTap,
+    this.hasActiveFilter,
+  });
 
   @override
   State<CustomSearchBar> createState() => _CustomSearchBarState();
@@ -69,14 +73,36 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            height: 48,
-            width: 48,
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFBDBDBD)),
-              shape: BoxShape.circle,
+          InkWell(
+            onTap: widget.onFilterTap,
+            borderRadius: BorderRadius.circular(24),
+            child: Container(
+              height: 48,
+              width: 48,
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFBDBDBD)),
+                shape: BoxShape.circle,
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(Icons.tune, color: Colors.grey),
+                  if (widget.hasActiveFilter ?? false)
+                    Positioned(
+                      right: 12,
+                      top: 12,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.orange,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
-            child: const Icon(Icons.tune, color: Colors.grey),
           ),
         ],
       ),
