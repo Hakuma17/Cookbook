@@ -24,7 +24,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with RouteAware {
-  /// ────────────────── data state ──────────────────
+  /* ───────────── data state ───────────── */
   late Future<List<Ingredient>> _futureIngredients;
   late Future<List<Recipe>> _futurePopular;
   late Future<List<Recipe>> _futureNew;
@@ -41,7 +41,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   int _refreshToken = 0; // force AnimatedSwitcher rebuild
   bool _loggingOut = false; // กันกดซ้ำ
 
-  /// ────────────────── init ──────────────────
+  /* ───────────── init ───────────── */
   @override
   void initState() {
     super.initState();
@@ -50,15 +50,16 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
   Future<void> _init() async {
     await _loadLoginStatus();
-    await _fetchAllData();
+    await _fetchAllData(force: true); // ดึงครั้งแรกเสมอ
     if (!mounted) return;
     setState(() => _isLoadingInit = false);
   }
 
-  /// ────────────────── fetch helpers ──────────────────
-  Future<void> _fetchAllData() async {
-    // ถ้าข้อมูลเพิ่งโหลดไม่ถึง 3 นาที ไม่ reload
-    if (DateTime.now().difference(_lastFetch) < const Duration(minutes: 3)) {
+  /* ───────────── fetch helpers ───────────── */
+  Future<void> _fetchAllData({bool force = false}) async {
+    // ข้ามถ้าเพิ่งดึงไม่ถึง 3 นาที (เว้นแต่ force = true)
+    if (!force &&
+        DateTime.now().difference(_lastFetch) < const Duration(minutes: 3)) {
       return;
     }
     _lastFetch = DateTime.now();
@@ -87,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
   Future<void> _reloadLoginAndData() async {
     await _loadLoginStatus();
-    await _fetchAllData();
+    await _fetchAllData(force: true);
   }
 
   Future<void> _loadLoginStatus() async {
@@ -113,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     }
   }
 
-  /// ────────────────── bottom-nav ──────────────────
+  /* ───────────── bottom-nav ───────────── */
   Future<void> _onNavTap(int idx) async {
     switch (idx) {
       case 2: // My recipes
@@ -138,18 +139,22 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }
 
   Future<bool> _ensureLoggedIn() async {
-    final ok = await AuthService.isLoggedIn();
-    if (!ok && mounted) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-      await _reloadLoginAndData();
-    }
+    var ok = await AuthService.isLoggedIn();
+    if (ok) return true;
+
+    // ยังไม่ล็อกอิน → พาไปหน้า Login
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
+
+    // เช็กอีกทีหลังกลับมา
+    ok = await AuthService.isLoggedIn();
+    if (ok) await _reloadLoginAndData();
     return ok;
   }
 
-  /// ────────────────── route aware ──────────────────
+  /* ───────────── route aware ───────────── */
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -165,11 +170,11 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   @override
   void didPopNext() => _reloadLoginAndData();
 
-  /// ────────────────── allergy check ──────────────────
+  /* ───────────── allergy check ───────────── */
   void _handleRecipeTap(Recipe recipe) {
     final hasAllergy = _isLoggedIn &&
         _allergyIngredientIds.isNotEmpty &&
-        recipe.ingredientIds.any((id) => _allergyIngredientIds.contains(id));
+        recipe.ingredientIds.any(_allergyIngredientIds.contains);
 
     if (hasAllergy) {
       _showAllergyWarning(recipe);
@@ -202,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         ),
       );
 
-  /// ────────────────── build ──────────────────
+  /* ───────────── build ───────────── */
   @override
   Widget build(BuildContext context) {
     if (_isLoadingInit) {
@@ -229,13 +234,13 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  /// ────────────────── UI sections ──────────────────
+  /* ───────────── UI sections ───────────── */
   Widget _buildMainHomeView() => Column(
         children: [
           _buildCustomAppBar(),
           Expanded(
             child: RefreshIndicator(
-              onRefresh: _fetchAllData,
+              onRefresh: () => _fetchAllData(force: true),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(top: 16),
                 child: Column(
@@ -297,7 +302,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                   ? null
                   : () async {
                       if (_isLoggedIn) {
-                        _loggingOut = true;
+                        // logout
+                        setState(() => _loggingOut = true);
                         await AuthService.logout();
                         ApiService.clearSession();
                         if (mounted) {
@@ -306,10 +312,13 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                             _profileName = null;
                             _profileImage = null;
                           });
-                          await _fetchAllData();
+                          _lastFetch =
+                              DateTime.fromMillisecondsSinceEpoch(0); // reset
+                          await _fetchAllData(force: true);
                         }
-                        _loggingOut = false;
+                        if (mounted) setState(() => _loggingOut = false);
                       } else {
+                        // go login
                         await Navigator.push(
                           context,
                           MaterialPageRoute(
