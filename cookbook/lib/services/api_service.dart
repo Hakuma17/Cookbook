@@ -30,7 +30,6 @@ class ApiService {
   }
 
   static void clearSession() => _sessionCookie = null;
-
   /* ───────────── low-level helpers ───────────── */
 
   static Future<http.Response> _get(Uri uri) async {
@@ -43,6 +42,10 @@ class ApiService {
     if (r.statusCode != 200) _throwHttp('GET ${uri.path}', r);
     return r;
   }
+
+  // 🔹 สำหรับ endpoint ที่เปิดสาธารณะ — ไม่ส่ง cookie
+  static Future<http.Response> _getPublic(String path) =>
+      _client.get(Uri.parse('$baseUrl$path')).timeout(_timeout);
 
   static Future<http.Response> _post(
       String path, Map<String, String> body) async {
@@ -124,11 +127,16 @@ class ApiService {
     }
     throw Exception('$what (${r.statusCode})');
   }
+
   // ─── Data Endpoints ───────────────────────────────────────────────────────
 
-  /// GET: ดึงวัตถุดิบทั้งหมด
+  /// GET: ดึงวัตถุดิบทั้งหมด (public)
   static Future<List<Ingredient>> fetchIngredients() async {
-    final resp = await _getWithSession('get_ingredients.php');
+    final loggedIn = await AuthService.isLoggedIn();
+    final resp = await (loggedIn
+        ? _getWithSession('get_ingredients.php')
+        : _getPublic('get_ingredients.php'));
+
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดวัตถุดิบได้ (${resp.statusCode})');
     }
@@ -144,14 +152,17 @@ class ApiService {
         .toList();
   }
 
-  /// GET: ดึงสูตรยอดนิยม
+  /// GET: ดึงสูตรยอดนิยม (public)
   static Future<List<Recipe>> fetchPopularRecipes() async {
-    final resp = await _getWithSession('get_popular_recipes.php');
+    final loggedIn = await AuthService.isLoggedIn();
+    final resp = await (loggedIn
+        ? _getWithSession('get_popular_recipes.php')
+        : _getPublic('get_popular_recipes.php'));
+
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดสูตรยอดนิยมได้ (${resp.statusCode})');
     }
 
-    //
     final Map<String, dynamic> j = jsonDecode(resp.body);
     if (j['success'] != true || j['data'] is! List) {
       throw Exception(j['message'] ?? 'โหลดสูตรยอดนิยมล้มเหลว');
@@ -162,14 +173,17 @@ class ApiService {
         .toList();
   }
 
-  /// GET: ดึงสูตรใหม่ล่าสุด
+  /// GET: ดึงสูตรใหม่ล่าสุด (public)
   static Future<List<Recipe>> fetchNewRecipes() async {
-    final resp = await _getWithSession('get_new_recipes.php');
+    final loggedIn = await AuthService.isLoggedIn();
+    final resp = await (loggedIn
+        ? _getWithSession('get_new_recipes.php')
+        : _getPublic('get_new_recipes.php'));
+
     if (resp.statusCode != 200) {
       throw Exception('ไม่สามารถโหลดสูตรใหม่ได้ (${resp.statusCode})');
     }
 
-    // ✅ เปลี่ยนจาก List เป็น Map เพราะ API คืน { success: true, data: [...] }
     final Map<String, dynamic> j = jsonDecode(resp.body);
     if (j['success'] != true || j['data'] is! List) {
       throw Exception(j['message'] ?? 'โหลดสูตรใหม่ล้มเหลว');
@@ -347,10 +361,12 @@ class ApiService {
     if (!result['success']) throw Exception(result['message']);
   }
 
-  // ─── Allergies (รวม get/add/remove ผ่าน manage_allergy.php) ────────────────
+  // ─── Allergies ───────────────────────────────────────────────────────────
 
-  /// GET: ดึงรายการวัตถุดิบที่แพ้
+  /// GET: ดึงรายการวัตถุดิบที่แพ้ (guard guest)
   static Future<List<Ingredient>> fetchAllergyIngredients() async {
+    if (!await AuthService.isLoggedIn()) return <Ingredient>[];
+
     final resp = await _getWithSession('get_allergy_list.php');
     if (resp.statusCode != 200) {
       throw Exception('โหลดข้อมูลวัตถุดิบที่แพ้ไม่สำเร็จ (${resp.statusCode})');
