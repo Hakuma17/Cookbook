@@ -19,7 +19,8 @@ class WelcomeScreen extends StatefulWidget {
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
   // ─────────────────── Google Sign-In client ────────────────────
-  final _google = GoogleSignIn(
+  /// *สร้างครั้งเดียวพอ* ลดปัญหา session ค้างข้ามหน้า
+  static final _google = GoogleSignIn(
     scopes: ['email', 'profile', 'openid'],
     serverClientId:
         '84901598956-dui13r3k1qmvo0t0kpj6h5mhjrjbvoln.apps.googleusercontent.com',
@@ -32,7 +33,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   void initState() {
     super.initState();
-    // ถ้าผู้ใช้ sign-in เสร็จ แต่ app ถูก kill mid-way → callback นี้รับต่อ
+    // ถ้าผู้ใช้ sign-in เสร็จ แต่แอปถูก kill mid-way → callback นี้รับต่อ
     _sub = _google.onCurrentUserChanged.listen((acc) {
       if (acc != null && _signing) _finishGoogleFlow(acc);
     });
@@ -50,17 +51,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     setState(() => _signing = true);
 
     try {
-      // เคลียร์ session เดิมก่อนทุกครั้ง เพื่อให้ signIn() ครั้งถัดไปไม่ติด session เก่า
+      // 1) เคลียร์ session เดิมทุกครั้ง
       await _google.signOut();
 
-      // signIn() อาจ throw หรือคืน null หากยกเลิก
+      // 2) เริ่ม sign-in (อาจ throw หรือคืน null หากยกเลิก)
       final account = await _google.signIn();
       if (account == null) {
         throw Exception('ยกเลิกการลงทะเบียนด้วย Google');
       }
+
       await _finishGoogleFlow(account);
     } on Exception catch (e) {
-      _showErr(e.toString());
+      _showErr(e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _signing = false);
     }
@@ -68,6 +70,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   Future<void> _finishGoogleFlow(GoogleSignInAccount account) async {
     try {
+      // 1) ขอ idToken
       final auth =
           await account.authentication.timeout(const Duration(seconds: 10));
       final idToken = auth.idToken;
@@ -75,10 +78,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         throw Exception('ไม่สามารถดึง Google ID Token ได้');
       }
 
+      // 2) ส่งไป backend
       final res = await ApiService.googleSignIn(idToken)
           .timeout(const Duration(seconds: 10));
+
+      // 3) บันทึก session/token ฝั่ง client
       await AuthService.saveLoginData(res['data'] as Map<String, dynamic>);
 
+      // 4) ไปหน้า Home
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -91,11 +98,19 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     }
   }
 
+  /*──────────────────── helpers ────────────────────*/
   void _showErr(String msg) {
     if (!mounted) return;
     setState(() => _error = msg);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+    );
+  }
+
+  void _enterAsGuest() {
+    ApiService.clearSession(); // กัน cookie เก่าแอบติด
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
   }
 
@@ -210,13 +225,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+
               /*────────── Guest Access ──────────*/
               SizedBox(
                 height: 52,
                 child: ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  ),
+                  onPressed: _signing ? null : _enterAsGuest,
                   icon: const Icon(Icons.login),
                   label: const Text('เข้าใช้งานโดยไม่ต้องล็อกอิน',
                       style: TextStyle(fontSize: 16)),
