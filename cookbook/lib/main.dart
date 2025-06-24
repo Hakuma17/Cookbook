@@ -26,37 +26,36 @@ final RouteObserver<ModalRoute<void>> routeObserver =
 
 /* ───────────── main ───────────── */
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting('th', null);
+  /// 🟡 ย้ายทั้งหมดเข้ามาใน `runZonedGuarded` เดียวกัน
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await initializeDateFormatting('th', null);
 
-  // จับ error ที่หลุดออกมาจาก Flutter framework
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    debugPrint('❌ FlutterError: ${details.exception}');
-  };
+    // จับ error ของ Flutter framework
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      debugPrint('❌ FlutterError: ${details.exception}');
+    };
 
-  // จับ error อื่น ๆ ที่ทะลุ zone
-  runZonedGuarded(
-    () => runApp(const CookingGuideApp()),
-    (error, stack) async {
-      debugPrint('‼️ Uncaught Zone Error → $error\n$stack');
+    runApp(const CookingGuideApp());
+  }, (error, stack) async {
+    debugPrint('‼️ Uncaught Zone Error → $error\n$stack');
 
-      // กรณี session หมดอายุ → ลบ token แบบเงียบ ๆ แล้วพาไปหน้า Login
-      if (error.toString().contains('401') ||
-          error.toString().contains('Unauthenticated')) {
-        await AuthService.logout(silent: true);
-        navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
-        return;
-      }
+    // ถ้า token หมดอายุ → เคลียร์ session แล้วไปหน้า Login
+    if (error.toString().contains('401') ||
+        error.toString().contains('Unauthenticated')) {
+      await AuthService.logout(silent: true);
+      navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
+      return;
+    }
 
-      final ctx = navKey.currentContext;
-      if (ctx != null && ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('เกิดข้อผิดพลาดไม่คาดคิด: $error')),
-        );
-      }
-    },
-  );
+    final ctx = navKey.currentContext;
+    if (ctx != null && ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาดไม่คาดคิด: $error')),
+      );
+    }
+  });
 }
 
 /* ───────────── app ───────────── */
@@ -91,7 +90,7 @@ class CookingGuideApp extends StatelessWidget {
       navigatorKey: navKey,
       navigatorObservers: [routeObserver],
       theme: _theme(),
-      home: const SplashScreen(),
+      home: const SplashScreen(), // ← Welcome / Splash เสมอ
       onGenerateRoute: _onGenerateRoute,
       onUnknownRoute: (_) => _errorRoute('ไม่พบหน้าที่คุณเรียก'),
     );
@@ -181,7 +180,7 @@ class AuthGuard extends StatelessWidget {
         }
         if (snap.data == true) return child;
 
-        // token หมดอายุ → ลบ session ฝั่ง client แล้วไปหน้า Login
+        // token หมดอายุ → ลบ session client แล้วไป Login
         ApiService.clearSession();
         return const LoginScreen();
       },
