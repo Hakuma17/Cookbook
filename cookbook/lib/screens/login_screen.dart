@@ -19,6 +19,13 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
+// ── helper สำหรับไปหน้า Home ─────────────────────────────────
+void _goToHome(BuildContext context) {
+  Navigator.of(context).pushReplacement(
+    MaterialPageRoute(builder: (_) => const HomeScreen()),
+  );
+}
+
 class _LoginScreenState extends State<LoginScreen> {
   /* ── controllers ────────────────────────────────────────────────── */
   final _formKey = GlobalKey<FormState>();
@@ -45,8 +52,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   /* ── navigation ───────────────────────────────────────────────── */
-  void _navHome() => Navigator.pushReplacement(
-      context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+  void _navHome() => _goToHome(context);
+
+  /* ── guest access ─────────────────────────────────────────────── */
+  void _enterAsGuest() {
+    ApiService.clearSession();
+    _goToHome(context);
+  }
 
   /* ── helpers ──────────────────────────────────────────────────── */
   void _setErr(String? m) {
@@ -66,7 +78,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /* ── email/password login ─────────────────────────────────────── */
   Future<void> _loginWithEmail() async {
-    // ตรวจฟอร์มก่อน submit
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
 
@@ -81,7 +92,6 @@ class _LoginScreenState extends State<LoginScreen> {
         _passCtrl.text,
       ).timeout(const Duration(seconds: 10));
 
-      // ตรวจผลลัพธ์จาก API
       if (res['success'] != true) {
         _setErr(res['message'] ?? 'รหัสผ่านหรืออีเมลไม่ถูกต้อง');
         return;
@@ -113,6 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (await _googleSignIn.isSignedIn()) {
         await _googleSignIn.signOut();
       }
+
       final account = await _googleSignIn.signIn();
       if (account == null) throw Exception('ยกเลิกการล็อกอินด้วย Google');
 
@@ -135,6 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _setErr('ไม่มีการเชื่อมต่ออินเทอร์เน็ต');
     } catch (e) {
       _setErr(_fmtErr(e));
+      await _googleSignIn.signOut(); // fallback เคลียร์สถานะเดิม
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -154,14 +166,11 @@ class _LoginScreenState extends State<LoginScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
           child: Form(
             key: _formKey,
-            // ปิด real-time validation
             autovalidateMode: AutovalidateMode.disabled,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 40),
-
-                // โลโก้ & หัวเรื่อง
                 Center(
                   child: Image.asset(
                     'assets/images/logo.png',
@@ -215,8 +224,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         : () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => const ResetPasswordScreen(),
-                              ),
+                                  builder: (_) => const ResetPasswordScreen()),
                             ),
                     child: const Text('ลืมรหัสผ่าน'),
                   ),
@@ -237,14 +245,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     child: _isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'ลงชื่อเข้าใช้',
-                            style: TextStyle(fontSize: 18, color: Colors.white),
-                          ),
+                        : const Text('ลงชื่อเข้าใช้',
+                            style:
+                                TextStyle(fontSize: 18, color: Colors.white)),
                   ),
                 ),
 
-                // ── ข้อความข้อผิดพลาด ─────────────────────────
                 if (_errorMsg != null) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -318,12 +324,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // ── Guest access ─────────────────────────────
                 SizedBox(
                   height: 52,
                   child: ElevatedButton.icon(
-                    onPressed: () => Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(builder: (_) => const HomeScreen()),
-                    ),
+                    onPressed: _isLoading ? null : _enterAsGuest,
                     icon: const Icon(Icons.login),
                     label: const Text('เข้าใช้งานโดยไม่ต้องล็อกอิน',
                         style: TextStyle(fontSize: 16)),

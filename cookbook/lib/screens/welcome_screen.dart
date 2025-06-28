@@ -28,20 +28,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   bool _signing = false; // true ระหว่าง sign-in
   String? _error; // ข้อผิดพลาดล่าสุด
-  StreamSubscription? _sub; // listen onCurrentUserChanged
 
   @override
   void initState() {
     super.initState();
-    // ถ้าผู้ใช้ sign-in เสร็จ แต่แอปถูก kill mid-way → callback นี้รับต่อ
-    _sub = _google.onCurrentUserChanged.listen((acc) {
-      if (acc != null && _signing) _finishGoogleFlow(acc);
-    });
+    //  ลบ listener ทิ้ง — ป้องกันเรียกซ้ำ
+    // ถ้าเคยใช้ signInSilently() หรือ restore session ค่อยใช้ภายหลัง
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
     super.dispose();
   }
 
@@ -81,6 +77,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       // 2) ส่งไป backend
       final res = await ApiService.googleSignIn(idToken)
           .timeout(const Duration(seconds: 10));
+
+      //  เช็คว่าสำเร็จก่อนบันทึก
+      if (res['success'] != true) {
+        throw Exception(res['message'] ?? 'ล็อกอินไม่สำเร็จ');
+      }
 
       // 3) บันทึก session/token ฝั่ง client
       await AuthService.saveLoginData(res['data'] as Map<String, dynamic>);

@@ -1,6 +1,12 @@
+// ignore_for_file: use_build_context_synchronously
 import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
+
+import 'services/api_service.dart';
+import 'services/auth_service.dart';
 
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
@@ -15,8 +21,6 @@ import 'screens/all_ingredients_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/allergy_screen.dart';
 
-import 'services/auth_service.dart';
-import 'services/api_service.dart';
 import 'models/recipe.dart';
 
 /* ───────────── globals ───────────── */
@@ -26,24 +30,22 @@ final RouteObserver<ModalRoute<void>> routeObserver =
 
 /* ───────────── main ───────────── */
 Future<void> main() async {
-  /// 🟡 ย้ายทั้งหมดเข้ามาใน `runZonedGuarded` เดียวกัน
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    await initializeDateFormatting('th', null);
 
-    // จับ error ของ Flutter framework
+    await ApiService.initBaseUrl(); // ตั้งค่า base URL
+    await initializeDateFormatting('th', null); // load locale TH
+
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
-      debugPrint('❌ FlutterError: ${details.exception}');
+      debugPrint('Flutter framework error: ${details.exception}');
     };
 
     runApp(const CookingGuideApp());
   }, (error, stack) async {
-    debugPrint('‼️ Uncaught Zone Error → $error\n$stack');
+    debugPrint('Uncaught zone error → $error\n$stack');
 
-    // ถ้า token หมดอายุ → เคลียร์ session แล้วไปหน้า Login
-    if (error.toString().contains('401') ||
-        error.toString().contains('Unauthenticated')) {
+    if ('$error'.contains('401') || '$error'.contains('Unauthenticated')) {
       await AuthService.logout(silent: true);
       navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
       return;
@@ -61,13 +63,17 @@ Future<void> main() async {
 /* ───────────── app ───────────── */
 class CookingGuideApp extends StatelessWidget {
   const CookingGuideApp({super.key});
-
   static const _primary = Color(0xFFFF9B05);
 
   ThemeData _theme() => ThemeData(
         useMaterial3: false,
         scaffoldBackgroundColor: Colors.white,
         colorScheme: ColorScheme.fromSeed(seedColor: _primary),
+
+        // 🔹 ไม่ใช้ GoogleFonts อีกต่อไป – Roboto (default) จะถูกใช้อัตโนมัติ
+        // ถ้าอยากปรับขนาด/น้ำหนักก็กำหนดใน TextTheme ตามปกติ
+        // textTheme: const TextTheme(...),
+
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: _primary,
@@ -83,18 +89,16 @@ class CookingGuideApp extends StatelessWidget {
       );
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Cooking Guide',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: navKey,
-      navigatorObservers: [routeObserver],
-      theme: _theme(),
-      home: const SplashScreen(), // ← Welcome / Splash เสมอ
-      onGenerateRoute: _onGenerateRoute,
-      onUnknownRoute: (_) => _errorRoute('ไม่พบหน้าที่คุณเรียก'),
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'Cooking Guide',
+        debugShowCheckedModeBanner: false,
+        navigatorKey: navKey,
+        navigatorObservers: [routeObserver],
+        theme: _theme(),
+        home: const SplashScreen(),
+        onGenerateRoute: _onGenerateRoute,
+        onUnknownRoute: (_) => _errorRoute('ไม่พบหน้าที่คุณเรียก'),
+      );
 
   /* ───────────── route factory ───────────── */
   Route<dynamic>? _onGenerateRoute(RouteSettings s) {
@@ -169,23 +173,20 @@ class AuthGuard extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: AuthService.isLoggedIn(),
-      builder: (ctx, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snap.data == true) return child;
+  Widget build(BuildContext context) => FutureBuilder<bool>(
+        future: AuthService.isLoggedIn(),
+        builder: (ctx, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snap.data == true) return child;
 
-        // token หมดอายุ → ลบ session client แล้วไป Login
-        ApiService.clearSession();
-        return const LoginScreen();
-      },
-    );
-  }
+          ApiService.clearSession();
+          return const LoginScreen();
+        },
+      );
 }
 
 /* ───────────── fallback page ───────────── */

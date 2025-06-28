@@ -63,7 +63,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       } else {
-        setState(() => _errorMsg = res['message'] ?? 'เกิดข้อผิดพลาด');
+        final errs = res['errors'];
+        if (errs is List) {
+          setState(() => _errorMsg = errs.join('\n'));
+        } else {
+          setState(() => _errorMsg = res['message'] ?? 'เกิดข้อผิดพลาด');
+        }
       }
     } catch (_) {
       setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
@@ -79,8 +84,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFCC09C), // สีครีมอ่อน
-      resizeToAvoidBottomInset: false, // ไม่ให้ UI หลักขยับตอนแป้นพิมพ์เด้ง
+      backgroundColor: const Color(0xFFFCC09C),
+      resizeToAvoidBottomInset: false,
       body: Column(
         children: [
           Expanded(
@@ -103,7 +108,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     size.width * .07,
                     24,
                     size.width * .07,
-                    24 + bottomInset, // กันพื้นที่ใต้แป้นพิมพ์
+                    24 + bottomInset,
                   ),
                   child: Form(
                     key: _formKey,
@@ -153,7 +158,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         // ─────── รหัสผ่าน ───────
                         _buildTextField(
                           icon: Icons.lock_outline,
-                          hint: 'รหัสผ่าน (อย่างน้อย 6 ตัว)',
+                          hint: 'รหัสผ่าน (อย่างน้อย 8 ตัว)',
                           controller: _passCtrl,
                           obscure: _hidePass,
                           suffixIcon: IconButton(
@@ -166,8 +171,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             onPressed: () =>
                                 setState(() => _hidePass = !_hidePass),
                           ),
-                          validator: (v) => v!.length < 6
-                              ? 'ใช้รหัสผ่านอย่างน้อย 6 ตัว'
+                          validator: (v) => v!.length < 8
+                              ? 'ใช้รหัสผ่านอย่างน้อย 8 ตัว'
                               : null,
                         ),
                         const SizedBox(height: 20),
@@ -191,16 +196,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           validator: (v) =>
                               v != _passCtrl.text ? 'รหัสผ่านไม่ตรงกัน' : null,
                         ),
-                        const SizedBox(height: 32),
-
-                        // ─────── ปุ่มสมัคร ───────
+                        const SizedBox(height: 24),
+                        if (_errorMsg != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Text(
+                              _errorMsg!,
+                              style: const TextStyle(
+                                  color: Colors.red, height: 1.4),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         SizedBox(
                           height: 56,
                           child: ElevatedButton(
                             onPressed: _isLoading ? null : _register,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  const Color(0xFFFCC09C), // พาสเทลส้มอ่อน
+                              backgroundColor: const Color(0xFFFCC09C),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(200),
                               ),
