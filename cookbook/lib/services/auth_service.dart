@@ -1,3 +1,4 @@
+import 'package:cookbook/models/ingredient.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
@@ -15,8 +16,22 @@ class AuthService {
 
   /* ───────────── getters ───────────── */
 
-  static Future<bool> isLoggedIn() async =>
-      (await _prefs).getBool(_keyIsLoggedIn) ?? false;
+  static Future<bool> isLoggedIn() async {
+    final p = await _prefs;
+    final local = p.getBool(_keyIsLoggedIn) ?? false;
+
+    // เพิ่มการตรวจสอบ session จริงกับ backend
+    if (!local) return false;
+    try {
+      final ok = await ApiService.pingSession();
+      if (!ok)
+        await logout(silent: true); // ★ เพิ่ม: เคลียร์ session ถ้า ping ไม่ผ่าน
+      return ok;
+    } catch (_) {
+      await logout(silent: true); // ★ เพิ่ม: handle error กรณี API ล่ม
+      return false;
+    }
+  }
 
   static Future<int?> getUserId() async => (await _prefs).getInt(_keyUserId);
   static Future<String?> getProfileName() async =>
@@ -37,7 +52,7 @@ class AuthService {
     await p.setInt(_keyUserId, userId);
     await p.setString(_keyProfileName, profileName);
     await p.setString(_keyProfileImage, profileImage);
-    await p.setString(_keyEmail, email);
+    await p.setString(_keyEmail, email.trim()); // ★ เพิ่ม trim เพื่อกันช่องว่าง
   }
 
   static Future<void> saveLoginData(Map<String, dynamic> d) async {
@@ -79,5 +94,12 @@ class AuthService {
     if (await isLoggedIn()) return true;
     Navigator.of(ctx).pushReplacementNamed('/login');
     return false;
+  }
+
+  /// คืนรายการชื่อวัตถุดิบที่แพ้ของผู้ใช้ (ถ้ายังไม่ล็อกอิน คืน list ว่าง)
+  static Future<List<String>> getUserAllergies() async {
+    if (!await isLoggedIn()) return [];
+    final List<Ingredient> list = await ApiService.fetchAllergyIngredients();
+    return list.map((ing) => ing.name).toList();
   }
 }

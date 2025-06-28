@@ -13,6 +13,7 @@ import '../models/comment.dart';
 import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 /// จัดการทุก API call กับ backend (PHP)
 class ApiService {
@@ -22,14 +23,37 @@ class ApiService {
   static const _timeout = Duration(seconds: 30);
   static String? _sessionCookie;
 
-  static String get baseUrl {
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2/cookbookapp/';
+  static late final String baseUrl;
+
+  /// เรียกครั้งเดียวก่อน runApp()
+  static Future<void> initBaseUrl() async {
+    if (Platform.isAndroid) {
+      final info = await DeviceInfoPlugin().androidInfo;
+      if (info.isPhysicalDevice) {
+        // เครื่องจริง ให้ใช้ IP ของคอมพ์ (เปลี่ยนตาม ipconfig)
+        baseUrl = 'http://192.168.60.60/cookbookapp/';
+      } else {
+        // Emulator
+        baseUrl = 'http://10.0.2.2/cookbookapp/';
+      }
+    } else {
+      // iOS Simulator / Desktop
+      baseUrl = 'http://localhost/cookbookapp/';
     }
-    return 'http://localhost/cookbookapp/';
   }
 
   static void clearSession() => _sessionCookie = null;
+
+  /// GET: ping session → ใช้ใน AuthService เพื่อตรวจ session ว่ายังใช้ได้ไหม
+  static Future<bool> pingSession() async {
+    try {
+      final res = await _getWithSession('ping.php');
+      final j = jsonDecode(res.body);
+      return j['valid'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
   /* ───────────── low-level helpers ───────────── */
 
   static Future<http.Response> _get(Uri uri) async {
@@ -222,15 +246,19 @@ class ApiService {
 
   // ─── Favorites & Ratings ─────────────────────────────────────────────────
 
-  /// POST: สลับสถานะโปรด
-  static Future<void> toggleFavorite(int recipeId, bool fav) async {
+  // เปลี่ยนจาก void ⇒ Future<int> เพื่อคืน count ใหม่
+  static Future<int> toggleFavorite(int recipeId, bool fav) async {
     final result = await _postAndProcess('toggle_favorite.php', {
       'recipe_id': recipeId.toString(),
       'favorite': fav ? '1' : '0',
     });
+
     if (!result['success']) {
       throw Exception(result['message']);
     }
+
+    // PHP เราเพิ่งแก้ให้ส่ง favorite_count กลับมา
+    return int.tryParse(result['favorite_count'].toString()) ?? 0;
   }
 
   /// POST: โพสต์เรตติ้งใหม่ → คืน average_rating
@@ -409,12 +437,28 @@ class ApiService {
     });
   }
 
-  /// POST: ล็อกอิน
-  static Future<Map<String, dynamic>> login(String email, String password) =>
-      _postAndProcess('login.php', {
+  /// POST: ล็อกอิน (email/password)
+  static Future<Map<String, dynamic>> login(
+      String email, String password) async {
+    final uri = Uri.parse('${baseUrl}login.php');
+    final res = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: {
         'email': email,
         'password': password,
-      });
+      },
+    ).timeout(_timeout);
+
+    //  จับ session จาก Set-Cookie เสมอ
+    final raw = res.headers['set-cookie'];
+    final m = raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
+    if (m != null) _sessionCookie = m.group(1);
+
+    return _safeProcess(res);
+  }
 
   /// POST: ออกจากระบบ
   static Future<void> logout() async {
@@ -435,10 +479,25 @@ class ApiService {
       });
 
   /// POST: Google Sign-In
-  static Future<Map<String, dynamic>> googleSignIn(String idToken) =>
-      _postAndProcess('google_login.php', {
+  static Future<Map<String, dynamic>> googleSignIn(String idToken) async {
+    final uri = Uri.parse('${baseUrl}google_login.php');
+    final res = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: {
         'id_token': idToken,
-      });
+      },
+    ).timeout(_timeout);
+
+    // ✅ จับ session จาก Set-Cookie เสมอ
+    final raw = res.headers['set-cookie'];
+    final m = raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
+    if (m != null) _sessionCookie = m.group(1);
+
+    return _safeProcess(res);
+  }
 
   /// POST: ขอ OTP (reset password)
   static Future<Map<String, dynamic>> sendOtp(String email) =>
@@ -535,45 +594,63 @@ class ApiService {
     return (j['data'] is Map<String, dynamic>) ? j['data'] : {};
   }
 
-// ─── Search ────────────────────────────────────────────────────────────────
+// ─── Search ──────────────────────────────────────────
 
-  /// GET: ค้นหาสูตรอาหาร
-  /// - query         : คำค้น (≥ 2 ตัวอักษร)
-  /// - sort          : popular | trending | latest | recommended  (default: latest)
-  /// - page          : หน้า (เริ่ม 1)
-  /// - includeIds    : ingredient_id ที่ “ต้องมี”   (include_ids[])
-  /// - excludeIds    : ingredient_id ที่ “ต้องไม่มี” (exclude_ids[])
-  /// - categoryId    : หมวดอาหารจริง (ตาราง category) – ส่ง cat_id
+  /// ค้นหาสูตรอาหาร (ส่งได้ทั้ง keyword / ingredient names / id)
   static Future<List<Recipe>> searchRecipes({
     required String query,
     int page = 1,
-    String sort = 'latest', // ★ เปลี่ยนจาก category → sort
-    List<int>? includeIngredientIds,
-    List<int>? excludeIngredientIds,
+    int limit = 26,
+    String sort = 'latest',
+
+    /* ── เงื่อนไขกรองวัตถุดิบ ───────────────────── */
+    List<String>? ingredientNames, // fuzzy-map เป็น id ที่ฝั่ง PHP
+    List<int>? includeIngredientIds, // id “ต้องมี”
+    List<int>? excludeIngredientIds, // id “ต้องไม่มี”
+
     int? categoryId,
   }) async {
-    // 1) สร้าง queryEntries (รองรับ key ซ้ำ)
+    /* 1) ประกอบ query-string (key ซ้ำได้) */
     final entries = <MapEntry<String, String>>[
-      MapEntry('q', query),
       MapEntry('page', page.toString()),
+      MapEntry('limit', limit.toString()),
       MapEntry('sort', sort),
     ];
 
+    /* 1-A keyword ค้นชื่อเมนู – ส่งก็ต่อเมื่อ “ไม่มี” เงื่อนไขวัตถุดิบ */
+    final hasNameFilters = ingredientNames?.isNotEmpty ?? false;
+    final hasIdFilters = includeIngredientIds?.isNotEmpty ?? false;
+    if (query.trim().isNotEmpty && !hasNameFilters && !hasIdFilters) {
+      entries.add(MapEntry('q', query.trim()));
+    }
+
+    /* 1-B หมวดอาหาร */
     if (categoryId != null) {
       entries.add(MapEntry('cat_id', categoryId.toString()));
     }
 
-    if (includeIngredientIds?.isNotEmpty ?? false) {
+    /* 1-C ingredientNames → ingredients=กุ้ง,กระเทียม */
+    if (hasNameFilters) {
+      final clean = ingredientNames!
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (clean.isNotEmpty) {
+        entries.add(MapEntry('ingredients', clean.join(',')));
+      }
+    }
+
+    /* 1-D include / exclude ids */
+    if (hasIdFilters) {
       entries.addAll(includeIngredientIds!
           .map((id) => MapEntry('include_ids[]', id.toString())));
     }
-
     if (excludeIngredientIds?.isNotEmpty ?? false) {
       entries.addAll(excludeIngredientIds!
           .map((id) => MapEntry('exclude_ids[]', id.toString())));
     }
 
-    // 2) เรียก API
+    /* 2) เรียก API */
     final uri = Uri.parse('${baseUrl}get_search_recipes.php')
         .replace(queryParameters: Map.fromEntries(entries));
 
@@ -582,7 +659,7 @@ class ApiService {
       throw Exception('ค้นหาไม่สำเร็จ (${resp.statusCode})');
     }
 
-    final Map<String, dynamic> j = jsonDecode(resp.body);
+    final j = jsonDecode(resp.body) as Map<String, dynamic>;
     if (j['success'] != true) {
       throw Exception(j['message'] ?? 'ค้นหาไม่สำเร็จ');
     }
@@ -592,17 +669,21 @@ class ApiService {
         .toList();
   }
 
-  /// GET: ค้นหาสูตรอาหารจาก “รายชื่อวัตถุดิบ”
-  /// - names : รายชื่อวัตถุดิบคั่นด้วย ,
-  /// - sort  : (เลือกได้เหมือนด้านบน)  default = popular
+  /// ค้นหาสูตรจาก “รายชื่อวัตถุดิบ” ตรง ๆ
   static Future<List<Recipe>> searchRecipesByIngredientNames(
     List<String> names, {
     String sort = 'popular',
+    int limit = 26,
   }) async {
+    final clean =
+        names.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    if (clean.isEmpty) return <Recipe>[];
+
     final uri = Uri.parse('${baseUrl}get_search_recipes.php').replace(
       queryParameters: {
-        'ingredients': names.join(','),
+        'ingredients': clean.join(','),
         'sort': sort,
+        'limit': limit.toString(),
       },
     );
 
@@ -611,7 +692,7 @@ class ApiService {
       throw Exception('ค้นหาสูตรจากวัตถุดิบล้มเหลว (${resp.statusCode})');
     }
 
-    final Map<String, dynamic> j = jsonDecode(resp.body);
+    final j = jsonDecode(resp.body) as Map<String, dynamic>;
     if (j['success'] != true) {
       throw Exception(j['message'] ?? 'ค้นหาสูตรไม่สำเร็จ');
     }
@@ -619,5 +700,26 @@ class ApiService {
     return (j['data'] as List)
         .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Suggestion Autocomplete
+  static Future<List<String>> getIngredientSuggestions(String pattern) async {
+    if (pattern.isEmpty) return [];
+
+    try {
+      final resp = await _client
+          .get(Uri.parse(
+            '${baseUrl}get_ingredient_suggestions.php?term=${Uri.encodeComponent(pattern)}',
+          ))
+          .timeout(_timeout);
+
+      final j = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (j['success'] == true) {
+        return List<String>.from(j['data']);
+      }
+    } catch (e) {
+      debugPrint('Suggestion error: $e');
+    }
+    return [];
   }
 }
