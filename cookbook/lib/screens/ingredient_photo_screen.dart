@@ -1,21 +1,25 @@
-// ignore_for_file: use_build_context_synchronously
+// ingredient_photo_screen.dart
+// ©2025  – เวอร์ชันปรับปรุงตาม mock-up + ครอปรูปเป็นสี่เหลี่ยมจัตุรัสก่อนส่งเข้าโมเดล
 
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:camera/camera.dart';
 import 'package:tflite_flutter/tflite_flutter.dart' as tfl;
-import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'ingredient_prediction_result_screen.dart';
 
-Future<List<String>?> scanIngredient(BuildContext context) =>
+// เรียกใช้หน้าสแกนวัตถุดิบจากที่อื่น
+Future<List<String>?> scanIngredient(BuildContext ctx) =>
     Navigator.push<List<String>>(
-      context,
+      ctx,
       MaterialPageRoute(builder: (_) => const IngredientPhotoScreen()),
     );
 
@@ -27,34 +31,44 @@ class IngredientPhotoScreen extends StatefulWidget {
 }
 
 class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
-  File? _imageFile;
-  bool _busy = false;
-  bool _detecting = false;
-  List<Map<String, dynamic>> _results = const [];
-  final _picker = ImagePicker();
+  //─── สีและอัตราส่วน ───────────────────────────────
+  static const _BG = Color(0xFFFFEED6);
+  static const _ACCENT = Color(0xFFFF9B05);
+  static const double _FRAME_RATIO = 1; // 1:1
 
-  late tfl.Interpreter _interpreter;
-  late List<String> _labels;
+  //─── สถานะ runtime ───────────────────────────────
+  bool _busy = false;
   bool _modelReady = false;
+
+  //─── helpers ────────────────────────────────────────
+  final _picker = ImagePicker();
+  late tfl.Interpreter _itp;
+  late List<String> _labels;
+
+  //─── กล้อง ───────────────────────────────────────────
+  CameraController? _cam;
+  late Future<void> _camInit;
 
   @override
   void initState() {
     super.initState();
     _loadModel();
+    _initCamera();
   }
 
   @override
   void dispose() {
-    _interpreter.close();
+    _itp.close();
+    _cam?.dispose();
     super.dispose();
   }
 
+  /// โหลดโมเดลและ labels จาก assets
   Future<void> _loadModel() async {
     try {
-      // ไม่ต้อง prefix 'assets/'
-      _interpreter = await tfl.Interpreter.fromAsset(
-          'assets/converted_tflite_quantized/model_unquant.tflite');
-      _interpreter.allocateTensors();
+      _itp = await tfl.Interpreter.fromAsset(
+          'assets/converted_tflite_quantized/model_unquant.tflite')
+        ..allocateTensors();
 
       _labels = (await rootBundle
               .loadString('assets/converted_tflite_quantized/labels.txt'))
@@ -68,50 +82,82 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _runModel(File file) async {
-    // อ่านไฟล์รูป
-    final bytes = await file.readAsBytes();
-    final imgSrc = img.decodeImage(bytes);
-    if (imgSrc == null) return [];
+  /// ประมวลผลภาพด้วย TFLite, คืน list ของ { label, confidence }
+  Future<List<Map<String, dynamic>>> _runModel(File imgFile) async {
+    final bytes = await imgFile.readAsBytes();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return [];
 
-    // ย่อรูป
-    final resized = img.copyResize(imgSrc, width: 224, height: 224);
-
-    // ดึง raw bytes (RGB) → length = 224*224*3
+    final resized = img.copyResize(decoded, width: 224, height: 224);
     final rgb = resized.getBytes();
 
-    // สร้าง input buffer [1,224,224,3]
-    final input = Float32List(rgb.length);
-    for (int i = 0; i < rgb.length; i++) {
-      input[i] = rgb[i] / 255.0;
-    }
-
-    // เตรียม output buffer
+    final input = Float32List(rgb.length)..setAll(0, rgb.map((e) => e / 255.0));
     final output =
         List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
 
-    // รัน interpreter
-    _interpreter.run(input.reshape([1, 224, 224, 3]), output);
+    _itp.run(input.reshape([1, 224, 224, 3]), output);
 
-    // เก็บผลลัพธ์ที่ confidence > 0.05
     final res = <Map<String, dynamic>>[];
-    for (int i = 0; i < _labels.length; i++) {
-      final score = output[0][i] as double;
-      if (score > 0.05) {
-        res.add({'label': _labels[i], 'confidence': score});
-      }
+    for (var i = 0; i < _labels.length; i++) {
+      final scr = output[0][i] as double;
+      if (scr > 0.05) res.add({'label': _labels[i], 'confidence': scr});
     }
     res.sort((a, b) =>
         (b['confidence'] as double).compareTo(a['confidence'] as double));
     return res;
   }
 
+  /// เตรียมกล้องและตั้ง aspect ratio ให้ตรงกับ preview
+  Future<void> _initCamera() async {
+    final camList = await availableCameras();
+    final cam = camList.first;
+    _cam = CameraController(cam, ResolutionPreset.medium);
+    _camInit = _cam!.initialize();
+    await _camInit;
+    if (mounted) setState(() {});
+  }
+
+  /// ถ่ายภาพ, ครอปเป็นสี่เหลี่ยมจัตุรัส แล้วรันโมเดล
+  Future<void> _takePicture() async {
+    if (!_modelReady || _cam == null || _busy) return;
+    setState(() => _busy = true);
+
+    try {
+      await _camInit;
+      final raw = await _cam!.takePicture();
+      final sq = await _centerCropSquare(File(raw.path));
+
+      final res = await _runModel(sq);
+      if (res.isEmpty) {
+        setState(() => _busy = false);
+        return;
+      }
+
+      final top = res.first;
+      final sel = await Navigator.push<List<String>>(
+        context,
+        MaterialPageRoute(
+            builder: (_) => IngredientPredictionResultScreen(
+                  imageFile: sq,
+                  predictedName: top['label'] as String,
+                  confidence: top['confidence'] as double,
+                )),
+      );
+      if (sel != null) Navigator.pop(context, sel);
+    } catch (e) {
+      _showSnack('ถ่ายภาพไม่สำเร็จ: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// เลือกรูปจาก gallery แล้วประมวลผลเหมือนกับกล้อง
   Future<void> _pickImage(ImageSource src) async {
     if (_busy || !_modelReady) return;
     setState(() => _busy = true);
 
     if (!await _requestPermission(src)) {
-      _showSnack('ไม่อนุญาตให้เข้าถึงกล้อง/รูปภาพ');
+      _showSnack('ไม่ได้รับสิทธิ์เข้าถึง');
       setState(() => _busy = false);
       return;
     }
@@ -121,35 +167,26 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
       setState(() => _busy = false);
       return;
     }
-    final file = File(picked.path);
 
-    setState(() {
-      _imageFile = file;
-      _detecting = true;
-      _results = const [];
-    });
-
-    _results = await _runModel(file);
-
-    if (mounted) setState(() => _detecting = false);
+    final sq = await _centerCropSquare(File(picked.path));
+    final res = await _runModel(sq);
     setState(() => _busy = false);
 
-    if (_results.isNotEmpty) {
-      final top = _results.first;
-      final selected = await Navigator.push<List<String>>(
-        context,
-        MaterialPageRoute(
+    if (res.isEmpty) return;
+    final top = res.first;
+    final sel = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(
           builder: (_) => IngredientPredictionResultScreen(
-            imageFile: file,
-            predictedName: top['label'] as String,
-            confidence: top['confidence'] as double,
-          ),
-        ),
-      );
-      if (selected != null) Navigator.pop(context, selected);
-    }
+                imageFile: sq,
+                predictedName: top['label'] as String,
+                confidence: top['confidence'] as double,
+              )),
+    );
+    if (sel != null) Navigator.pop(context, sel);
   }
 
+  /// ขอสิทธิ์กล้อง/รูปภาพ
   Future<bool> _requestPermission(ImageSource src) async {
     if (kIsWeb) return true;
     if (src == ImageSource.camera) {
@@ -162,145 +199,153 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
     return (await Permission.storage.request()).isGranted;
   }
 
+  /// ครอปรูป “ตรงกลาง” เป็นสี่เหลี่ยมจัตุรัส
+  Future<File> _centerCropSquare(File file) async {
+    final bytes = await file.readAsBytes();
+    final origin = img.decodeImage(bytes);
+    if (origin == null) return file;
+
+    final size = origin.width < origin.height ? origin.width : origin.height;
+    final offX = (origin.width - size) ~/ 2;
+    final offY = (origin.height - size) ~/ 2;
+    final cropped =
+        img.copyCrop(origin, x: offX, y: offY, width: size, height: size);
+    final jpg = img.encodeJpg(cropped, quality: 90);
+
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    return File(path)..writeAsBytesSync(jpg);
+  }
+
   @override
   Widget build(BuildContext context) {
-    const orange = Color(0xFFFF9B05);
-    return WillPopScope(
-      onWillPop: () async {
-        if (_imageFile != null || _results.isNotEmpty) {
-          setState(() {
-            _imageFile = null;
-            _results = const [];
-          });
-          return false;
-        }
-        return true;
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFFFFEED6),
-        body: SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(orange),
-              const SizedBox(height: 12),
-              _buildFrame(orange),
-              const SizedBox(height: 24),
-              if (_detecting) const CircularProgressIndicator(),
-              if (!_detecting && _results.isNotEmpty) _buildResultCard(),
-              const Spacer(),
-              _buildBottomButtons(),
-              const SizedBox(height: 28),
-            ],
+    return Scaffold(
+      backgroundColor: _BG,
+      body: Stack(
+        children: [
+          // กล้องสด
+          if (_cam != null)
+            FutureBuilder(
+              future: _camInit,
+              builder: (_, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                return Center(
+                  child: AspectRatio(
+                    aspectRatio: _cam!.value.aspectRatio,
+                    child: CameraPreview(_cam!),
+                  ),
+                );
+              },
+            ),
+
+          // overlay กรอบ 1:1
+          Align(
+            alignment: Alignment.center,
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.width * 0.8 / _FRAME_RATIO,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.black, width: 2),
+              ),
+            ),
           ),
-        ),
+
+          // header
+          SafeArea(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(20)),
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // ปุ่มยกเลิก
+                  GestureDetector(
+                    onTap: () {
+                      if (!_busy) Navigator.pop(context);
+                    },
+                    child: const Text(
+                      'ยกเลิก',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: _ACCENT,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'Take Photo',
+                    style: TextStyle(
+                      fontFamily: 'Josefin Sans',
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: _ACCENT,
+                    ),
+                  ),
+                  const SizedBox(width: 56),
+                ],
+              ),
+            ),
+          ),
+
+          // controls (gallery + shutter)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 48),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // gallery
+                  GestureDetector(
+                    onTap: () => _pickImage(ImageSource.gallery),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.white,
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black12, blurRadius: 3)
+                        ],
+                      ),
+                      padding: const EdgeInsets.all(6),
+                      child: Image.asset(
+                        'assets/icons/gallery_icon.png',
+                        width: 52,
+                        height: 52,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 48),
+                  // shutter
+                  GestureDetector(
+                    onTap: _takePicture,
+                    child: Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black,
+                        border: Border.all(color: Colors.black, width: 1.2),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
-
-  Widget _buildHeader(Color o) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Text('ยกเลิก',
-                  style: TextStyle(
-                      fontSize: 16, color: o, fontWeight: FontWeight.w700)),
-            ),
-            Text('Take Photo',
-                style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: o,
-                    fontFamily: 'Josefin Sans')),
-            const SizedBox(width: 56),
-          ],
-        ),
-      );
-
-  Widget _buildFrame(Color o) => AspectRatio(
-        aspectRatio: 3 / 4,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              border: Border.all(color: Colors.black, width: 2),
-            ),
-            child: _imageFile == null
-                ? Center(child: Icon(Icons.camera_alt, size: 100, color: o))
-                : Image.file(_imageFile!, fit: BoxFit.cover),
-          ),
-        ),
-      );
-
-  Widget _buildBottomButtons() => Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _iconButton('assets/icons/gallery_icon.png',
-              () => _pickImage(ImageSource.gallery)),
-          const SizedBox(width: 48),
-          _shutterButton(() => _pickImage(ImageSource.camera)),
-        ],
-      );
-
-  Widget _iconButton(String a, VoidCallback onTap) => GestureDetector(
-        onTap: onTap,
-        child: Image.asset(a, width: 60, height: 60),
-      );
-
-  Widget _shutterButton(VoidCallback onTap) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 78,
-          height: 78,
-          decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.black, width: 1.4)),
-          alignment: Alignment.center,
-          child: const CircleAvatar(radius: 32, backgroundColor: Colors.black),
-        ),
-      );
-
-  Widget _buildResultCard() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Card(
-          elevation: 3,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('ผลการตรวจจับ',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Divider(),
-                ..._results.take(3).map((e) => ListTile(
-                      leading: Image.asset(
-                        'assets/images/ingredients/${_sanitizeLabel(e['label'] as String)}.png',
-                        width: 40,
-                        height: 40,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.image),
-                      ),
-                      title: Text(e['label'] as String),
-                      trailing: Text(
-                          '${(e['confidence'] * 100).toStringAsFixed(1)}%'),
-                    )),
-              ],
-            ),
-          ),
-        ),
-      );
 
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
-
-  String _sanitizeLabel(String label) =>
-      label.toLowerCase().replaceAll(' ', '_').replaceAll('-', '_');
 }

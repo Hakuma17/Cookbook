@@ -1,3 +1,4 @@
+// ─── Imports ───────────────────────────────────────────────────────────────
 import 'dart:async';
 import 'dart:io';
 
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/ingredient.dart';
 import '../services/api_service.dart';
 
+// ─── Widget + State ────────────────────────────────────────────────────────
 class AllergyScreen extends StatefulWidget {
   const AllergyScreen({Key? key}) : super(key: key);
 
@@ -13,40 +15,41 @@ class AllergyScreen extends StatefulWidget {
 }
 
 class _AllergyScreenState extends State<AllergyScreen> {
+  // ─── State properties ───────────────────────────────────────────────────
   final TextEditingController _searchCtrl = TextEditingController();
-
-  List<Ingredient> _allergyList = [];
-  List<Ingredient> _filteredList = [];
-  final Set<int> _removingIds = {};
-
+  List<Ingredient> _allergyList = []; // ดึงจากเซิร์ฟเวอร์
+  List<Ingredient> _filteredList = []; // หลังกรองชื่อ
+  final Set<int> _removingIds = {}; // กันกดลบซ้ำ
   bool _loading = true;
-  Timer? _debounce; // 💡  debounce search
+  Timer? _debounce; // สำหรับ debounce search
 
-  /* ───────────────── lifecycle ───────────────── */
+  // ─── Lifecycle ──────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
     _loadAllergyList();
-    _searchCtrl.addListener(_onSearchChanged); // 💡  listener เดียว
+    _searchCtrl.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
-    _debounce?.cancel(); // 💡  clean-up
+    _debounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  /* ───────────────── data loaders ───────────────── */
+  // ─── Data Loaders ────────────────────────────────────────────────────────
+
+  /// โหลดรายการวัตถุดิบที่แพ้จาก API
   Future<void> _loadAllergyList() async {
     if (!mounted) return;
     setState(() => _loading = true);
 
     try {
       final list = await ApiService.fetchAllergyIngredients()
-          .timeout(const Duration(seconds: 10)); // 💡 timeout
-
+          .timeout(const Duration(seconds: 10)); // timeout กันช้าเกินไป
       if (!mounted) return;
+
       setState(() {
         _allergyList = list;
         _filteredList = _applyFilter(list, _searchCtrl.text);
@@ -62,13 +65,15 @@ class _AllergyScreenState extends State<AllergyScreen> {
     }
   }
 
+  /// เรียก API ลบรายการแพ้ แล้วอัปเดตรายการทันที
   Future<void> _removeAllergy(int id) async {
-    if (_removingIds.contains(id)) return; // 💡 double-tap guard
+    if (_removingIds.contains(id)) return;
     setState(() => _removingIds.add(id));
 
     try {
       await ApiService.removeAllergy(id).timeout(const Duration(seconds: 8));
       if (!mounted) return;
+
       setState(() {
         _allergyList.removeWhere((i) => i.id == id);
         _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
@@ -84,7 +89,9 @@ class _AllergyScreenState extends State<AllergyScreen> {
     }
   }
 
-  /* ───────────────── search helpers ───────────────── */
+  // ─── Search Helpers ─────────────────────────────────────────────────────
+
+  /// listener ของ search field, debounce 300ms ก่อนกรอง
   void _onSearchChanged() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
@@ -95,19 +102,22 @@ class _AllergyScreenState extends State<AllergyScreen> {
     });
   }
 
+  /// กรองชื่อให้อยู่ใน filtered list
   List<Ingredient> _applyFilter(List<Ingredient> src, String q) {
-    if (q.trim().isEmpty) return List.from(src);
-    final lower = q.toLowerCase();
-    return src.where((i) => i.name.toLowerCase().contains(lower)).toList();
+    final query = q.trim().toLowerCase();
+    if (query.isEmpty) return List.from(src);
+    return src.where((i) => i.name.toLowerCase().contains(query)).toList();
   }
 
-  /* ───────────────── misc ───────────────── */
+  // ─── Misc ──────────────────────────────────────────────────────────────
+
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  /* ───────────────── build ───────────────── */
+  // ─── Build UI ─────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -119,6 +129,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
             icon: const Icon(Icons.add),
             tooltip: 'เพิ่มวัตถุดิบ',
             onPressed: () async {
+              // ไปหน้าเลือกวัตถุดิบทั้งหมด
               final added =
                   await Navigator.pushNamed(context, '/all_ingredients');
               if (added == true) _loadAllergyList();
@@ -132,6 +143,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
               onRefresh: _loadAllergyList,
               child: Column(
                 children: [
+                  // ─── Search Field ────────────
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                     child: TextField(
@@ -146,7 +158,10 @@ class _AllergyScreenState extends State<AllergyScreen> {
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 8),
+
+                  // ─── List of Allergies ───────
                   Expanded(child: _buildList()),
                 ],
               ),
@@ -154,6 +169,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
     );
   }
 
+  /// สร้าง ListView ของวัตถุดิบที่กรองแล้ว
   Widget _buildList() {
     if (_filteredList.isEmpty) {
       return const Center(
@@ -191,7 +207,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
               ),
             ),
             title: Text(ing.name),
-            subtitle: ing.displayName?.isNotEmpty == true
+            subtitle: (ing.displayName?.isNotEmpty == true)
                 ? Text(ing.displayName!)
                 : null,
             trailing: isRemoving

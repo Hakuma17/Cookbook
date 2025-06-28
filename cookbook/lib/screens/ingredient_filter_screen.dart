@@ -1,29 +1,53 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
+
+import 'package:cookbook/services/api_service.dart';
+import 'package:cookbook/services/auth_service.dart';
+import 'package:cookbook/widgets/custom_bottom_nav.dart';
 
 import 'ingredient_photo_screen.dart' show scanIngredient;
-import 'search_screen.dart'; // ← เปิดผลค้นหา
+import 'search_screen.dart';
 
 class IngredientFilterScreen extends StatefulWidget {
-  final List<String>? initialIngredients; // ← รับผลสแกนรอบแรก (optional)
+  final List<String>? initialIngredients;
 
-  const IngredientFilterScreen({super.key, this.initialIngredients});
+  const IngredientFilterScreen({Key? key, this.initialIngredients})
+      : super(key: key);
 
   @override
   State<IngredientFilterScreen> createState() => _IngredientFilterScreenState();
 }
 
 class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
-  /* ─── state ─── */
-  final _haveSet = <String>{}; // “ต้องมี”
-  final _notHaveSet = <String>{}; // “ต้องไม่มี”
+  /* ─── State ──────────────────────────────────────────────── */
+  final Set<String> _haveSet = {}; // ต้อง “มี”
+  final Set<String> _notHaveSet = {}; // ต้อง “ไม่มี”
+  final Set<String> _allergySet = {}; // จากโปรไฟล์ (ใช้แค่ exclude - ไม่โชว์)
 
-  final _haveCtrl = TextEditingController();
-  final _notHaveCtrl = TextEditingController();
+  bool _isLoggedIn = false;
 
-  /* ─── init ─── */
+  final TextEditingController _haveCtrl = TextEditingController();
+  final TextEditingController _notHaveCtrl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
+
+    /// 1) สถานะล็อกอิน
+    AuthService.isLoggedIn().then((v) {
+      if (mounted) setState(() => _isLoggedIn = v);
+    });
+
+    /// 2) รายการแพ้จากโปรไฟล์ → ใส่ exclude อัตโนมัติ
+    AuthService.getUserAllergies().then((list) {
+      if (!mounted) return;
+      setState(() {
+        _allergySet.addAll(list);
+        _notHaveSet.addAll(list);
+      });
+    });
+
+    /// 3) initial (ถ้ามี)
     if (widget.initialIngredients != null) {
       _haveSet.addAll(widget.initialIngredients!
           .map((e) => e.trim())
@@ -38,17 +62,19 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
     super.dispose();
   }
 
-  /* ─── helpers ─── */
+  /* ─── Helper ─────────────────────────────────────────────── */
   void _addHave(String n) {
-    final v = n.trim();
-    if (v.isEmpty || _haveSet.contains(v)) return;
-    setState(() => _haveSet.add(v));
+    final s = n.trim();
+    if (s.isNotEmpty && !_haveSet.contains(s)) {
+      setState(() => _haveSet.add(s));
+    }
   }
 
   void _addNotHave(String n) {
-    final v = n.trim();
-    if (v.isEmpty || _notHaveSet.contains(v)) return;
-    setState(() => _notHaveSet.add(v));
+    final s = n.trim();
+    if (s.isNotEmpty && !_notHaveSet.contains(s)) {
+      setState(() => _notHaveSet.add(s));
+    }
   }
 
   void _removeHave(String n) => setState(() => _haveSet.remove(n));
@@ -56,10 +82,12 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
   void _clearAll() => setState(() {
         _haveSet.clear();
-        _notHaveSet.clear();
+        _notHaveSet
+          ..clear()
+          ..addAll(_allergySet); // ไม่ให้ผู้ใช้ลบแพ้ออกจาก filter
       });
 
-  /* ─── open scanner ─── */
+  /* ─── Scan camera ───────────────────────────────────────── */
   Future<void> _scanForHave() async {
     final names = await scanIngredient(context);
     if (names != null && names.isNotEmpty) {
@@ -74,14 +102,14 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
     }
   }
 
-  /* ─── search ─── */
+  /* ─── Search action ─────────────────────────────────────── */
   void _searchRecipes() {
     if (_haveSet.isEmpty && _notHaveSet.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('กรุณาเพิ่มวัตถุดิบอย่างน้อย 1 รายการ')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรุณาเพิ่มวัตถุดิบอย่างน้อย 1 รายการ')),
+      );
       return;
     }
-
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -93,28 +121,63 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
     );
   }
 
-  /* ─── UI ─── */
+  /* ─── Bottom-nav handler ────────────────────────────────── */
+  void _onNav(int i) {
+    if (i == 1) return;
+    switch (i) {
+      case 0:
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+        break;
+      case 2:
+        Navigator.pushReplacementNamed(context, '/my_recipes', arguments: 0);
+        break;
+      case 3:
+        Navigator.pushReplacementNamed(context, '/profile');
+        break;
+    }
+  }
+
+  /* ─── UI ─────────────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
     const brandOrange = Color(0xFFFF9B05);
-    const btnOrange = Color(0xFFFF9B05);
     const dangerRed = Color(0xFFFF6F6F);
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        automaticallyImplyLeading: false,
         backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Search',
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ),
+        centerTitle: true,
+        title: const Text('ค้นหาสูตร',
             style: TextStyle(
                 color: Color(0xFF0F2930),
                 fontSize: 24,
                 fontWeight: FontWeight.w700)),
-        centerTitle: true,
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
-            onPressed: () => Navigator.pop(context)),
+
+        /// (i) tooltip อธิบายหลักการกรอง
+        actions: [
+          Tooltip(
+            triggerMode: TooltipTriggerMode.tap,
+            message: '• เว้นวรรค 2 ครั้ง เพื่อคั่นหลายคำ\n'
+                '• พิมพ์สั้น ๆ เช่น “กุ้ง” ระบบจะค้นทุกชนิดที่มีคำนี้\n'
+                '• ถ้าพิมพ์ตรงกับชื่อวัตถุดิบ จะใช้ id ตรง ๆ เพื่อความแม่นยำ\n'
+                '• จัดอันดับเมนูที่มีวัตถุดิบครบที่สุดก่อน',
+            child: const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: Icon(Icons.help_outline, color: Colors.black),
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: CustomBottomNav(
+        selectedIndex: 1,
+        isLoggedIn: _isLoggedIn,
+        onItemSelected: _onNav,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -122,106 +185,138 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              /* ───────── HAVE ───────── */
+              /// HAVE
               const Text('แสดงสูตรที่มี:',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              _textBox(_haveCtrl, 'พิมพ์ชื่อวัตถุดิบได้มากกว่า 1 ชนิด',
-                  onSubmitted: _addHave, onScan: _scanForHave),
+              _typeAheadBox(
+                controller: _haveCtrl,
+                hint: 'พิมพ์ชื่อวัตถุดิบที่มี',
+                onScan: _scanForHave,
+                onSuggestionSelected: _addHave,
+              ),
               const SizedBox(height: 8),
               _chipsWrap(_haveSet, _removeHave, brandOrange),
+
               const SizedBox(height: 24),
 
-              /* ───────── NOT HAVE ───────── */
+              /// EXCLUDE
               const Text('แสดงสูตรที่ไม่มี:',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              _textBox(_notHaveCtrl, 'พิมพ์ชื่อวัตถุดิบได้มากกว่า 1 ชนิด',
-                  onSubmitted: _addNotHave, onScan: _scanForNotHave),
+              _typeAheadBox(
+                controller: _notHaveCtrl,
+                hint: 'พิมพ์ชื่อวัตถุดิบเพื่อยกเว้น',
+                onScan: _scanForNotHave,
+                onSuggestionSelected: _addNotHave,
+              ),
               const SizedBox(height: 8),
               _chipsWrap(_notHaveSet, _removeNotHave, Colors.grey.shade700),
-              const SizedBox(height: 40),
 
-              /* ───────── CLEAR ───────── */
-              Center(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: dangerRed,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 32, vertical: 14),
-                  ),
-                  onPressed: _clearAll,
-                  child: const Text('ลบตัวกรองทั้งหมด',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
               const SizedBox(height: 32),
 
-              /* ───────── SEARCH BTN ───────── */
+              /// ACTION BTNS
               Center(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: btnOrange,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 48, vertical: 16),
-                  ),
-                  onPressed: _searchRecipes,
-                  child: Text(
-                      'แสดง ${_haveSet.length + _notHaveSet.length} สูตร',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
+                child: Column(
+                  children: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: dangerRed,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 14),
+                      ),
+                      onPressed: _clearAll,
+                      child: const Text('ลบตัวกรองทั้งหมด',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: brandOrange,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 48, vertical: 16),
+                      ),
+                      onPressed: _searchRecipes,
+                      child: Text(
+                        'แสดง ${_haveSet.length + _notHaveSet.length} สูตร',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 40),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: _fakeBottomNav(1), // keep nav UI เหมือนเดิม
     );
   }
 
-  /* ─── TextBox + Scan icon ─── */
-  Widget _textBox(TextEditingController ctrl, String hint,
-          {required void Function(String) onSubmitted,
-          required VoidCallback onScan}) =>
-      Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: ctrl,
-              decoration: InputDecoration(
-                hintText: hint,
-                filled: true,
-                fillColor: const Color(0xFFF6F6F6),
-                border: OutlineInputBorder(
+  /* ─── Components ─────────────────────────────────────────── */
+  Widget _typeAheadBox({
+    required TextEditingController controller,
+    required String hint,
+    required VoidCallback onScan,
+    required void Function(String) onSuggestionSelected,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: TypeAheadField<String>(
+            suggestionsCallback: ApiService.getIngredientSuggestions,
+            builder: (ctx, txt, focus) {
+              // **ไม่ sync controller เพื่อไม่ลบค่าที่พิมพ์**
+              return TextField(
+                controller: txt,
+                focusNode: focus,
+                decoration: InputDecoration(
+                  hintText: hint,
+                  filled: true,
+                  fillColor: const Color(0xFFF6F6F6),
+                  border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFBDBDBD))),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              ),
-              onSubmitted: (v) {
-                onSubmitted(v);
-                ctrl.clear();
-              },
-            ),
+                    borderSide: const BorderSide(color: Color(0xFFBDBDBD)),
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                onSubmitted: (v) {
+                  onSuggestionSelected(v);
+                  txt.clear();
+                },
+              );
+            },
+            itemBuilder: (_, s) => ListTile(title: Text(s)),
+            onSelected: (s) {
+              onSuggestionSelected(s);
+              controller.clear();
+            },
+            debounceDuration: const Duration(milliseconds: 300),
+            hideOnEmpty: true,
+            hideOnError: true,
+            hideOnLoading: true,
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner, size: 28),
-            onPressed: onScan,
-          )
-        ],
-      );
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: const Icon(Icons.qr_code_scanner, size: 28),
+          onPressed: onScan,
+        ),
+      ],
+    );
+  }
 
-  /* ─── Chips ─── */
   Widget _chipsWrap(
-          Set<String> data, void Function(String) onRemove, Color c) =>
+    Set<String> data,
+    void Function(String) onRemove,
+    Color borderColor,
+  ) =>
       Wrap(
         spacing: 8,
         runSpacing: 4,
@@ -229,30 +324,15 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
             .map((n) => Chip(
                   label: Text(n,
                       style: TextStyle(
-                          color: c, fontWeight: FontWeight.w600, fontSize: 14)),
+                          color: borderColor, fontWeight: FontWeight.w600)),
                   deleteIcon: const Icon(Icons.close, size: 18),
                   onDeleted: () => onRemove(n),
                   backgroundColor: const Color(0xFFEAEAEA),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      side: BorderSide(color: c)),
+                    borderRadius: BorderRadius.circular(18),
+                    side: BorderSide(color: borderColor),
+                  ),
                 ))
             .toList(),
-      );
-
-  /* ─── Bottom Navigation Placeholder ─── */
-  Widget _fakeBottomNav(int idx) => BottomNavigationBar(
-        currentIndex: idx,
-        onTap: (_) {},
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.explore), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.list), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: ''),
-        ],
-        selectedItemColor: Color(0xFFFF9B05),
-        unselectedItemColor: Colors.grey,
-        showSelectedLabels: false,
-        showUnselectedLabels: false,
       );
 }

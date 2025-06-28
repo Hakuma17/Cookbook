@@ -9,7 +9,7 @@ import 'package:tflite_flutter/tflite_flutter.dart' as tfl;
 
 import 'ingredient_photo_screen.dart';
 
-/// ─── map label → ชื่อไทย ─────────────────────────────────────
+/// ─── แผนที่ Label → ชื่อภาษาไทย ─────────────────────────────────────
 const Map<String, String> _kLabelMap = {
   'garlic': 'กระเทียม',
   'lime': 'มะนาว',
@@ -24,9 +24,9 @@ const Map<String, String> _kLabelMap = {
 };
 
 const double _kAutoFillThreshold = 0.80;
-const double contentWidth = 312.0;
-const double imgHeight = 205.0;
-const double listBoxHeight = 140.0;
+const double contentWidth = 312.0; // ความกว้างเนื้อหา
+const double imgHeight = 205.0; // ความสูงรูป
+const double listBoxHeight = 140.0; // ความสูงกล่องรายการ
 
 class IngredientPredictionResultScreen extends StatefulWidget {
   final File imageFile;
@@ -47,20 +47,22 @@ class IngredientPredictionResultScreen extends StatefulWidget {
 
 class _IngredientPredictionResultScreenState
     extends State<IngredientPredictionResultScreen> {
-  late tfl.Interpreter _itp;
-  late List<String> _labels;
-  bool _modelReady = false, _running = false;
+  late tfl.Interpreter _itp; // ตัวรันโมเดล TFLite
+  late List<String> _labels; // รายชื่อ label
+  bool _modelReady = false; // เช็คโหลดโมเดลเสร็จหรือยัง
+  bool _running = false; // ป้องกันรันซ้ำ
 
-  final _inputCtrl = TextEditingController();
-  final _selected = <String>{};
+  final _inputCtrl = TextEditingController(); // ควบคุม TextField
+  final _selected = <String>{}; // รายการที่ผู้ใช้เลือก
 
-  List<_Pred> _preds = [];
-  bool _showPreds = false;
+  List<_Pred> _preds = []; // เก็บผลทำนายอันดับต้นๆ
+  bool _showPreds = false; // toggle แสดง/ซ่อนผล
 
   @override
   void initState() {
     super.initState();
     _loadModel();
+    // ถ้า confidence สูงพอ ให้เติมช่อง input โดยอัตโนมัติ
     if ((widget.confidence ?? 0) >= _kAutoFillThreshold &&
         widget.predictedName != null) {
       _inputCtrl.text = _map(widget.predictedName!);
@@ -74,6 +76,7 @@ class _IngredientPredictionResultScreenState
     super.dispose();
   }
 
+  /// โหลดโมเดลและ labels
   Future<void> _loadModel() async {
     _itp = await tfl.Interpreter.fromAsset(
       'assets/converted_tflite_quantized/model_unquant.tflite',
@@ -90,6 +93,7 @@ class _IngredientPredictionResultScreenState
     _runInference();
   }
 
+  /// ประมวลผลภาพเพื่อดึงผลทำนาย
   Future<void> _runInference() async {
     if (!_modelReady || _running) return;
     _running = true;
@@ -98,15 +102,20 @@ class _IngredientPredictionResultScreenState
       final decoded = img.decodeImage(bytes);
       if (decoded == null) return;
 
+      // ย่อรูปให้ขนาด 224x224
       final resized = img.copyResize(decoded, width: 224, height: 224);
       final rgb = resized.getBytes();
+
       final input = Float32List(rgb.length);
-      for (var i = 0; i < rgb.length; i++) input[i] = rgb[i] / 255.0;
+      for (var i = 0; i < rgb.length; i++) {
+        input[i] = rgb[i] / 255.0;
+      }
 
       final output =
           List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
       _itp.run(input.reshape([1, 224, 224, 3]), output);
 
+      // เก็บผลลัพธ์ทั้งหมด แล้ว sort by confidence
       final all = <_Pred>[];
       for (var i = 0; i < _labels.length; i++) {
         final sc = output[0][i] as double;
@@ -115,9 +124,10 @@ class _IngredientPredictionResultScreenState
       all.sort((a, b) => b.score.compareTo(a.score));
 
       setState(() {
-        _preds = all.take(3).toList();
+        _preds = all.take(3).toList(); // แสดงแค่ 3 อันดับแรก
       });
 
+      // ถ้าไม่รู้จักเลย
       if (_preds.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('ไม่รู้จักวัตถุดิบ')),
@@ -128,14 +138,17 @@ class _IngredientPredictionResultScreenState
     }
   }
 
+  /// แปลง label ภาษาอังกฤษ → ภาษาไทย (จาก map)
   String _map(String raw) => _kLabelMap[raw.toLowerCase()] ?? raw;
 
+  /// กดปุ่ม + เพื่อเติมใน list
   void _addToList() {
     final v = _inputCtrl.text.trim();
     if (v.isNotEmpty) setState(() => _selected.add(v));
     _inputCtrl.clear();
   }
 
+  /// ลบรายการใน list
   void _remove(String n) => setState(() => _selected.remove(n));
 
   @override
@@ -160,6 +173,7 @@ class _IngredientPredictionResultScreenState
               child: Stack(
                 alignment: Alignment.center,
                 children: [
+                  // ปุ่มยกเลิก
                   Positioned(
                     left: 24,
                     child: GestureDetector(
@@ -175,6 +189,7 @@ class _IngredientPredictionResultScreenState
                       ),
                     ),
                   ),
+                  // ชื่อหน้า
                   const Text(
                     'เพิ่มวัตถุดิบ',
                     style: TextStyle(
@@ -188,13 +203,14 @@ class _IngredientPredictionResultScreenState
               ),
             ),
 
+            // ─── เนื้อหา ───────────────────────
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Center(
                   child: Column(
                     children: [
-                      // รูป
+                      // รูปที่ถ่าย
                       Material(
                         elevation: 6,
                         borderRadius: BorderRadius.circular(16),
@@ -263,7 +279,7 @@ class _IngredientPredictionResultScreenState
                         ),
                       const SizedBox(height: 24),
 
-                      // รายการวัตถุดิบ (fixed size, scroll inside)
+                      // รายการวัตถุดิบ (scroll แนวนอน)
                       if (_selected.isNotEmpty) ...[
                         SizedBox(
                           width: contentWidth,
@@ -364,7 +380,7 @@ class _IngredientPredictionResultScreenState
                         const SizedBox(height: 32),
                       ],
 
-                      // ปุ่มหลัก
+                      // ปุ่มหลัก "ดูสูตรอาหาร"
                       SizedBox(
                         width: contentWidth,
                         child: _PrimaryButton(
@@ -381,31 +397,15 @@ class _IngredientPredictionResultScreenState
           ],
         ),
       ),
-
-      // FAB สแกนซ้ำ
-      floatingActionButton: FloatingActionButton.small(
-        backgroundColor: Colors.black87,
-        onPressed: () async {
-          final added = await Navigator.push<List<String>>(
-            context,
-            MaterialPageRoute(builder: (_) => const IngredientPhotoScreen()),
-          );
-          if (added != null && added.isNotEmpty) {
-            setState(() => _selected.addAll(added));
-          }
-        },
-        child: const Icon(Icons.camera_alt, color: Colors.white),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
+  /// แสดงแถบผลทำนายแต่ละตัว
   Widget _buildPredictionBar(_Pred p, int index) {
-    // สามสีสำหรับอันดับ 1–3
     final colors = [
-      const Color(0xFFFF9B05),
-      const Color(0xFFFF4081),
-      const Color(0xFF7C4DFF),
+      const Color(0xFFFF9B05), // อันดับ 1
+      const Color(0xFFFF4081), // อันดับ 2
+      const Color(0xFF7C4DFF), // อันดับ 3
     ];
     final fillColor = colors[index];
     final bgColor = fillColor.withOpacity(0.2);
@@ -421,7 +421,7 @@ class _IngredientPredictionResultScreenState
         ),
         child: Stack(
           children: [
-            // เติมสีเข้มตามเปอร์เซ็นต์
+            // เติมสีตามเปอร์เซ็นต์
             FractionallySizedBox(
               widthFactor: p.score.clamp(0.0, 1.0),
               alignment: Alignment.centerLeft,
@@ -432,24 +432,19 @@ class _IngredientPredictionResultScreenState
                 ),
               ),
             ),
-
-            // แสดงชื่อและเปอร์เซ็นต์ด้านใน
+            // ชื่อ + เปอร์เซ็นต์
             Positioned.fill(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      p.label,
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      '${(p.score * 100).toInt()}%',
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
+                    Text(p.label,
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold)),
+                    Text('${(p.score * 100).toInt()}%',
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
@@ -461,12 +456,14 @@ class _IngredientPredictionResultScreenState
   }
 }
 
+/// คลาสเก็บผลทำนาย
 class _Pred {
   final String label;
   final double score;
   _Pred(this.label, this.score);
 }
 
+/// ปุ่มหลัก “ดูสูตรอาหาร”
 class _PrimaryButton extends StatelessWidget {
   final VoidCallback onTap;
   const _PrimaryButton({required this.onTap});
@@ -507,6 +504,7 @@ class _PrimaryButton extends StatelessWidget {
   }
 }
 
+/// ช่องกรอกชื่อวัตถุดิบพร้อมปุ่ม +
 class _ManualInput extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onAdd;
