@@ -3,9 +3,11 @@
 
 import 'package:flutter/material.dart';
 
+/// คลาสตัวเลือกการกรองหรือเรียงลำดับ ใช้ร่วมกับ ChoiceChipFilter
 class FilterOption {
   final String label;
   final String key;
+
   const FilterOption(this.label, this.key);
 }
 

@@ -1,11 +1,4 @@
 // lib/widgets/hero_carousel.dart
-// ─────────────────────────────────────────────────────────────
-// แสดงเมนู 3 อันดับแรกพร้อมกัน (ไม่มี PageView)
-// • รองรับตรา Rank 1-3 หรือ recipe.rank
-// • แตะเพื่อเรียก onTap()
-// • รองรับ highlight คำค้น
-// • Font: Montserrat w700 สำหรับชื่อเมนู
-// ─────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
 import '../models/recipe.dart';

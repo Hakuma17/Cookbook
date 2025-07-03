@@ -1,5 +1,12 @@
 // lib/screens/search_screen.dart
-//  ⟵ “---” = บรรทัดที่แก้/เพิ่มให้ใช้ฟอนต์และสไตล์เดียวกับหน้า Home
+// ─────────────────────────────────────────────────────────────
+// Search Screen (rev. add "?" help icon – 2025-07-03)
+//
+// • เพิ่มไอคอนคู่มือ (?) ใน SliverAppBar → BottomSheet อธิบาย ranking
+// • แก้ให้ส่ง `q=` ไปแบ็กเอนด์เสมอ (เลิกโยน keyword ไปเป็น ingredient filter)
+// • ป้องกัน “response เก่าทับใหม่” ด้วย _reqId
+// • ใช้ _searchQuery (แยกตามช่องวรรค/คอมมา) ทำ highlight
+// ─────────────────────────────────────────────────────────────
 
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
@@ -18,17 +25,21 @@ import '../widgets/choice_chip_filter.dart';
 import 'ingredient_filter_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  final List<String>? ingredients;
-  final List<String>? excludeIngredients;
+  final List<String>? ingredients; // include names (จาก IngredientFilter)
+  final List<String>? excludeIngredients; // exclude ids (จาก IngredientFilter)
 
-  const SearchScreen({super.key, this.ingredients, this.excludeIngredients});
+  const SearchScreen({
+    super.key,
+    this.ingredients,
+    this.excludeIngredients,
+  });
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-/* ───────────────────────── constants ───────────────────────── */
+  /* ───────────── constants ───────────── */
   static const _pageSize = 26;
   static const List<FilterOption> _sortOptions = [
     FilterOption('ยอดนิยม', 'popular'),
@@ -37,15 +48,15 @@ class _SearchScreenState extends State<SearchScreen> {
     FilterOption('แนะนำ', 'recommended'),
   ];
 
-/* ─────────────────── controllers / helpers ────────────────── */
+  /* ───────────── controllers ─────────── */
   final _scrollCtl = ScrollController();
   final _debouncer = Debouncer(delay: const Duration(milliseconds: 400));
 
-/* ─────────────────────────── state ────────────────────────── */
+  /* ───────────── state ──────────────── */
   List<Recipe> _gridRecipes = [];
   List<Recipe> _heroRecipes = [];
 
-  List<String> _includeNames = [];
+  List<String> _includeNames = []; // ใช้เฉพาะจาก filter screen
   List<String> _excludeIds = [];
 
   String _searchQuery = '';
@@ -57,11 +68,12 @@ class _SearchScreenState extends State<SearchScreen> {
   int _page = 1;
   int _sortIndex = 2; // “ล่าสุด”
 
-  // bottom-nav
   int _navIndex = 1;
   bool _isLoggedIn = false;
 
-/* ───────────────────────── lifecycle ──────────────────────── */
+  int _reqId = 0; // ป้องกัน response เก่าทับใหม่
+
+  /* ───────────── lifecycle ──────────── */
   @override
   void initState() {
     super.initState();
@@ -81,16 +93,15 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-/* ─────────────── initial feed + auth helpers ─────────────── */
+  /* ───────────── networking ─────────── */
   Future<void> _loadInitial() async {
     setState(() => _loading = true);
     try {
-      final pop = await ApiService.fetchPopularRecipes();
-      _heroRecipes = pop.take(3).toList();
       _gridRecipes.clear();
+      _heroRecipes.clear();
       _page = 1;
       _hasMore = true;
-      await _fetchPage(1);
+      await _fetchPage(1, ++_reqId);
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -103,75 +114,123 @@ class _SearchScreenState extends State<SearchScreen> {
     if (mounted) setState(() => _isLoggedIn = ok);
   }
 
-/* ───────────────────────── search helpers ─────────────────── */
   void _onSearchChanged(String txt) => _debouncer(() => _performSearch(txt));
 
   Future<void> _performSearch(String raw) async {
-    final tokens = raw
-        .split(RegExp(r'[,;\s]+'))
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-
-    _includeNames = {...tokens, ...?widget.ingredients}.toList();
-
     setState(() {
       _searchQuery = raw.trim();
       _gridRecipes.clear();
+      _heroRecipes.clear();
       _page = 1;
       _hasMore = true;
       _loading = true;
       _error = '';
     });
 
-    await _fetchPage(1);
+    await _fetchPage(1, ++_reqId);
     if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _fetchPage(int page) async {
+  Future<void> _fetchPage(int page, int myId) async {
+    if (!mounted) return;
     setState(() => _loadingMore = page > 1);
+
     try {
-      List<Recipe> recipes;
-      if (_searchQuery.isEmpty) {
-        recipes = await ApiService.fetchPopularRecipes();
-      } else {
-        recipes = await ApiService.searchRecipes(
-          query: _searchQuery,
-          page: page,
-          limit: _pageSize,
-          sort: _sortOptions[_sortIndex].key,
-          ingredientNames: _includeNames,
-          excludeIngredientIds:
-              _excludeIds.map(int.tryParse).whereType<int>().toList(),
-        );
-      }
+      final recipes = await ApiService.searchRecipes(
+        query: _searchQuery,
+        page: page,
+        limit: _pageSize,
+        sort: _sortOptions[_sortIndex].key,
+        ingredientNames: _includeNames, // (backend R3 ยังเพิกเฉย)
+        excludeIngredientIds:
+            _excludeIds.map(int.tryParse).whereType<int>().toList(),
+      );
+
+      if (myId != _reqId || !mounted) return; // stale response → ทิ้ง
 
       setState(() {
         _page = page;
-        _gridRecipes = recipes;
-        _hasMore = false; // ยังไม่เปิด paging
+        _heroRecipes = recipes.take(3).toList();
+        _gridRecipes = page == 1 ? recipes : [..._gridRecipes, ...recipes];
+        _hasMore = recipes.length == _pageSize;
       });
     } on TimeoutException {
-      _error = 'เซิร์ฟเวอร์ตอบช้า ลองใหม่ภายหลัง';
+      _showError('เซิร์ฟเวอร์ตอบช้า ลองใหม่ภายหลัง');
     } on SocketException {
-      _error = 'ไม่มีการเชื่อมต่ออินเทอร์เน็ต';
+      _showError('ไม่มีการเชื่อมต่ออินเทอร์เน็ต');
     } catch (e) {
-      _error = 'เกิดข้อผิดพลาด: $e';
+      _showError('เกิดข้อผิดพลาด: $e');
     } finally {
       if (mounted) setState(() => _loadingMore = false);
     }
   }
 
+  void _showError(String msg) {
+    if (!mounted) return;
+    setState(() => _error = msg);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /* ───────────── scroll listener ─────── */
   void _onScroll() {
     if (_scrollCtl.position.pixels >
             _scrollCtl.position.maxScrollExtent - 200 &&
         !_loadingMore &&
         _hasMore) {
-      _fetchPage(_page + 1);
+      _fetchPage(_page + 1, ++_reqId);
     }
   }
 
-/* ───────────────────────── UI helpers ─────────────────────── */
+  /* ───────────── help bottom-sheet ───── */
+  void _showSearchHelp() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('วิธีการจัดอันดับผลค้นหา',
+                style: TextStyle(
+                  fontFamily: 'Montserrat',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                )),
+            const SizedBox(height: 12),
+            _bullet('1) ชื่อตรง 100% จะมาก่อนสุด'),
+            _bullet('2) ถ้าไม่มีชื่อตรง → สูตรที่มีวัตถุดิบครบทุกคำค้น'),
+            _bullet('3) มีบางวัตถุดิบ (≥1 คำ) จะตามมาถัดไป'),
+            _bullet('4) แยกคำได้ด้วยเว้นวรรค คอมมา หรือ ;'),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('เข้าใจแล้ว'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bullet(String txt) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('• ', style: TextStyle(fontSize: 14)),
+          Expanded(
+            child: Text(txt, style: const TextStyle(fontSize: 14)),
+          ),
+        ],
+      );
+
+  /* ───────────── UI helpers ─────────── */
   Widget _resultHeading() {
     if (_searchQuery.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -179,8 +238,8 @@ class _SearchScreenState extends State<SearchScreen> {
       child: Text(
         'ผลค้นหาสูตร “$_searchQuery”',
         style: const TextStyle(
-          fontFamily: 'Montserrat', // --- ใช้ Montserrat
-          fontWeight: FontWeight.w700, // --- หนาที่สุด
+          fontFamily: 'Montserrat',
+          fontWeight: FontWeight.w700,
           fontSize: 18,
           color: Color(0xFF0A2533),
         ),
@@ -192,8 +251,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_heroRecipes.isEmpty) return const SizedBox.shrink();
     return HeroCarousel(
       recipes: _heroRecipes,
-      itemSize: 110, // --- ขนาด 3 ใบพอดี
-      highlightTerms: _includeNames,
+      itemSize: 110,
+      highlightTerms: _searchQuery.split(RegExp(r'[ ,;]')),
       onTap: (r) =>
           Navigator.pushNamed(context, '/recipe_detail', arguments: r),
     );
@@ -211,9 +270,7 @@ class _SearchScreenState extends State<SearchScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
             Text('ไม่พบสูตรอาหารที่ต้องการ',
-                style: TextStyle(
-                    fontFamily: 'Roboto', // --- Roboto ธรรมดา
-                    color: Colors.grey)),
+                style: TextStyle(fontFamily: 'Roboto', color: Colors.grey)),
             SizedBox(height: 24),
             Icon(Icons.sentiment_dissatisfied, size: 48, color: Colors.grey),
           ],
@@ -228,7 +285,7 @@ class _SearchScreenState extends State<SearchScreen> {
           crossAxisCount: 2,
           mainAxisSpacing: 16,
           crossAxisSpacing: 12,
-          childAspectRatio: 0.56, // 177 / 315
+          childAspectRatio: 0.56,
         ),
         delegate: SliverChildBuilderDelegate(
           (ctx, index) {
@@ -238,7 +295,7 @@ class _SearchScreenState extends State<SearchScreen> {
             return SearchRecipeCard(
               recipe: _gridRecipes[index],
               rankOverride: _sortIndex == 0 ? index + 1 : null,
-              highlightTerms: _includeNames,
+              highlightTerms: _searchQuery.split(RegExp(r'[ ,;]')),
               onTap: () => Navigator.pushNamed(
                 context,
                 '/recipe_detail',
@@ -252,14 +309,13 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-/* ───────────────────────── build ───────────────────────────── */
+  /* ───────────── build ─────────────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: CustomScrollView(
         controller: _scrollCtl,
         slivers: [
-          /* ── SliverAppBar + SearchBar ────────────────── */
           SliverAppBar(
             pinned: true,
             centerTitle: true,
@@ -269,10 +325,18 @@ class _SearchScreenState extends State<SearchScreen> {
             title: const Text(
               'Search',
               style: TextStyle(
-                  fontFamily: 'Montserrat', // --- Montserrat
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black),
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.w600,
+                color: Colors.black,
+              ),
             ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.help_outline, color: Colors.black),
+                tooltip: 'หลักการค้นหา',
+                onPressed: _showSearchHelp,
+              ),
+            ],
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(72),
               child: CustomSearchBar(
@@ -282,12 +346,13 @@ class _SearchScreenState extends State<SearchScreen> {
                   final res = await Navigator.push<List<List<String>>>(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const IngredientFilterScreen()),
+                      builder: (_) => const IngredientFilterScreen(),
+                    ),
                   );
                   if (res != null) {
                     _includeNames = res[0];
                     _excludeIds = res[1];
-                    _performSearch(_searchQuery.isEmpty ? '' : _searchQuery);
+                    _performSearch(_searchQuery);
                   }
                 },
                 hasActiveFilter:
@@ -297,31 +362,27 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           SliverToBoxAdapter(child: _resultHeading()),
           SliverToBoxAdapter(child: _buildHero()),
-
-          /* ── Sort chips ─────────────────────────────── */
           SliverToBoxAdapter(
             child: ChoiceChipFilter(
               options: _sortOptions,
               initialIndex: _sortIndex,
               onChanged: (idx, key) {
                 setState(() => _sortIndex = idx);
-                _performSearch(_searchQuery.isEmpty ? '' : _searchQuery);
+                _performSearch(_searchQuery);
               },
             ),
           ),
-
-          /* ── Result grid ───────────────────────────── */
           _buildGrid(),
         ],
       ),
-
-      /* ── Bottom-navigation ────────────────────────── */
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: _navIndex,
         isLoggedIn: _isLoggedIn,
         onItemSelected: (i) async {
           if ((i == 2 || i == 3) &&
-              !await AuthService.checkAndRedirectIfLoggedOut(context)) return;
+              !await AuthService.checkAndRedirectIfLoggedOut(context)) {
+            return;
+          }
           if (i == _navIndex) return;
 
           setState(() => _navIndex = i);
