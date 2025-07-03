@@ -595,8 +595,9 @@ class ApiService {
   }
 
 // ─── Search ──────────────────────────────────────────
+//
 
-  /// ค้นหาสูตรอาหาร (ส่งได้ทั้ง keyword / ingredient names / id)
+  /// ค้นหาสูตรอาหาร (keyword + filters)
   static Future<List<Recipe>> searchRecipes({
     required String query,
     int page = 1,
@@ -604,44 +605,41 @@ class ApiService {
     String sort = 'latest',
 
     /* ── เงื่อนไขกรองวัตถุดิบ ───────────────────── */
-    List<String>? ingredientNames, // fuzzy-map เป็น id ที่ฝั่ง PHP
+    List<String>? ingredientNames, // (รอ backend รองรับ)
     List<int>? includeIngredientIds, // id “ต้องมี”
     List<int>? excludeIngredientIds, // id “ต้องไม่มี”
-
     int? categoryId,
   }) async {
-    /* 1) ประกอบ query-string (key ซ้ำได้) */
+    /* 1) query-string */
     final entries = <MapEntry<String, String>>[
       MapEntry('page', page.toString()),
       MapEntry('limit', limit.toString()),
       MapEntry('sort', sort),
     ];
 
-    /* 1-A keyword ค้นชื่อเมนู – ส่งก็ต่อเมื่อ “ไม่มี” เงื่อนไขวัตถุดิบ */
-    final hasNameFilters = ingredientNames?.isNotEmpty ?? false;
-    final hasIdFilters = includeIngredientIds?.isNotEmpty ?? false;
-    if (query.trim().isNotEmpty && !hasNameFilters && !hasIdFilters) {
+    /* 1-A keyword — ★ ALWAYS add ★ */
+    if (query.trim().isNotEmpty) {
       entries.add(MapEntry('q', query.trim()));
     }
 
-    /* 1-B หมวดอาหาร */
+    /* 1-B category */
     if (categoryId != null) {
       entries.add(MapEntry('cat_id', categoryId.toString()));
     }
 
-    /* 1-C ingredientNames → ingredients=กุ้ง,กระเทียม */
-    if (hasNameFilters) {
-      final clean = ingredientNames!
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-      if (clean.isNotEmpty) {
-        entries.add(MapEntry('ingredients', clean.join(',')));
-      }
-    }
+    /* 1-C ingredientNames (ปิดไว้จนกว่า PHP รองรับ) */
+    // if (ingredientNames?.isNotEmpty ?? false) {
+    //   final clean = ingredientNames!
+    //       .map((e) => e.trim())
+    //       .where((e) => e.isNotEmpty)
+    //       .toList();
+    //   if (clean.isNotEmpty) {
+    //     entries.add(MapEntry('ingredients', clean.join(',')));
+    //   }
+    // }
 
-    /* 1-D include / exclude ids */
-    if (hasIdFilters) {
+    /* 1-D include / exclude id */
+    if (includeIngredientIds?.isNotEmpty ?? false) {
       entries.addAll(includeIngredientIds!
           .map((id) => MapEntry('include_ids[]', id.toString())));
     }
@@ -650,8 +648,8 @@ class ApiService {
           .map((id) => MapEntry('exclude_ids[]', id.toString())));
     }
 
-    /* 2) เรียก API */
-    final uri = Uri.parse('${baseUrl}get_search_recipes.php')
+    /* 2) call API → search_recipes_unified.php */
+    final uri = Uri.parse('${baseUrl}search_recipes_unified.php')
         .replace(queryParameters: Map.fromEntries(entries));
 
     final resp = await _get(uri);
@@ -669,7 +667,7 @@ class ApiService {
         .toList();
   }
 
-  /// ค้นหาสูตรจาก “รายชื่อวัตถุดิบ” ตรง ๆ
+  /// ค้นหาสูตรจาก “รายชื่อวัตถุดิบ” ตรง ๆ  (ยังอิง ingredients=)
   static Future<List<Recipe>> searchRecipesByIngredientNames(
     List<String> names, {
     String sort = 'popular',
@@ -679,7 +677,7 @@ class ApiService {
         names.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     if (clean.isEmpty) return <Recipe>[];
 
-    final uri = Uri.parse('${baseUrl}get_search_recipes.php').replace(
+    final uri = Uri.parse('${baseUrl}search_recipes_unified.php').replace(
       queryParameters: {
         'ingredients': clean.join(','),
         'sort': sort,
