@@ -602,7 +602,9 @@ class ApiService {
     int limit = 26,
     String sort = 'latest',
     String mode = 'recipe', // ★ NEW (recipe | ingredient)
+    List<String>? ingredientNames, // ★ NEW (include by “ชื่อ”)
     List<int>? includeIngredientIds,
+    List<String>? excludeIngredientNames, // ★ NEW
     List<int>? excludeIngredientIds,
     int? categoryId,
   }) async {
@@ -623,7 +625,19 @@ class ApiService {
     if (categoryId != null) {
       entries.add(MapEntry('cat_id', categoryId.toString()));
     }
-    /* 1-D include / exclude id */
+
+    /* 1-C include “ชื่อวัตถุดิบ” (ใหม่) */
+    if (ingredientNames?.isNotEmpty ?? false) {
+      // backend รับ comma-separated string → include=กุ้ง,หมูสับ
+      entries.add(MapEntry('include', ingredientNames!.join(',')));
+    }
+
+    /* 1-D exclude by “ชื่อ” */
+    if (excludeIngredientNames?.isNotEmpty ?? false) {
+      entries.add(MapEntry('exclude', excludeIngredientNames!.join(',')));
+    }
+
+    /* 1-E include / exclude id (คงเดิม) */
     if (includeIngredientIds?.isNotEmpty ?? false) {
       entries.addAll(includeIngredientIds!
           .map((id) => MapEntry('include_ids[]', id.toString())));
@@ -688,7 +702,7 @@ class ApiService {
 
     final uri = Uri.parse('${baseUrl}search_recipes_unified.php').replace(
       queryParameters: {
-        'ingredients': clean.join(','),
+        'ingredients': clean.join(','), // backend legacy
         'sort': sort,
         'limit': limit.toString(),
       },
