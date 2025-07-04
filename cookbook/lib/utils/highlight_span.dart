@@ -1,15 +1,16 @@
 // lib/utils/highlight_span.dart
 // ------------------------------------------------------------
 // Utility สร้าง TextSpan ที่ “ไฮไลท์” คำค้น โดย **คงฟอนต์เดิมทุกอย่าง**
+// (เวอร์ชันรับ tokens จาก backend – 2025-07-04)
 // ------------------------------------------------------------
 
 import 'package:flutter/material.dart';
 
-/// คืนค่า TextSpan พร้อมไฮไลท์คำค้น (`terms`)
+/// คืนค่า TextSpan ที่ข้างใน “ไฮไลท์” ทุกคำใน `terms`
 ///
-/// * `baseStyle`      – สไตล์ต้นฉบับ (เช่น Montserrat w700)
-/// * `normalStyle`   – ถ้าอยาก override สไตล์ปกติ (ไม่แนะนำให้ตั้งเอง)
-/// * `highlightStyle` – ถ้าอยาก override สไตล์ไฮไลท์ (ควรใช้แค่เปลี่ยนสี)
+/// * `baseStyle`       – สไตล์ต้นฉบับ (เช่น Montserrat w700)
+/// * `normalStyle`     – (ไม่บังคับ) override สไตล์ปกติ
+/// * `highlightStyle`  – (ไม่บังคับ) override สไตล์ไฮไลท์
 TextSpan highlightSpan(
   String source,
   List<String> terms,
@@ -17,59 +18,50 @@ TextSpan highlightSpan(
   TextStyle? normalStyle,
   TextStyle? highlightStyle,
 }) {
-  // -----------------------------------------------------------------
-  // 1) เตรียมสไตล์พื้นฐาน
-  // -----------------------------------------------------------------
-  final _normal = (normalStyle ?? baseStyle);
+  /* ---------- 1) เตรียมสไตล์ ---------- */
+  final normal = normalStyle ?? baseStyle;
+  final highlight = highlightStyle ??
+      baseStyle.merge(
+        const TextStyle(color: Color(0xFFFF9B05)), // สีส้มของแอป
+      );
 
-  // ถ้า caller ไม่ระบุ highlightStyle → merge จาก baseStyle แล้วเปลี่ยนแค่สี
-  final _highlight = (highlightStyle ??
-      baseStyle.merge(const TextStyle(
-        color: Color(0xFFFF9B05), // สีส้มของแอป
-      )));
-
-  // -----------------------------------------------------------------
-  // 2) ถ้าไม่มีข้อความหรือไม่มีคำค้น → ส่งกลับ span เดียวจบ
-  // -----------------------------------------------------------------
+  /* ---------- 2) ถ้า source หรือ terms ว่าง → ส่ง span เดียว ---------- */
   if (source.isEmpty || terms.isEmpty) {
-    return TextSpan(text: source, style: _normal);
+    return TextSpan(text: source, style: normal);
   }
 
-  // -----------------------------------------------------------------
-  // 3) สร้าง RegExp รวมทุกคำค้น (escape meta-chars)
-  // -----------------------------------------------------------------
-  final pattern =
-      terms.where((t) => t.trim().isNotEmpty).map(RegExp.escape).join('|');
-  if (pattern.isEmpty) {
-    return TextSpan(text: source, style: _normal);
-  }
-  final reg = RegExp('($pattern)', caseSensitive: false);
+  /* ---------- 3) สร้าง RegExp รวมทุก token ---------- */
+  // 3-A กรองช่องว่าง/ซ้ำ แล้วเรียง “ยาว → สั้น” ป้องกันคำยาวถูกคร่อม
+  final toks = <String>{
+    for (final t in terms)
+      if (t.trim().isNotEmpty) t.trim(),
+  }.toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
 
-  // -----------------------------------------------------------------
-  // 4) วิ่งหาแมตช์แล้วแยกเป็น spans
-  // -----------------------------------------------------------------
+  if (toks.isEmpty) {
+    return TextSpan(text: source, style: normal);
+  }
+
+  // 3-B รวมเป็น pattern เดียว แล้ว ignore case
+  final reg =
+      RegExp('(${toks.map(RegExp.escape).join('|')})', caseSensitive: false);
+
+  /* ---------- 4) เดินสตริงแล้วแตกเป็น spans ---------- */
   final spans = <TextSpan>[];
   int last = 0;
 
   for (final m in reg.allMatches(source)) {
-    // ส่วนที่ไม่ไฮไลท์
     if (m.start > last) {
-      spans.add(TextSpan(
-        text: source.substring(last, m.start),
-        style: _normal,
-      ));
+      spans.add(TextSpan(text: source.substring(last, m.start), style: normal));
     }
-    // ส่วนที่ไฮไลท์
-    spans.add(TextSpan(
-      text: source.substring(m.start, m.end),
-      style: _highlight,
-    ));
+    spans.add(
+        TextSpan(text: source.substring(m.start, m.end), style: highlight));
     last = m.end;
   }
-  // เติมส่วนท้าย (ถ้ามี)
+
   if (last < source.length) {
-    spans.add(TextSpan(text: source.substring(last), style: _normal));
+    spans.add(TextSpan(text: source.substring(last), style: normal));
   }
 
-  return TextSpan(children: spans, style: _normal);
+  return TextSpan(children: spans, style: normal);
 }

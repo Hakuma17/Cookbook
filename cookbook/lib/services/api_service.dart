@@ -14,6 +14,7 @@ import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import '../models/search_response.dart';
 
 /// จัดการทุก API call กับ backend (PHP)
 class ApiService {
@@ -594,20 +595,15 @@ class ApiService {
     return (j['data'] is Map<String, dynamic>) ? j['data'] : {};
   }
 
-// ─── Search ──────────────────────────────────────────
-//
-
-  /// ค้นหาสูตรอาหาร (keyword + filters)
-  static Future<List<Recipe>> searchRecipes({
+  /// ค้นหาสูตรอาหาร (keyword + filters) – เวอร์ชันรับ tokens จาก backend
+  static Future<SearchResponse> searchRecipes({
     required String query,
     int page = 1,
     int limit = 26,
     String sort = 'latest',
-
-    /* ── เงื่อนไขกรองวัตถุดิบ ───────────────────── */
-    List<String>? ingredientNames, // (รอ backend รองรับ)
-    List<int>? includeIngredientIds, // id “ต้องมี”
-    List<int>? excludeIngredientIds, // id “ต้องไม่มี”
+    String mode = 'recipe', // ★ NEW (recipe | ingredient)
+    List<int>? includeIngredientIds,
+    List<int>? excludeIngredientIds,
     int? categoryId,
   }) async {
     /* 1) query-string */
@@ -615,6 +611,7 @@ class ApiService {
       MapEntry('page', page.toString()),
       MapEntry('limit', limit.toString()),
       MapEntry('sort', sort),
+      MapEntry('mode', mode), // ★ NEW
     ];
 
     /* 1-A keyword — ★ ALWAYS add ★ */
@@ -626,18 +623,6 @@ class ApiService {
     if (categoryId != null) {
       entries.add(MapEntry('cat_id', categoryId.toString()));
     }
-
-    /* 1-C ingredientNames (ปิดไว้จนกว่า PHP รองรับ) */
-    // if (ingredientNames?.isNotEmpty ?? false) {
-    //   final clean = ingredientNames!
-    //       .map((e) => e.trim())
-    //       .where((e) => e.isNotEmpty)
-    //       .toList();
-    //   if (clean.isNotEmpty) {
-    //     entries.add(MapEntry('ingredients', clean.join(',')));
-    //   }
-    // }
-
     /* 1-D include / exclude id */
     if (includeIngredientIds?.isNotEmpty ?? false) {
       entries.addAll(includeIngredientIds!
@@ -648,7 +633,7 @@ class ApiService {
           .map((id) => MapEntry('exclude_ids[]', id.toString())));
     }
 
-    /* 2) call API → search_recipes_unified.php */
+    /* 2) call API */
     final uri = Uri.parse('${baseUrl}search_recipes_unified.php')
         .replace(queryParameters: Map.fromEntries(entries));
 
@@ -662,9 +647,33 @@ class ApiService {
       throw Exception(j['message'] ?? 'ค้นหาไม่สำเร็จ');
     }
 
-    return (j['data'] as List)
-        .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return SearchResponse(
+      page: j['page'] ?? 1,
+      tokens: List<String>.from(j['tokens'] ?? <String>[]), // ★ รับ tokens
+      recipes: (j['data'] as List)
+          .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  /// Suggest ชื่อเมนู (autocomplete)
+  static Future<List<String>> getRecipeSuggestions(String pattern) async {
+    if (pattern.isEmpty) return [];
+    try {
+      final resp = await _client
+          .get(Uri.parse(
+            '${baseUrl}get_recipe_suggestions.php?q=${Uri.encodeComponent(pattern)}',
+          ))
+          .timeout(_timeout);
+
+      final list = jsonDecode(resp.body);
+      if (list is List) {
+        return List<String>.from(list);
+      }
+    } catch (e) {
+      debugPrint('RecipeSuggest error: $e');
+    }
+    return [];
   }
 
   /// ค้นหาสูตรจาก “รายชื่อวัตถุดิบ” ตรง ๆ  (ยังอิง ingredients=)
