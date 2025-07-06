@@ -1,6 +1,9 @@
+// lib/models/recipe.dart
+
 import 'package:flutter/foundation.dart';
 
-// ───────── helper ───────────────────────────────────────────
+/// ───────── helper ───────────────────────────────────────────
+/// แปลง dynamic → int/double/String พร้อม fallback
 int _toInt(dynamic v, {int fallback = 0}) {
   if (v == null) return fallback;
   if (v is int) return v;
@@ -19,40 +22,44 @@ String _toString(dynamic v, {String fallback = ''}) {
   return s.isEmpty ? fallback : s;
 }
 
-// ───────── model ────────────────────────────────────────────
+/// ───────── model ────────────────────────────────────────────
+/// Immutable data class for a recipe, พร้อม helper from/to JSON.
 @immutable
 class Recipe {
+  /// รหัสสูตร
   final int id;
+
+  /// ชื่อเมนู
   final String name;
 
-  /// path ในเซิร์ฟเวอร์ (อาจ null)
+  /// path ของรูปบน server (อาจ null)
   final String? imagePath;
 
-  /// URL พร้อมใช้ (รวม default)
+  /// URL ของรูป ที่พร้อมใช้งานในแอป
   final String imageUrl;
 
-  /// เวลาทำ (นาที)  – 0 = ไม่ระบุ
+  /// เวลาทำ (นาที), 0 = ไม่ระบุ
   final int prepTime;
 
-  /// เรตติ้งเฉลี่ย 0-5
+  /// เรตติ้งเฉลี่ย 0–5
   final double averageRating;
 
   /// จำนวนรีวิว
   final int reviewCount;
 
   /// จำนวนคนกด “❤”
-  final int favoriteCount; // ← ★ new
+  final int favoriteCount;
 
-  /// สรุปวัตถุดิบสั้น ๆ
+  /// สรุปวัตถุดิบสั้น ๆ (text)
   final String shortIngredients;
 
-  /// มีวัตถุดิบที่ผู้ใช้แพ้
+  /// ถ้ามีวัตถุดิบที่ผู้ใช้แพ้ (จาก API หรือคำนวณใน backend)
   final bool hasAllergy;
 
-  /// อันดับ 1-3 (null = ไม่มี)
+  /// อันดับ 1–3 ในผลค้นหา (null = ไม่แสดง badge)
   final int? rank;
 
-  /// id วัตถุดิบทั้งหมด
+  /// รายการ id วัตถุดิบทั้งหมดในสูตร
   final List<int> ingredientIds;
 
   const Recipe({
@@ -70,8 +77,9 @@ class Recipe {
     required this.ingredientIds,
   });
 
-  // ───── fromJson ──────────────────────────────────────────
+  /// ───── สร้างจาก JSON (จาก API) ─────────────────────────
   factory Recipe.fromJson(Map<String, dynamic> j) {
+    // helper แปลง ingredient_ids ที่อาจเป็น List<int> หรือ String "1,2,3"
     List<int> _parseIds(dynamic src) {
       if (src == null) return <int>[];
       if (src is List) {
@@ -90,6 +98,7 @@ class Recipe {
       return <int>[];
     }
 
+    // จัดการกรณี path เป็น null หรือ empty
     final rawImagePath = j['image_path'];
     final imgPath = (rawImagePath != null && rawImagePath.toString().isNotEmpty)
         ? rawImagePath.toString()
@@ -105,13 +114,14 @@ class Recipe {
       reviewCount: _toInt(j['review_count']),
       favoriteCount: _toInt(j['favorite_count'], fallback: 0),
       shortIngredients: _toString(j['short_ingredients']),
-      hasAllergy: j['has_allergy'] == true || j['has_allergy'] == 1,
+      hasAllergy:
+          j['has_allergy'] == true || j['has_allergy'] == 1, // backend ตัดสิน
       rank: j['rank'] == null ? null : _toInt(j['rank']),
       ingredientIds: _parseIds(j['ingredient_ids']),
     );
   }
 
-  // ───── toJson (optional, cache / debug) ──────────────────
+  /// ───── แปลงกลับเป็น JSON (optional) ────────────────────
   Map<String, dynamic> toJson() => {
         'recipe_id': id,
         'name': name,
@@ -120,7 +130,7 @@ class Recipe {
         'prep_time': prepTime,
         'average_rating': averageRating,
         'review_count': reviewCount,
-        'favorite_count': favoriteCount, // ★
+        'favorite_count': favoriteCount, // ★ รวมค่านี้ด้วย
         'short_ingredients': shortIngredients,
         'has_allergy': hasAllergy,
         'rank': rank,
