@@ -35,7 +35,6 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   final Set<String> _allergySet = {}; // hidden (exclude only)
 
   bool _isLoggedIn = false;
-
   final _haveCtrl = TextEditingController();
   final _notHaveCtrl = TextEditingController();
 
@@ -45,7 +44,8 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
     super.initState();
 
     AuthService.isLoggedIn().then((ok) {
-      if (mounted) setState(() => _isLoggedIn = ok);
+      if (!mounted) return;
+      setState(() => _isLoggedIn = ok);
     });
 
     AuthService.getUserAllergies().then((list) {
@@ -114,17 +114,23 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
             onPressed: _popWithResult, // ★
           ),
           centerTitle: true,
-          title: const Text('ค้นหาสูตร',
-              style: TextStyle(
-                  color: Color(0xFF0F2930),
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700)),
+          title: const Text(
+            'ค้นหาสูตร',
+            style: TextStyle(
+              color: Color(0xFF0F2930),
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           actions: [
             Tooltip(
               triggerMode: TooltipTriggerMode.tap,
-              message: '• พิมพ์สั้น ๆ เช่น “กุ้ง” ระบบจะค้นทุกชนิดที่มีคำนี้\n'
-                  '• ถ้าพิมพ์ตรงกับชื่อวัตถุดิบ จะใช้ id ตรง ๆ เพื่อความแม่นยำ\n'
-                  '• จัดอันดับเมนูที่มีวัตถุดิบครบที่สุดก่อน',
+              message: '''
+• พิมพ์ชื่อวัตถุดิบ → เพิ่ม chip
+• แตะ ✕ บน chip เพื่อลบ
+• กดกล้อง 📷 สแกนชื่อวัตถุดิบ
+• ลบทั้งหมด → คืนค่าเริ่มต้น
+• ใช้ตัวกรอง (N) → ค้นสูตรทันที''',
               child: const Padding(
                 padding: EdgeInsets.only(right: 12),
                 child: Icon(Icons.help_outline, color: Colors.black),
@@ -147,9 +153,10 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // --- include ---
-                const Text('แสดงสูตรที่มี:',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const Text(
+                  'แสดงสูตรที่มี:',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 8),
                 _typeAheadBox(
                   controller: _haveCtrl,
@@ -168,9 +175,10 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                 const SizedBox(height: 24),
 
                 // --- exclude ---
-                const Text('แสดงสูตรที่ไม่มี:',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const Text(
+                  'แสดงสูตรที่ไม่มี:',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 8),
                 _typeAheadBox(
                   controller: _notHaveCtrl,
@@ -201,9 +209,11 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                               horizontal: 32, vertical: 14),
                         ),
                         onPressed: _clearAll,
-                        child: const Text('ลบตัวกรองทั้งหมด',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'ลบตัวกรองทั้งหมด',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton(
@@ -276,7 +286,8 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         ),
         const SizedBox(width: 8),
         IconButton(
-          icon: const Icon(Icons.qr_code_scanner, size: 28),
+          icon: const Icon(Icons.camera_alt, size: 28), // ★ ใช้ไอคอนกล้อง
+          tooltip: 'ถ่ายรูปสแกนวัตถุดิบ', // ★ เพิ่ม tooltip
           onPressed: onScan,
         ),
       ],
