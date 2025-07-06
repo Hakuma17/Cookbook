@@ -54,8 +54,6 @@ dependencies:
   flutter_typeahead: ^5.2.0
   google_fonts: ^6.2.1
 
-
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -66,6 +64,9 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+  # เพิ่ม package สำหรับสร้าง launcher icons
+  flutter_launcher_icons: ^0.13.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -88,8 +89,7 @@ flutter:
     - assets/converted_tflite_quantized/model_unquant.tflite
     - assets/converted_tflite_quantized/labels.txt
     - assets/icons/gallery_icon.png
-
-
+    - assets/images/logo_foreground.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -123,3 +123,11 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# ตั้งค่าไอคอนแอปให้ใช้ assets/images/logo.png
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo_foreground.png"              # ใช้ไฟล์เดียวกันทั้งสองแพลตฟอร์ม
+  adaptive_icon_background: "#ffffff"               # สีพื้นหลัง (สำหรับ Android 8+)
+  remove_alpha_ios: true                            # แนะนำให้เปิด ป้องกันไอคอนใสบน iOS
