@@ -1,3 +1,4 @@
+// lib/screens/home_screen.dart
 import 'dart:async';
 import 'dart:developer';
 
@@ -11,10 +12,14 @@ import '../services/auth_service.dart';
 import '../widgets/recipe_card.dart';
 import '../widgets/ingredient_card.dart';
 import '../widgets/custom_bottom_nav.dart';
+// ★ เพิ่ม import ของ AllergyWarningDialog
+import '../widgets/allergy_warning_dialog.dart';
+
 import 'login_screen.dart';
 import 'all_ingredients_screen.dart';
 import 'my_recipes_screen.dart';
 import 'profile_screen.dart';
+import 'search_screen.dart'; // เพิ่ม import SearchScreen
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -35,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   int _selectedIndex = 0;
 
   List<int> _allergyIngredientIds = [];
+  List<Ingredient> _allergyList = []; // เก็บรายการวัตถุดิบที่แพ้แบบเต็ม
 
   bool _isLoadingInit = true;
   DateTime _lastFetch = DateTime.fromMillisecondsSinceEpoch(0);
@@ -57,14 +63,12 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
   /* ───────────── fetch helpers ───────────── */
   Future<void> _fetchAllData({bool force = false}) async {
-    // ข้ามถ้าเพิ่งดึงไม่ถึง 3 นาที (เว้นแต่ force = true)
     if (!force &&
         DateTime.now().difference(_lastFetch) < const Duration(minutes: 3)) {
       return;
     }
     _lastFetch = DateTime.now();
 
-    // ↓ โหลดพร้อมกัน + timeout
     final futures = await Future.wait<List<dynamic>>([
       ApiService.fetchIngredients().timeout(const Duration(seconds: 10),
           onTimeout: () => <Ingredient>[]),
@@ -82,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       _futureIngredients = Future.value(futures[0] as List<Ingredient>);
       _futurePopular = Future.value(futures[1] as List<Recipe>);
       _futureNew = Future.value(futures[2] as List<Recipe>);
-      _refreshToken++; // trigger AnimatedSwitcher
+      _refreshToken++;
     });
   }
 
@@ -105,8 +109,13 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         final allergy = await ApiService.fetchAllergyIngredients().timeout(
             const Duration(seconds: 8),
             onTimeout: () => <Ingredient>[]);
-        _allergyIngredientIds = allergy.map((e) => e.id).toList();
+        if (!mounted) return;
+        setState(() {
+          _allergyList = allergy;
+          _allergyIngredientIds = allergy.map((e) => e.id).toList();
+        });
       } else {
+        _allergyList = [];
         _allergyIngredientIds = [];
       }
     } catch (e) {
@@ -117,7 +126,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   /* ───────────── bottom-nav ───────────── */
   Future<void> _onNavTap(int idx) async {
     switch (idx) {
-      case 2: // My recipes
+      case 2:
         if (!await _ensureLoggedIn()) return;
         await Navigator.push(
           context,
@@ -125,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         );
         await _reloadLoginAndData();
         break;
-      case 3: // profile
+      case 3:
         if (!await _ensureLoggedIn()) return;
         await Navigator.push(
           context,
@@ -141,14 +150,10 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   Future<bool> _ensureLoggedIn() async {
     var ok = await AuthService.isLoggedIn();
     if (ok) return true;
-
-    // ยังไม่ล็อกอิน → พาไปหน้า Login
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
-
-    // เช็กอีกทีหลังกลับมา
     ok = await AuthService.isLoggedIn();
     if (ok) await _reloadLoginAndData();
     return ok;
@@ -183,29 +188,29 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     }
   }
 
-  void _showAllergyWarning(Recipe recipe) => showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('คำเตือน'),
-          content: Text(
-            'เมนู “${recipe.name}” มีวัตถุดิบที่คุณอาจแพ้\nต้องการเปิดดูหรือไม่?',
-            style: const TextStyle(fontSize: 15),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('ยกเลิก')),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/recipe_detail',
-                    arguments: recipe);
-              },
-              child: const Text('เปิดดู'),
-            ),
-          ],
-        ),
-      );
+  void _showAllergyWarning(Recipe recipe) {
+    // หา id ของวัตถุดิบที่ชนกับสูตร แล้วแมปเป็นชื่อ
+    final badIds = recipe.ingredientIds
+        .where((id) => _allergyIngredientIds.contains(id))
+        .toSet();
+
+    final badNames = _allergyList
+        .where((ing) => badIds.contains(ing.id))
+        .map((ing) => ing.displayName ?? ing.name)
+        .toList();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AllergyWarningDialog(
+        recipe: recipe,
+        badIngredientNames: badNames,
+        onConfirm: (r) {
+          Navigator.pushNamed(context, '/recipe_detail', arguments: r);
+        },
+      ),
+    );
+  }
 
   /* ───────────── build ───────────── */
   @override
@@ -248,9 +253,31 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                   children: [
                     _buildIngredientSection(),
                     const SizedBox(height: 32),
-                    _buildRecipeSection('สูตรอาหารยอดนิยม', _futurePopular),
+                    _buildRecipeSection(
+                      'สูตรอาหารยอดนิยม',
+                      _futurePopular,
+                      onAction: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SearchScreen(
+                            initialSortIndex: 0,
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 32),
-                    _buildRecipeSection('สูตรอาหารอัปเดตใหม่', _futureNew),
+                    _buildRecipeSection(
+                      'สูตรอาหารอัปเดตใหม่',
+                      _futureNew,
+                      onAction: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SearchScreen(
+                            initialSortIndex: 2,
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -377,7 +404,16 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       separatorBuilder: (_, __) => const SizedBox(width: 12),
                       itemBuilder: (_, i) => IngredientCard(
                         ingredient: list[i],
-                        onTap: () {},
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SearchScreen(
+                                ingredients: [list[i].name], // ★ แก้ตรงนี้
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     );
                   },
@@ -388,7 +424,11 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         ),
       );
 
-  Widget _buildRecipeSection(String title, Future<List<Recipe>> future) =>
+  Widget _buildRecipeSection(
+    String title,
+    Future<List<Recipe>> future, {
+    required VoidCallback onAction, // เพิ่มพารามิเตอร์ onAction
+  }) =>
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -401,7 +441,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               fontWeight: FontWeight.w700,
               color: Color(0xFFFF9B05),
             ),
-            onAction: () {},
+            onAction: onAction, // ใช้ callback ที่รับเข้ามา
           ),
           const SizedBox(height: 12),
           AnimatedSwitcher(
@@ -439,8 +479,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   Widget _buildSectionHeader({
     required String title,
     required String actionText,
+    required TextStyle actionStyle,
     required VoidCallback onAction,
-    TextStyle? actionStyle,
   }) =>
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -457,7 +497,9 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
             ),
             const Spacer(),
             GestureDetector(
-                onTap: onAction, child: Text(actionText, style: actionStyle)),
+              onTap: onAction,
+              child: Text(actionText, style: actionStyle),
+            ),
           ],
         ),
       );
