@@ -1,4 +1,5 @@
-// ignore_for_file: use_build_context_synchronously, constant_identifier_names
+// lib/screens/ingredient_prediction_result_screen.dart
+// ©2025  – ปรับ UI เพิ่มปุ่มช่วยเหลือและคำแนะนำแบบ Bottom Sheet
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -62,7 +63,7 @@ class _IngredientPredictionResultScreenState
   void initState() {
     super.initState();
     _loadModel();
-    // ถ้า confidence สูงพอ ให้เติมช่อง input โดยอัตโนมัติ
+    // auto‐fill ถ้า confidence สูงพอ
     if ((widget.confidence ?? 0) >= _kAutoFillThreshold &&
         widget.predictedName != null) {
       _inputCtrl.text = _map(widget.predictedName!);
@@ -102,7 +103,6 @@ class _IngredientPredictionResultScreenState
       final decoded = img.decodeImage(bytes);
       if (decoded == null) return;
 
-      // ย่อรูปให้ขนาด 224x224
       final resized = img.copyResize(decoded, width: 224, height: 224);
       final rgb = resized.getBytes();
 
@@ -115,7 +115,6 @@ class _IngredientPredictionResultScreenState
           List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
       _itp.run(input.reshape([1, 224, 224, 3]), output);
 
-      // เก็บผลลัพธ์ทั้งหมด แล้ว sort by confidence
       final all = <_Pred>[];
       for (var i = 0; i < _labels.length; i++) {
         final sc = output[0][i] as double;
@@ -127,7 +126,6 @@ class _IngredientPredictionResultScreenState
         _preds = all.take(3).toList(); // แสดงแค่ 3 อันดับแรก
       });
 
-      // ถ้าไม่รู้จักเลย
       if (_preds.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('ไม่รู้จักวัตถุดิบ')),
@@ -138,18 +136,49 @@ class _IngredientPredictionResultScreenState
     }
   }
 
-  /// แปลง label ภาษาอังกฤษ → ภาษาไทย (จาก map)
+  /// แปลง label อังกฤษ → ไทย
   String _map(String raw) => _kLabelMap[raw.toLowerCase()] ?? raw;
 
-  /// กดปุ่ม + เพื่อเติมใน list
+  /// เพิ่มใน list
   void _addToList() {
     final v = _inputCtrl.text.trim();
     if (v.isNotEmpty) setState(() => _selected.add(v));
     _inputCtrl.clear();
   }
 
-  /// ลบรายการใน list
+  /// ลบรายการ
   void _remove(String n) => setState(() => _selected.remove(n));
+
+  /// ★ แสดง Bottom Sheet ช่วยแนะนำวิธีใช้
+  void _showHelpSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('📝 วิธีใช้หน้านี้',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 12),
+            _bullet('กดปุ่ม “+” เพื่อเพิ่มชื่อในรายการ'),
+            _bullet('พิมพ์ชื่อเองหรือเลือกจาก Prediction'),
+            _bullet('แตะชื่อในรายการเพื่อลบออก'),
+            _bullet('กด “ดูสูตรอาหาร” เพื่อค้นสูตรด้วยวัตถุดิบนี้'),
+            const SizedBox(height: 12),
+            const Text('สนุกกับการทำอาหารนะ! 🎉',
+                style: TextStyle(fontSize: 16)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bullet(String t) =>
+      Row(children: [const Text('• '), Expanded(child: Text(t))]);
 
   @override
   Widget build(BuildContext context) {
@@ -158,7 +187,7 @@ class _IngredientPredictionResultScreenState
       body: SafeArea(
         child: Column(
           children: [
-            // ─── Custom Header ─────────────────
+            // ─── Custom Header ───────────────────────────────
             Container(
               width: double.infinity,
               height: 88,
@@ -199,11 +228,21 @@ class _IngredientPredictionResultScreenState
                       color: Color(0xFFFF9B05),
                     ),
                   ),
+                  // ปุ่มช่วยเหลือ
+                  Positioned(
+                    right: 24,
+                    child: IconButton(
+                      icon: const Icon(Icons.help_outline,
+                          size: 28, color: Color(0xFFFF9B05)),
+                      tooltip: 'ดูวิธีใช้',
+                      onPressed: _showHelpSheet,
+                    ),
+                  ),
                 ],
               ),
             ),
 
-            // ─── เนื้อหา ───────────────────────
+            // ─── เนื้อหา ─────────────────────────────────────
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -272,9 +311,8 @@ class _IngredientPredictionResultScreenState
                         SizedBox(
                           width: contentWidth,
                           child: Column(
-                            children: List.generate(_preds.length, (i) {
-                              return _buildPredictionBar(_preds[i], i);
-                            }),
+                            children: List.generate(_preds.length,
+                                (i) => _buildPredictionBar(_preds[i], i)),
                           ),
                         ),
                       const SizedBox(height: 24),
@@ -400,7 +438,13 @@ class _IngredientPredictionResultScreenState
     );
   }
 
-  /// แสดงแถบผลทำนายแต่ละตัว
+  /// แสดง SnackBar
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// สร้าง Prediction bar
   Widget _buildPredictionBar(_Pred p, int index) {
     final colors = [
       const Color(0xFFFF9B05), // อันดับ 1
@@ -421,7 +465,6 @@ class _IngredientPredictionResultScreenState
         ),
         child: Stack(
           children: [
-            // เติมสีตามเปอร์เซ็นต์
             FractionallySizedBox(
               widthFactor: p.score.clamp(0.0, 1.0),
               alignment: Alignment.centerLeft,
@@ -432,7 +475,6 @@ class _IngredientPredictionResultScreenState
                 ),
               ),
             ),
-            // ชื่อ + เปอร์เซ็นต์
             Positioned.fill(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
