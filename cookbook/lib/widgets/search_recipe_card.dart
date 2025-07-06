@@ -19,6 +19,7 @@ class SearchRecipeCard extends StatefulWidget {
     this.compact = false,
     this.expanded = false,
     this.onTap,
+    this.highlightEnabled = true, // ★ เปิด/ปิดการไฮไลท์คำได้
   });
 
   final Recipe recipe;
@@ -28,6 +29,9 @@ class SearchRecipeCard extends StatefulWidget {
   final bool compact; // โหมด list
   final bool expanded; // โหมด detail
   final VoidCallback? onTap;
+
+  /// ★ เปิด/ปิดการไฮไลท์คำ (โยงกับ Setting ได้ภายหลัง)
+  final bool highlightEnabled;
 
   @override
   State<SearchRecipeCard> createState() => _SearchRecipeCardState();
@@ -173,15 +177,24 @@ class _SearchRecipeCardState extends State<SearchRecipeCard> {
   // -------   ข้อความชื่อเมนู
   Widget _titleSection({EdgeInsets pad = EdgeInsets.zero}) => Padding(
         padding: pad,
-        child: RichText(
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          text: highlightSpan(
-            widget.recipe.name,
-            widget.highlightTerms,
-            _titleStyle(),
-          ),
-        ),
+        child: widget.highlightEnabled
+            // ถ้าเปิดไฮไลท์: ใช้ RichText + highlightSpan
+            ? RichText(
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                text: highlightSpan(
+                  widget.recipe.name,
+                  widget.highlightTerms,
+                  _titleStyle(),
+                ),
+              )
+            // ถ้าปิดไฮไลท์: แสดงปกติด้วย Text
+            : Text(
+                widget.recipe.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: _titleStyle(),
+              ),
       );
 
   // -------   สรุปวัตถุดิบสั้น ๆ
@@ -191,20 +204,34 @@ class _SearchRecipeCardState extends State<SearchRecipeCard> {
           ? const SizedBox()
           : Padding(
               padding: pad,
-              child: RichText(
-                maxLines: maxLines,
-                overflow: TextOverflow.ellipsis,
-                text: highlightSpan(
-                  widget.recipe.shortIngredients,
-                  widget.highlightTerms,
-                  const TextStyle(
-                    fontFamily: 'Roboto',
-                    fontSize: 14,
-                    height: 1.45,
-                    color: Color(0xFF818181),
-                  ),
-                ),
-              ),
+              child: widget.highlightEnabled
+                  // ไฮไลท์วัตถุดิบ
+                  ? RichText(
+                      maxLines: maxLines,
+                      overflow: TextOverflow.ellipsis,
+                      text: highlightSpan(
+                        widget.recipe.shortIngredients,
+                        widget.highlightTerms,
+                        const TextStyle(
+                          fontFamily: 'Roboto',
+                          fontSize: 14,
+                          height: 1.45,
+                          color: Color(0xFF818181),
+                        ),
+                      ),
+                    )
+                  // ปิดไฮไลท์: แสดง Text ธรรมดา
+                  : Text(
+                      widget.recipe.shortIngredients,
+                      maxLines: maxLines,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 14,
+                        height: 1.45,
+                        color: Color(0xFF818181),
+                      ),
+                    ),
             );
 
   // -------   Row meta : เวลา ⭐ ❤ 💬
@@ -255,10 +282,12 @@ class _SearchRecipeCardState extends State<SearchRecipeCard> {
   /* ───────────────────────── helper UI ─────────────────────────── */
   Widget _badge() {
     final rank = widget.rankOverride ?? widget.recipe.rank;
+    // ถ้าไม่มี rank และไม่มี allergy → ไม่แสดง
     if (rank == null && !widget.recipe.hasAllergy) return const SizedBox();
     return Positioned(
       top: 8,
       left: 8,
+      // showWarning จะทำให้ badge เปลี่ยนสีหรือแสดง icon เตือน
       child: RankBadge(rank: rank, showWarning: widget.recipe.hasAllergy),
     );
   }

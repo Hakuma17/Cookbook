@@ -1,19 +1,13 @@
 // lib/screens/search_screen.dart
 // ─────────────────────────────────────────────────────────────
-// Search Screen (rev. badge-dismiss – 2025-07-05)
-//
-// • backend ส่ง “tokens” กลับมา → ใช้ไฮไลท์ได้ตรงโดยไม่ตัดคำในแอป
-// • ส่ง include / exclude filters (ชื่อวัตถุดิบ) เข้า backend
-// • คงค่าฟิลเตอร์เมื่อย้อนกลับจาก IngredientFilterScreen
-// • ✨ Badge สรุปฟิลเตอร์ใต้ SearchBar + ปุ่ม ✕ ลบได้ทีละตัว
-// • ถ้ามี > 4 รายการ จะแสดง “…+N” แทน เพื่อไม่ให้รก
+// Search Screen (rev. allergy-dialog – 2025-07-07)
 // ─────────────────────────────────────────────────────────────
 
-// ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 
+import '../models/ingredient.dart'; // ★ import Ingredient
 import '../models/recipe.dart';
 import '../models/search_response.dart';
 import '../services/api_service.dart';
@@ -24,19 +18,25 @@ import '../widgets/custom_search_bar.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/hero_carousel.dart';
 import '../widgets/choice_chip_filter.dart';
+import '../widgets/allergy_warning_dialog.dart'; // ★ new
 import 'ingredient_filter_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key, this.ingredients, this.excludeIngredients});
+  const SearchScreen({
+    super.key,
+    this.ingredients,
+    this.excludeIngredients,
+    this.initialSortIndex,
+  });
   final List<String>? ingredients;
   final List<String>? excludeIngredients;
+  final int? initialSortIndex;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  /* ───────────── constants ───────────── */
   static const _pageSize = 26;
   static const List<FilterOption> _sortOptions = [
     FilterOption('ยอดนิยม', 'popular'),
@@ -45,41 +45,43 @@ class _SearchScreenState extends State<SearchScreen> {
     FilterOption('แนะนำ', 'recommended'),
   ];
 
-  /* ───────────── controllers ─────────── */
   final _scrollCtl = ScrollController();
   final _debouncer = Debouncer(delay: const Duration(milliseconds: 400));
 
-  /* ───────────── state ──────────────── */
   List<Recipe> _gridRecipes = [];
   List<Recipe> _heroRecipes = [];
-  List<String> _respTokens = []; // ★
+  List<String> _respTokens = [];
 
   List<String> _includeNames = [];
   List<String> _excludeNames = [];
+  List<int> _allergyIngredientIds = [];
+  List<Ingredient> _allergyList = []; // ★ เก็บ Ingredient เต็มรูปแบบ
 
   String _searchQuery = '';
-  String _error = '';
-
   bool _loading = false;
   bool _loadingMore = false;
   bool _hasMore = true;
   int _page = 1;
-  int _sortIndex = 2;
+  late int _sortIndex;
 
   int _navIndex = 1;
   bool _isLoggedIn = false;
+  int _reqId = 0;
 
-  int _reqId = 0; // stale guard
-
-  /* ───────────── lifecycle ──────────── */
   @override
   void initState() {
     super.initState();
     _refreshLoginStatus();
     _includeNames = [...?widget.ingredients];
     _excludeNames = [...?widget.excludeIngredients];
+    _sortIndex = widget.initialSortIndex ?? 2;
     _scrollCtl.addListener(_onScroll);
-    _loadInitial();
+
+    if (_includeNames.isNotEmpty || _excludeNames.isNotEmpty) {
+      _performSearch('');
+    } else {
+      _loadInitial();
+    }
   }
 
   @override
@@ -89,7 +91,6 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  /* ───────────── networking ─────────── */
   Future<void> _loadInitial() async {
     setState(() => _loading = true);
     try {
@@ -106,7 +107,22 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _refreshLoginStatus() async {
     final ok = await AuthService.isLoggedIn();
-    if (mounted) setState(() => _isLoggedIn = ok);
+    if (!mounted) return;
+    setState(() => _isLoggedIn = ok);
+
+    if (ok) {
+      // ดึงทั้ง id และข้อมูลเต็มของวัตถุดิบที่แพ้
+      final allergy = await ApiService.fetchAllergyIngredients()
+          .timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      setState(() {
+        _allergyIngredientIds = allergy.map((i) => i.id).toList();
+        _allergyList = allergy;
+      });
+    } else {
+      _allergyIngredientIds = [];
+      _allergyList = [];
+    }
   }
 
   void _onSearchChanged(String txt) => _debouncer(() => _performSearch(txt));
@@ -130,7 +146,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() => _loadingMore = page > 1);
 
     try {
-      final SearchResponse res = await ApiService.searchRecipes(
+      final res = await ApiService.searchRecipes(
         query: _searchQuery,
         page: page,
         limit: _pageSize,
@@ -140,7 +156,6 @@ class _SearchScreenState extends State<SearchScreen> {
         excludeIngredientIds:
             _excludeNames.map(int.tryParse).whereType<int>().toList(),
       );
-
       if (myId != _reqId || !mounted) return;
 
       setState(() {
@@ -165,7 +180,6 @@ class _SearchScreenState extends State<SearchScreen> {
   void _showError(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
-  /* ───────────── scroll listener ─────── */
   void _onScroll() {
     if (_scrollCtl.position.pixels >
             _scrollCtl.position.maxScrollExtent - 200 &&
@@ -175,11 +189,9 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /* ───────────── highlight terms ─────── */
   List<String> get _highlightTerms =>
       _respTokens.isNotEmpty ? _respTokens : _searchQuery.split(RegExp(r'\s+'));
 
-  /* ───────────── filter badge helper ─── */
   void _removeInclude(String n) {
     setState(() => _includeNames.remove(n));
     _performSearch(_searchQuery);
@@ -194,11 +206,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_includeNames.isEmpty && _excludeNames.isEmpty) {
       return const SizedBox.shrink();
     }
-
-    // limit to 4 badges for cleanliness
     final display = <Widget>[];
-
-    void addChip(String lbl, bool pos, void Function() onDel) {
+    void addChip(String lbl, bool pos, VoidCallback onDel) {
       display.add(_chip(lbl, positive: pos, onDelete: onDel));
     }
 
@@ -208,12 +217,10 @@ class _SearchScreenState extends State<SearchScreen> {
     for (final n in _excludeNames.take(3 - display.length)) {
       addChip('ไม่ $n', false, () => _removeExclude(n));
     }
-
     final total = _includeNames.length + _excludeNames.length;
     if (total > display.length) {
       display.add(_extraChip(total - display.length));
     }
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
       child: Wrap(spacing: 4, runSpacing: -4, children: display),
@@ -242,7 +249,6 @@ class _SearchScreenState extends State<SearchScreen> {
         shape: StadiumBorder(side: BorderSide(color: Colors.grey.shade500)),
       );
 
-  /* ───────────── UI small parts ─────── */
   Widget _resultHeading() {
     if (_searchQuery.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -254,12 +260,12 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildHero() {
     if (_heroRecipes.isEmpty) return const SizedBox.shrink();
+    final combined = {..._includeNames, ..._highlightTerms}.toList();
     return HeroCarousel(
       recipes: _heroRecipes,
       itemSize: 110,
-      highlightTerms: _highlightTerms,
-      onTap: (r) =>
-          Navigator.pushNamed(context, '/recipe_detail', arguments: r),
+      highlightTerms: combined,
+      onTap: _handleRecipeTap,
     );
   }
 
@@ -272,7 +278,6 @@ class _SearchScreenState extends State<SearchScreen> {
       return const SliverFillRemaining(
           child: Center(child: Text('ไม่พบสูตรอาหารที่ต้องการ')));
     }
-
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       sliver: SliverGrid(
@@ -286,12 +291,13 @@ class _SearchScreenState extends State<SearchScreen> {
             if (i == _gridRecipes.length) {
               return const Center(child: CircularProgressIndicator());
             }
+            final combined = {..._includeNames, ..._highlightTerms}.toList();
             return SearchRecipeCard(
               recipe: _gridRecipes[i],
               rankOverride: _sortIndex == 0 ? i + 1 : null,
-              highlightTerms: _highlightTerms,
-              onTap: () => Navigator.pushNamed(context, '/recipe_detail',
-                  arguments: _gridRecipes[i]),
+              highlightTerms: combined,
+              highlightEnabled: true,
+              onTap: () => _handleRecipeTap(_gridRecipes[i]),
             );
           },
           childCount: _gridRecipes.length + (_hasMore ? 1 : 0),
@@ -300,7 +306,86 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /* ───────────── build ─────────────── */
+  void _handleRecipeTap(Recipe recipe) {
+    final hasAllergy =
+        _isLoggedIn && recipe.ingredientIds.any(_allergyIngredientIds.contains);
+    if (hasAllergy) {
+      _showAllergyWarning(recipe);
+    } else {
+      Navigator.pushNamed(context, '/recipe_detail', arguments: recipe);
+    }
+  }
+
+  void _showAllergyWarning(Recipe recipe) {
+    final badIds = recipe.ingredientIds
+        .where((id) => _allergyIngredientIds.contains(id))
+        .toSet();
+    final badNames = _allergyList
+        .where((ing) => badIds.contains(ing.id))
+        .map((ing) => ing.name)
+        .toList();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AllergyWarningDialog(
+        recipe: recipe,
+        badIngredientNames: badNames,
+        onConfirm: (r) {
+          Navigator.pop(context);
+          Navigator.pushNamed(context, '/recipe_detail', arguments: r);
+        },
+      ),
+    );
+  }
+
+  Future<void> _onBottomNavTap(int i) async {
+    if ((i == 2 || i == 3) &&
+        !await AuthService.checkAndRedirectIfLoggedOut(context)) return;
+    if (i == _navIndex) return;
+    setState(() => _navIndex = i);
+    switch (i) {
+      case 0:
+        Navigator.pushReplacementNamed(context, '/home');
+        break;
+      case 2:
+        Navigator.pushReplacementNamed(context, '/my_recipes');
+        break;
+      case 3:
+        Navigator.pushReplacementNamed(context, '/profile');
+        break;
+    }
+  }
+
+  void _showSearchHelp() => showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+        builder: (_) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('📝 วิธีใช้งานแบบย่อ',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const SizedBox(height: 8),
+              _bullet('พิมพ์ชื่อเมนู/วัตถุดิบ → เจอสูตรทันที'),
+              _bullet('ไอคอน 🥕,🥘 ตัวเลือกโหมดไว้แนะนำคำค้นหา'),
+              _bullet('ใช้ปุ่มกรองเพื่อเลือก/ยกเว้นวัตถุดิบ'),
+              _bullet('แตะ ✕ บน badge เพื่อลบ filter'),
+              _bullet('แตะการ์ดดูรายละเอียด หรือ ♥ เก็บโปรด'),
+              const SizedBox(height: 12),
+              const Text('สนุกกับการทำอาหารนะ! 🎉',
+                  style: TextStyle(fontSize: 16)),
+            ],
+          ),
+        ),
+      );
+
+  Widget _bullet(String t) =>
+      Row(children: [const Text('• '), Expanded(child: Text(t))]);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -309,7 +394,7 @@ class _SearchScreenState extends State<SearchScreen> {
         slivers: [
           _buildAppBar(),
           SliverToBoxAdapter(child: _resultHeading()),
-          SliverToBoxAdapter(child: _filterSummary()), // ★ badges
+          SliverToBoxAdapter(child: _filterSummary()),
           SliverToBoxAdapter(child: _buildHero()),
           SliverToBoxAdapter(
             child: ChoiceChipFilter(
@@ -332,8 +417,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /* ───────────── AppBar ─────────────── */
-  Widget _buildAppBar() => SliverAppBar(
+  SliverAppBar _buildAppBar() => SliverAppBar(
         pinned: true,
         centerTitle: true,
         backgroundColor: Colors.white,
@@ -374,50 +458,4 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
       );
-
-  /* ───────────── bottom-nav ─────────── */
-  Future<void> _onBottomNavTap(int i) async {
-    if ((i == 2 || i == 3) &&
-        !await AuthService.checkAndRedirectIfLoggedOut(context)) return;
-    if (i == _navIndex) return;
-    setState(() => _navIndex = i);
-    switch (i) {
-      case 0:
-        Navigator.pushReplacementNamed(context, '/home');
-        break;
-      case 2:
-        Navigator.pushReplacementNamed(context, '/my_recipes');
-        break;
-      case 3:
-        Navigator.pushReplacementNamed(context, '/profile');
-        break;
-    }
-  }
-
-  /* ───────────── help sheet ─────────── */
-  void _showSearchHelp() => showModalBottomSheet(
-        context: context,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-        builder: (_) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('🧐 วิธีค้นหาสูตรอาหาร',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              const SizedBox(height: 12),
-              _bullet('พิมพ์ชื่อเมนู เช่น “ผัดกะเพรา”'),
-              _bullet('ใส่หลายคำ เช่น “กุ้ง กระเทียม”'),
-              _bullet('ใช้ปุ่มกรองเพื่อเลือก/ยกเว้นวัตถุดิบ'),
-              const SizedBox(height: 8),
-              const Text('ขอให้สนุกกับการทำอาหาร!'),
-            ],
-          ),
-        ),
-      );
-
-  Widget _bullet(String t) =>
-      Row(children: [const Text('• '), Expanded(child: Text(t))]);
 }
