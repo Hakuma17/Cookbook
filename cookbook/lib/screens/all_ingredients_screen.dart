@@ -1,3 +1,4 @@
+// lib/screens/all_ingredients_screen.dart
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'dart:io';
@@ -12,18 +13,29 @@ import '../widgets/custom_bottom_nav.dart';
 import 'home_screen.dart';
 import 'my_recipes_screen.dart';
 import 'profile_screen.dart';
+import 'search_screen.dart';
 
 class AllIngredientsScreen extends StatefulWidget {
-  const AllIngredientsScreen({Key? key}) : super(key: key);
+  /// ★ ถ้า true จะเป็นโหมดเลือก (Selection),
+  ///    ไม่กระโดดไป Search แต่เรียก `onSelected`
+  final bool selectionMode;
+
+  /// ★ Callback เมื่อเลือก Ingredient (ใช้ในโหมดเลือก)
+  final void Function(Ingredient)? onSelected;
+
+  const AllIngredientsScreen({
+    Key? key,
+    this.selectionMode = false,
+    this.onSelected,
+  }) : super(key: key);
 
   @override
   State<AllIngredientsScreen> createState() => _AllIngredientsScreenState();
 }
 
 class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
-/* ─── state ───────────────────────────────────────────── */
+  /* ─── state ───────────────────────────────────────────── */
   late Future<List<Ingredient>> _futureIngredients;
-
   List<Ingredient> _all = [];
   List<Ingredient> _filtered = [];
 
@@ -33,7 +45,6 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   int _selectedIndex = 1; // Explore tab
   String? _username, _profileImg;
 
-/* ─── init / dispose ─────────────────────────────────── */
   @override
   void initState() {
     super.initState();
@@ -49,7 +60,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     super.dispose();
   }
 
-/* ─── data loaders ───────────────────────────────────── */
+  /* ─── data loaders ───────────────────────────────────── */
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -80,7 +91,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     return [];
   }
 
-/* ─── search ─────────────────────────────────────────── */
+  /* ─── search ─────────────────────────────────────────── */
   void _onSearchChanged() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
@@ -96,7 +107,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     return clean.where((i) => i.name.toLowerCase().contains(lower)).toList();
   }
 
-/* ─── bottom-nav ─────────────────────────────────────── */
+  /* ─── bottom-nav ─────────────────────────────────────── */
   void _onTabSelected(int idx) {
     if (idx == _selectedIndex) return;
     setState(() => _selectedIndex = idx);
@@ -104,37 +115,45 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     switch (idx) {
       case 0:
         Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+          context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
         break;
       case 1:
         break;
       case 2:
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (_) => const MyRecipesScreen()));
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MyRecipesScreen()),
+        );
         break;
       case 3:
         Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+          context,
+          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+        );
         break;
     }
   }
 
-/* ─── helpers ────────────────────────────────────────── */
+  /* ─── helpers ────────────────────────────────────────── */
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-/* ─── build ──────────────────────────────────────────── */
+  /* ─── build ──────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      bottomNavigationBar: CustomBottomNav(
-        selectedIndex: _selectedIndex,
-        onItemSelected: _onTabSelected,
-        isLoggedIn: true,
-      ),
+      bottomNavigationBar: widget.selectionMode
+          ? null
+          : CustomBottomNav(
+              selectedIndex: _selectedIndex,
+              onItemSelected: _onTabSelected,
+              isLoggedIn: true,
+            ),
       body: SafeArea(
         child: Column(
           children: [
@@ -166,7 +185,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     );
   }
 
-/* ─── header bar ─────────────────────────────────────── */
+  /* ─── header bar ─────────────────────────────────────── */
   Widget _buildHeaderBar() {
     final imgProvider = (_profileImg?.isNotEmpty ?? false)
         ? NetworkImage(_profileImg!)
@@ -194,22 +213,28 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
                 style:
                     const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Color(0xFF666666)),
-            onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.clear();
-              if (!mounted) return;
-              Navigator.pushNamedAndRemoveUntil(
-                  context, '/login', (_) => false);
-            },
-          ),
+          if (!widget.selectionMode)
+            IconButton(
+              icon: const Icon(Icons.logout, color: Color(0xFF666666)),
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.clear();
+                if (!mounted) return;
+                Navigator.pushNamedAndRemoveUntil(
+                    context, '/login', (_) => false);
+              },
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.close, color: Color(0xFF666666)),
+              onPressed: () => Navigator.pop(context),
+            ),
         ],
       ),
     );
   }
 
-/* ─── grid ───────────────────────────────────────────── */
+  /* ─── grid ───────────────────────────────────────────── */
   Widget _buildGrid() {
     return FutureBuilder<List<Ingredient>>(
       future: _futureIngredients,
@@ -223,10 +248,10 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
 
         return LayoutBuilder(
           builder: (_, cs) {
-            const minWidth = 95.0; // กว้างการ์ดขั้นต่ำ
+            const minWidth = 95.0;
             final cols = (cs.maxWidth / minWidth).floor().clamp(2, 6);
             final itemW = cs.maxWidth / cols;
-            final itemH = 125.0; // คงที่
+            final itemH = 125.0;
 
             return GridView.builder(
               itemCount: _filtered.length,
@@ -236,11 +261,31 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
                 crossAxisSpacing: 12,
                 childAspectRatio: itemW / itemH,
               ),
-              itemBuilder: (_, i) => IngredientCard(
-                ingredient: _filtered[i],
-                width: itemW,
-                height: itemH,
-              ),
+              itemBuilder: (_, i) {
+                final ing = _filtered[i];
+                return IngredientCard(
+                  ingredient: ing,
+                  width: itemW,
+                  height: itemH,
+                  onTap: () {
+                    if (widget.selectionMode) {
+                      // ★ Selection mode: คืน Ingredient
+                      widget.onSelected?.call(ing);
+                      Navigator.pop(context, ing);
+                    } else {
+                      // ★ Normal mode: ไป Search recipes
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SearchScreen(
+                            ingredients: [ing.name],
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                );
+              },
             );
           },
         );
