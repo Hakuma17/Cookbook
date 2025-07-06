@@ -1,3 +1,5 @@
+// lib/screens/my_recipes_screen.dart
+
 import 'dart:async';
 import 'dart:io';
 
@@ -8,10 +10,12 @@ import 'package:cookbook/widgets/custom_bottom_nav.dart';
 import 'package:cookbook/widgets/my_recipe_card.dart';
 import 'package:cookbook/widgets/cart_recipe_card.dart';
 import 'package:cookbook/widgets/cart_ingredient_list_section.dart';
+import '../models/ingredient.dart'; // ★ import Ingredient
 import '../models/recipe.dart';
 import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
+import '../widgets/allergy_warning_dialog.dart'; // ★ import dialog
 import '../main.dart';
 
 class MyRecipesScreen extends StatefulWidget {
@@ -23,22 +27,43 @@ class MyRecipesScreen extends StatefulWidget {
 }
 
 class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
-  // ─────────────────── view-state ────────────────────
-  late int _selectedTab; // 0 = favs, 1 = cart
+  // ────────── view/state ──────────
+  late int _selectedTab; // 0 = favorites, 1 = cart
   late Future<List<Recipe>> _futureFavorites;
   List<CartItem> _cartItems = [];
   List<CartIngredient> _cartIngredients = [];
   int _totalCartItems = 0;
   bool _loadingCart = false;
 
-  // ─────────────────── init / dispose ────────────────
+  // ★ allergy data
+  bool _isLoggedIn = false;
+  List<int> _allergyIngredientIds = [];
+  List<Ingredient> _allergyList = [];
+
   @override
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab.clamp(0, 1);
     _futureFavorites = Future.value(<Recipe>[]);
     _refreshFavorites();
+    _initAllergyData(); // ★ โหลด allergy list
     _checkLoginThenLoadCart();
+  }
+
+  Future<void> _initAllergyData() async {
+    final ok = await AuthService.isLoggedIn();
+    if (!ok) return;
+    try {
+      final list = await ApiService.fetchAllergyIngredients()
+          .timeout(const Duration(seconds: 8));
+      setState(() {
+        _allergyList = list;
+        _allergyIngredientIds = list.map((i) => i.id).toList();
+        _isLoggedIn = true;
+      });
+    } catch (_) {
+      // silent
+    }
   }
 
   @override
@@ -53,7 +78,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     super.dispose();
   }
 
-  // ─────────────────── route lifecycle ───────────────
   @override
   void didPopNext() {
     if (_selectedTab == 0) {
@@ -63,7 +87,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     }
   }
 
-  // ─────────────────── data loaders ──────────────────
+  // ──────────── favorite ────────────
   void _refreshFavorites() {
     setState(() {
       _futureFavorites = _fetchFavoritesSafe();
@@ -84,6 +108,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     return [];
   }
 
+  // ──────────── cart ────────────
   Future<void> _checkLoginThenLoadCart() async {
     final ok = await AuthService.checkAndRedirectIfLoggedOut(context);
     if (ok) await _loadCartData();
@@ -121,13 +146,12 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     }
   }
 
-  // ─────────────────── helpers ───────────────────────
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // ─────────────────── build ─────────────────────────
+  // ─────────── build ───────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -179,9 +203,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         isLoggedIn: true,
         onItemSelected: (i) async {
           if (i == 2) {
-            _selectedTab == 0
-                ? _refreshFavorites()
-                : await _reloadCartIfLoggedIn();
+            if (_selectedTab == 0) {
+              _refreshFavorites();
+            } else {
+              await _reloadCartIfLoggedIn();
+            }
             return;
           }
           if (i == 1) {
@@ -196,7 +222,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
-  // ─────────────────── widgets ───────────────────────
   Widget _buildTabButton(String label, int index) {
     final selected = _selectedTab == index;
     return Expanded(
@@ -204,7 +229,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         onTap: () {
           if (_selectedTab == index) return;
           setState(() => _selectedTab = index);
-          index == 0 ? _refreshFavorites() : _reloadCartIfLoggedIn();
+          if (index == 0) {
+            _refreshFavorites();
+          } else {
+            _reloadCartIfLoggedIn();
+          }
         },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -259,11 +288,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
             return MyRecipeCard(
               recipe: r,
               onTap: () async {
+                // ★ ถ้ามี allergy → dialog ใหม่
                 if (r.hasAllergy) {
-                  final confirm = await _confirmAllergy(r.name);
-                  if (confirm != true) return;
+                  _showAllergyDialog(r);
+                  return;
                 }
-                if (!mounted) return;
                 Navigator.pushNamed(context, '/recipe_detail', arguments: r);
               },
             );
@@ -303,6 +332,29 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           CartIngredientListSection(ingredients: _cartIngredients),
           const SizedBox(height: 16),
         ],
+      ),
+    );
+  }
+
+  void _showAllergyDialog(Recipe recipe) {
+    final badIds = recipe.ingredientIds
+        .where((id) => _allergyIngredientIds.contains(id))
+        .toSet();
+    final badNames = _allergyList
+        .where((ing) => badIds.contains(ing.id))
+        .map((ing) => ing.name)
+        .toList();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AllergyWarningDialog(
+        recipe: recipe,
+        badIngredientNames: badNames,
+        onConfirm: (r) {
+          Navigator.pop(context);
+          Navigator.pushNamed(context, '/recipe_detail', arguments: r);
+        },
       ),
     );
   }
