@@ -5,145 +5,128 @@ import 'package:intl/intl.dart';
 
 class RecipeMetaWidget extends StatelessWidget {
   final String name;
-  final double? averageRating; // e.g. 4.9
-  final int? reviewCount; // e.g. 12
-  final DateTime? createdAt; // e.g. DateTime
-  final int? prepTimeMinutes; // e.g. 20
+  final double? averageRating;
+  final int? reviewCount;
+  final DateTime? createdAt;
+  final int? prepTimeMinutes;
 
   const RecipeMetaWidget({
-    Key? key,
+    super.key,
     required this.name,
     this.averageRating,
     this.reviewCount,
     this.createdAt,
     this.prepTimeMinutes,
-  }) : super(key: key);
+  });
+
+  // short helper
+  double _rs(double w, double factor, double min, double max) =>
+      factor.clamp(min, max).toDouble();
 
   @override
   Widget build(BuildContext context) {
-    // ฟอร์แมตวันที่แบบ "d MMMM yyyy"
+    /* ───── แปลงข้อมูล ───── */
     final dateStr = createdAt != null
         ? DateFormat('d MMMM yyyy', 'th').format(createdAt!)
         : '-';
-    // คะแนนเฉลี่ย
     final ratingStr =
         averageRating != null ? averageRating!.toStringAsFixed(1) : '-';
-    // เวลาเตรียม
     final prepStr = prepTimeMinutes != null ? '$prepTimeMinutes นาที' : '-';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ชื่อสูตร + Rating pill
-        Row(
-          children: [
-            // ชื่อสูตร
-            Expanded(
-              child: Text(
-                name,
-                style: const TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 22, // ตาม CSS
-                  fontWeight: FontWeight.w700, // 700
-                  height: 24 / 22, // line-height 24px
-                  color: Color(0xFF000000),
-                ),
-              ),
-            ),
-            SizedBox(width: 8.73), // gap ตาม CSS
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth; // พื้นที่แนวนอนที่ใช้ได้
 
-            // Rating pill
-            Container(
-              padding: const EdgeInsets.symmetric(
-                vertical: 4.36267, // ตาม CSS
-                horizontal: 8.72533, // ตาม CSS
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(
-                  color: const Color(0xFFABABAB),
-                  width: 1.09067, // ตาม CSS
+      /* ───── responsive numbers ───── */
+      final titleF = _rs(w, w * .055, 18, 26);
+      final bodyF = _rs(w, titleF * .65, 12, 16);
+      final iconSz = _rs(w, bodyF * 1.25, 14, 20);
+      final pillPadV = _rs(w, 4, 3, 6);
+      final pillPadH = pillPadV * 2;
+      final pillBR = _rs(w, 25, 22, 30);
+      final gap = _rs(w, 8, 6, 10);
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          /* ─── ชื่อสูตร + Rating pill ─── */
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ใช้ Flexible เพื่อกัน overflow ในจอแคบ
+              Flexible(
+                child: Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: titleF,
+                    fontWeight: FontWeight.w700,
+                    height: 1.15,
+                    color: const Color(0xFF000000),
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(25.0853), // ตาม CSS
               ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.star,
-                    size: 15.27, // ตาม CSS
-                    color: Color(0xFFFFCC00),
-                  ),
-                  const SizedBox(width: 2.18), // ตาม CSS gap
-                  Text(
-                    ratingStr,
-                    style: const TextStyle(
-                      fontFamily: 'Montserrat',
-                      fontSize: 13, // ตาม CSS
-                      fontWeight: FontWeight.w500,
-                      height: 16 / 13, // line-height 16px
-                      color: Color(0xFF000000),
-                    ),
-                  ),
-                  if (reviewCount != null) ...[
-                    const SizedBox(width: 2.18),
-                    Text(
-                      '(${reviewCount!})',
-                      style: const TextStyle(
-                        fontFamily: 'Montserrat',
-                        fontSize: 13, // ให้เท่ากัน
-                        fontWeight: FontWeight.w500,
-                        height: 16 / 13,
-                        color: Color(0xFF000000),
-                      ),
-                    ),
+              SizedBox(width: gap),
+              Container(
+                padding: EdgeInsets.symmetric(
+                    vertical: pillPadV, horizontal: pillPadH),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFABABAB), width: 1),
+                  borderRadius: BorderRadius.circular(pillBR),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.star,
+                        size: iconSz, color: const Color(0xFFFFCC00)),
+                    SizedBox(width: iconSz * .15),
+                    Text(ratingStr,
+                        style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: bodyF,
+                            fontWeight: FontWeight.w500)),
+                    if (reviewCount != null) ...[
+                      SizedBox(width: iconSz * .15),
+                      Text('(${reviewCount!})',
+                          style: TextStyle(
+                              fontFamily: 'Montserrat',
+                              fontSize: bodyF,
+                              fontWeight: FontWeight.w500)),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 8.73), // vertical gap ตาม CSS
-
-        // วันที่สร้าง + เวลาเตรียม
-        Row(
-          children: [
-            const Icon(
-              Icons.calendar_today_outlined,
-              size: 17.45, // ตาม CSS
-              color: Color(0xFF908F8F),
-            ),
-            const SizedBox(width: 4.36), // gap ตาม CSS
-            Text(
-              dateStr,
-              style: const TextStyle(
-                fontFamily: 'Roboto',
-                fontSize: 14, // ตาม CSS
-                fontWeight: FontWeight.w600,
-                height: 24 / 14, // line-height 24px
-                color: Color(0xFF908F8F),
-              ),
-            ),
-            const SizedBox(width: 13.09), // gap ตาม CSS
-            const Icon(
-              Icons.schedule,
-              size: 17.45,
-              color: Color(0xFF908F8F),
-            ),
-            const SizedBox(width: 4.36),
-            Text(
-              prepStr,
-              style: const TextStyle(
-                fontFamily: 'Roboto',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                height: 24 / 14,
-                color: Color(0xFF908F8F),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
+            ],
+          ),
+          SizedBox(height: gap),
+          /* ─── meta row (วันที่ & เวลาเตรียม) ─── */
+          Row(
+            children: [
+              Icon(Icons.calendar_today_outlined,
+                  size: iconSz, color: const Color(0xFF908F8F)),
+              SizedBox(width: iconSz * .25),
+              Text(dateStr,
+                  style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: bodyF,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF908F8F))),
+              SizedBox(width: gap * 1.5),
+              Icon(Icons.schedule,
+                  size: iconSz, color: const Color(0xFF908F8F)),
+              SizedBox(width: iconSz * .25),
+              Text(prepStr,
+                  style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: bodyF,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF908F8F))),
+            ],
+          ),
+        ],
+      );
+    });
   }
 }

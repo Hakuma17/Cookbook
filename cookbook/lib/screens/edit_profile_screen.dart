@@ -1,3 +1,6 @@
+// lib/screens/edit_profile_screen.dart
+// -----------------------------------------------------------------
+
 import 'dart:async';
 import 'dart:io';
 
@@ -18,16 +21,15 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  /* ───────── state / controller ───────── */
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
-
   final ImagePicker _picker = ImagePicker();
 
-  String? _currentImageUrl; // URL เดิมที่เซิร์ฟเวอร์ให้มา
-  File? _newImageFile; // รูปที่ผู้ใช้เลือกใหม่
-
-  bool _loading = false; // กำลังบันทึกโปรไฟล์
-  bool _pickingImage = false; // กำลังเปิด image-picker
+  String? _currentImageUrl; // URL เดิม
+  File? _newImageFile; // รูปใหม่
+  bool _loading = false; // กำลัง save
+  bool _pickingImage = false; // กำลัง pick
 
   @override
   void initState() {
@@ -45,7 +47,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
-  /*────────────────── โหลดข้อมูลโปรไฟล์ ──────────────────*/
+  /* ───────── responsive helpers ───────── */
+  late double _scale, _w, _h;
+  double px(double v) => v * _scale; // อ้างอิงดีไซน์ 360 px
+  double clamp(double v, double min, double max) =>
+      v < min ? min : (v > max ? max : v);
+
+  /* ───────── โหลด profile ───────── */
   Future<void> _loadUserProfile() async {
     try {
       final data = await AuthService.getLoginData();
@@ -56,100 +64,86 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('โหลดโปรไฟล์ล้มเหลว: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('โหลดโปรไฟล์ล้มเหลว: $e')));
       }
     }
   }
 
-/*────────────────── ฟังก์ชันขอสิทธิ์ ─────────────────────*/
-  Future<bool> _requestStoragePermission() async {
-    final deviceInfo = DeviceInfoPlugin();
-    final androidInfo = await deviceInfo.androidInfo;
-    final sdkInt = androidInfo.version.sdkInt ?? 0;
+  /* ───────── permission helper ───────── */
+  Future<bool> _ensurePhotosPermission() async {
+    // Android ≤ 32 ต้องขอ READ_EXTERNAL / Storage; Android 13+ ไม่จำเป็น
+    final info = await DeviceInfoPlugin().androidInfo;
+    final sdk = info.version.sdkInt;
 
-    if (sdkInt >= 33) {
-      // Android 13+ ใช้ photos (แทน images ที่ไม่มีใน permission_handler)
+    if (Platform.isIOS) {
       final status = await Permission.photos.status;
-
       if (status.isGranted) return true;
-
-      if (status.isDenied) {
-        final result = await Permission.photos.request();
-        return result.isGranted;
-      }
-
-      if (status.isPermanentlyDenied) {
-        _showOpenSettingsDialog(); // ผู้ใช้เคยกดไม่ให้สิทธิ์แบบถาวร
-        return false;
-      }
-
-      return false;
-    } else {
-      // Android 12 หรือต่ำกว่า
-      final status = await Permission.storage.status;
-
-      if (status.isGranted) return true;
-
-      if (status.isDenied) {
-        final result = await Permission.storage.request();
-        return result.isGranted;
-      }
-
-      if (status.isPermanentlyDenied) {
-        _showOpenSettingsDialog(); // ผู้ใช้เคยกดไม่ให้สิทธิ์แบบถาวร
-        return false;
-      }
-
+      if (status.isDenied) return (await Permission.photos.request()).isGranted;
+      if (status.isPermanentlyDenied) _showOpenSettingsDialog();
       return false;
     }
+
+    if (sdk >= 33) return true; // PhotoPicker API – ไม่ต้องขอ
+    final status = await Permission.storage.status;
+    if (status.isGranted) return true;
+    if (status.isDenied) return (await Permission.storage.request()).isGranted;
+    if (status.isPermanentlyDenied) _showOpenSettingsDialog();
+    return false;
   }
 
-/*────────────────── แจ้งเตือนให้ไปเปิดสิทธิ์ใน Settings ─────────────────────*/
+  Future<bool> _ensureCameraPermission() async {
+    final status = await Permission.camera.status;
+    if (status.isGranted) return true;
+    if (status.isDenied) return (await Permission.camera.request()).isGranted;
+    if (status.isPermanentlyDenied) _showOpenSettingsDialog();
+    return false;
+  }
+
   void _showOpenSettingsDialog() {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('ไม่ได้รับสิทธิ์'),
-        content: const Text('กรุณาเปิดสิทธิ์เข้าถึงรูปภาพในหน้าตั้งค่าแอป'),
+        content: const Text('กรุณาเปิดสิทธิ์ในหน้าตั้งค่าแอป'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ยกเลิก'),
-          ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ยกเลิก')),
           TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await openAppSettings(); // เปิดหน้าการตั้งค่าของแอป
-            },
-            child: const Text('เปิดการตั้งค่า'),
-          ),
+              onPressed: () async {
+                Navigator.pop(context);
+                await openAppSettings();
+              },
+              child: const Text('เปิดการตั้งค่า')),
         ],
       ),
     );
   }
 
-  /*────────────────── เลือกรูป + ครอบ ────────────────────*/
-  Future<void> _pickImage() async {
+  /* ───────── pick & crop image ───────── */
+  Future<void> _pickFromGallery() async {
+    if (!await _ensurePhotosPermission()) {
+      _showSnack('ไม่ได้รับสิทธิ์เข้าถึงรูปภาพ');
+      return;
+    }
+    await _doPick(ImageSource.gallery);
+  }
+
+  Future<void> _pickFromCamera() async {
+    if (!await _ensureCameraPermission()) {
+      _showSnack('ไม่ได้รับสิทธิ์ใช้กล้อง');
+      return;
+    }
+    await _doPick(ImageSource.camera);
+  }
+
+  Future<void> _doPick(ImageSource src) async {
     if (_pickingImage) return;
     _pickingImage = true;
 
     try {
-      // ตรวจเวอร์ชัน Android แล้วขอสิทธิ์ให้ถูกต้อง
-      if (Platform.isAndroid) {
-        final granted = await _requestStoragePermission();
-        if (!granted) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('ไม่ได้รับสิทธิ์เข้าถึงรูปภาพ')),
-            );
-          }
-          return;
-        }
-      }
-
-      final picked = await _picker.pickImage(source: ImageSource.gallery);
+      final picked = await _picker.pickImage(source: src, imageQuality: 90);
       if (picked == null || !mounted) return;
 
       final cropped = await ImageCropper().cropImage(
@@ -159,15 +153,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
         uiSettings: [
           AndroidUiSettings(
-            toolbarTitle: 'ครอบรูปโปรไฟล์',
-            toolbarColor: Colors.deepOrange,
-            toolbarWidgetColor: Colors.white,
-            backgroundColor: Colors.black,
-            cropFrameColor: Colors.white,
-            activeControlsWidgetColor: Colors.orange,
-            hideBottomControls: false,
-            lockAspectRatio: true,
-          ),
+              toolbarTitle: 'ครอบรูปโปรไฟล์',
+              toolbarColor: Colors.deepOrange,
+              toolbarWidgetColor: Colors.white,
+              backgroundColor: Colors.black,
+              cropFrameColor: Colors.white,
+              activeControlsWidgetColor: Colors.orange,
+              lockAspectRatio: true),
         ],
       );
 
@@ -175,89 +167,93 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         setState(() => _newImageFile = File(cropped.path));
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เลือกรูปล้มเหลว: $e')),
-        );
-      }
+      _showSnack('เลือกรูปล้มเหลว: $e');
     } finally {
       _pickingImage = false;
     }
   }
 
-  /*────────────────── บันทึกโปรไฟล์ ───────────────────────*/
+  void _showImagePickerSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('ถ่ายรูป'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickFromCamera();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('เลือกรูปจากคลัง'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickFromGallery();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /* ───────── save profile ───────── */
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-
     FocusScope.of(context).unfocus();
+
     setState(() => _loading = true);
-
     final newName = _nameCtrl.text.trim();
-    final loginData = await AuthService.getLoginData();
-    final oldName = loginData['profileName'] ?? '';
-    final oldImage = loginData['profileImage'] ?? '';
+    final login = await AuthService.getLoginData();
+    final oldName = login['profileName'] ?? '';
+    final oldImg = login['profileImage'] ?? '';
 
-    // ไม่มีการเปลี่ยนแปลง
     if (newName == oldName && _newImageFile == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่มีการเปลี่ยนแปลง')),
-        );
-      }
+      _showSnack('ไม่มีการเปลี่ยนแปลง', color: Colors.orange);
       setState(() => _loading = false);
       return;
     }
 
     try {
-      String imagePath = oldImage;
-
+      String imgPath = oldImg;
       if (_newImageFile != null) {
-        imagePath = await ApiService.uploadProfileImage(_newImageFile!)
+        imgPath = await ApiService.uploadProfileImage(_newImageFile!)
             .timeout(const Duration(seconds: 15));
       }
 
       final res = await ApiService.updateProfile(
-        profileName: newName,
-        imageUrl: imagePath,
-      ).timeout(const Duration(seconds: 15));
+              profileName: newName, imageUrl: imgPath)
+          .timeout(const Duration(seconds: 15));
 
       await AuthService.saveLogin(
-        userId: loginData['userId'] ?? 0,
+        userId: login['userId'] ?? 0,
         profileName: res['profile_name'] ?? newName,
-        profileImage: res['image_url'] ?? imagePath,
-        email: loginData['email'] ?? '',
+        profileImage: res['image_url'] ?? imgPath,
+        email: login['email'] ?? '',
       );
 
       if (!mounted) return;
-      setState(() => _currentImageUrl = imagePath); // แสดงรูปใหม่ทันที
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('บันทึกโปรไฟล์สำเร็จ')),
-      );
+      setState(() => _currentImageUrl = imgPath);
+      _showSnack('บันทึกโปรไฟล์สำเร็จ', color: Colors.green);
       Navigator.pop(context, true);
     } on TimeoutException {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('เซิร์ฟเวอร์ตอบช้า ลองใหม่ภายหลัง')),
-        );
-      }
+      _showSnack('เซิร์ฟเวอร์ตอบช้า ลองใหม่ภายหลัง');
     } on SocketException {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่มีการเชื่อมต่ออินเทอร์เน็ต')),
-        );
-      }
+      _showSnack('ไม่มีการเชื่อมต่ออินเทอร์เน็ต');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ผิดพลาด: $e')),
-        );
-      }
+      _showSnack('ผิดพลาด: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  /*────────────────── Preview รูปเต็ม ─────────────────────*/
+  /* ───────── preview full image ───────── */
   void _showImagePreview() {
     showDialog(
       context: context,
@@ -266,21 +262,37 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           child: _newImageFile != null
               ? Image.file(_newImageFile!)
               : (_currentImageUrl?.isNotEmpty ?? false)
-                  ? Image.network(
-                      _currentImageUrl!,
+                  ? Image.network(_currentImageUrl!,
                       errorBuilder: (_, __, ___) =>
-                          Image.asset('assets/images/default_avatar.png'),
-                    )
+                          Image.asset('assets/images/default_avatar.png'))
                   : Image.asset('assets/images/default_avatar.png'),
         ),
       ),
     );
   }
 
-  /*────────────────── UI ──────────────────────────────────*/
+  /* ───────── snack ───────── */
+  void _showSnack(String m, {Color color = Colors.red}) =>
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(m), backgroundColor: color));
+
+  /* ───────── build ───────── */
   @override
   Widget build(BuildContext context) {
-    final avatar = _newImageFile != null
+    _w = MediaQuery.of(context).size.width;
+    _h = MediaQuery.of(context).size.height;
+    _scale = (_w / 360).clamp(0.85, 1.25);
+
+    final pad = px(20);
+    final avatarR = px(52);
+    final overlayR = px(18);
+    final overlayRight = px(4);
+    final space30 = px(30);
+    final bottomSpace = px(100);
+    final borderRad = px(12);
+    final txtF = px(16);
+
+    final avatarProvider = _newImageFile != null
         ? FileImage(_newImageFile!)
         : (_currentImageUrl?.isNotEmpty ?? false)
             ? NetworkImage(_currentImageUrl!)
@@ -292,7 +304,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       body: Stack(
         children: [
           Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(pad),
             child: Form(
               key: _formKey,
               child: ListView(
@@ -303,20 +315,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         GestureDetector(
                           onTap: _showImagePreview,
                           child: CircleAvatar(
-                              radius: 52,
-                              backgroundColor: Colors.grey.shade200,
-                              backgroundImage: avatar),
+                            radius: avatarR,
+                            backgroundColor: Colors.grey.shade200,
+                            backgroundImage: avatarProvider,
+                          ),
                         ),
                         Positioned(
                           bottom: 0,
-                          right: 4,
+                          right: overlayRight,
                           child: CircleAvatar(
-                            radius: 18,
+                            radius: overlayR,
                             backgroundColor: Colors.white,
                             child: IconButton(
-                              icon: const Icon(Icons.camera_alt,
-                                  color: Colors.black, size: 18),
-                              onPressed: _pickingImage ? null : _pickImage,
+                              icon: const Icon(Icons.camera_alt),
+                              iconSize: overlayR,
+                              onPressed:
+                                  _pickingImage ? null : _showImagePickerSheet,
                               tooltip: 'เปลี่ยนรูปโปรไฟล์',
                             ),
                           ),
@@ -324,18 +338,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 30),
+                  SizedBox(height: space30),
                   TextFormField(
                     controller: _nameCtrl,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'ชื่อผู้ใช้',
-                      border: OutlineInputBorder(),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(borderRad)),
                     ),
+                    style: TextStyle(fontSize: txtF),
                     validator: (v) => (v == null || v.trim().isEmpty)
                         ? 'กรุณากรอกชื่อ'
                         : null,
                   ),
-                  const SizedBox(height: 100),
+                  SizedBox(height: bottomSpace),
                 ],
               ),
             ),

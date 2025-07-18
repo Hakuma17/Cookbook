@@ -1,4 +1,6 @@
 // lib/widgets/voice_button.dart
+//
+// ★ 2025-07-10 – responsive upgrade ★
 
 import 'package:flutter/material.dart';
 
@@ -14,33 +16,48 @@ class VoiceButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /* ───── responsive numbers ───── */
+    final w = MediaQuery.of(context).size.width;
+    double scale = (w / 360).clamp(0.82, 1.25); // safe-range
+
+    // helper + clamp ภายใน
+    double px(double v, {double min = 4, double max = 999}) =>
+        (v * scale).clamp(min, max).toDouble();
+
+    final iconSz = px(24, min: 18, max: 32);
+    final fontSz = px(15, min: 12, max: 20);
+    final padH = px(16, min: 10);
+    final padV = px(12, min: 8);
+    final radius = px(41, min: 24); // มุมโค้งอย่างน้อย 24
+    final strokeW = px(1.5, min: .8);
+
     return OutlinedButton.icon(
       onPressed: onPressed,
-      icon: const Icon(
+      icon: Icon(
         Icons.play_arrow,
-        size: 24,
-        color: Color(0xFF000000),
+        size: iconSz,
+        color: const Color(0xFF000000),
       ),
-      label: const Text(
+      label: Text(
         'ฟังเสียง',
         style: TextStyle(
-          fontSize: 15,
+          fontSize: fontSz,
           fontWeight: FontWeight.w600,
-          color: Color(0xFF000000),
+          color: const Color(0xFF000000),
         ),
       ),
       style: OutlinedButton.styleFrom(
         backgroundColor: Colors.white,
-        side: const BorderSide(
-          color: Color(0xFF828282),
-          width: 1.5,
+        side: BorderSide(
+          color: const Color(0xFF828282),
+          width: strokeW,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(41),
+          borderRadius: BorderRadius.circular(radius),
         ),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 12,
+        padding: EdgeInsets.symmetric(
+          horizontal: padH,
+          vertical: padV,
         ),
       ),
     );

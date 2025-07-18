@@ -3,20 +3,12 @@
 import 'package:flutter/material.dart';
 
 /// CarouselWidget
-/// แสดง list ของ URL รูปภาพเป็น PageView พร้อม indicator และปุ่มเลื่อนคู่
+/// แสดง list ของ URL รูปภาพเป็น PageView พร้อม indicator และปุ่มเลื่อน
 class CarouselWidget extends StatefulWidget {
-  /// รายการ URL ของรูปภาพ
   final List<String>? imageUrls;
-
-  /// ความสูงของ carousel (รูปสูงเท่านี้ + indicator ด้านล่าง)
-  final double height;
-
-  /// ถ้ามี controller ภายนอก ให้ใช้ ไม่สร้างใหม่
+  final double height; // สูงของรูป (ไม่รวม indicator)
   final PageController? controller;
-
-  /// ถ้ามี callback onPageChanged ให้เรียกเมื่อเปลี่ยนหน้า
   final ValueChanged<int>? onPageChanged;
-
   const CarouselWidget({
     Key? key,
     this.imageUrls,
@@ -33,14 +25,12 @@ class _CarouselWidgetState extends State<CarouselWidget> {
   late final PageController _internalController;
   int _currentIndex = 0;
 
-  // เลือกใช้ controller ภายนอก ถ้ามี ไม่งั้นใช้ internal
   PageController get _controller => widget.controller ?? _internalController;
 
   @override
   void initState() {
     super.initState();
     _internalController = PageController();
-    // ถ้าใช้ controller ภายใน ต้องติด listener เพื่ออัปเดต dot indicator
     if (widget.controller == null) {
       _internalController.addListener(_handlePageChange);
     }
@@ -50,9 +40,7 @@ class _CarouselWidgetState extends State<CarouselWidget> {
     final page = _controller.page;
     if (page != null) {
       final idx = page.round();
-      if (idx != _currentIndex) {
-        setState(() => _currentIndex = idx);
-      }
+      if (idx != _currentIndex) setState(() => _currentIndex = idx);
     }
   }
 
@@ -65,14 +53,26 @@ class _CarouselWidgetState extends State<CarouselWidget> {
     super.dispose();
   }
 
+  /* ────────────── build ────────────── */
   @override
   Widget build(BuildContext context) {
     final urls = widget.imageUrls ?? [];
     final hasImages = urls.isNotEmpty;
 
-    const arrowSize = 43.63;
-    const iconSize = 21.81;
-    const arrowPadding = 10.91;
+    /* ── responsive numbers ── */
+    final w = MediaQuery.of(context).size.width;
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final arrowSize = clamp(w * .11, 32, widget.height * .80); // ≤ 80 % สูงรูป
+    final iconSize = arrowSize * .50;
+    final arrowPad = arrowSize * .25;
+    final sideInset = clamp(w * .02, 6, 20);
+    final dotSize = clamp(w * .015, 4, 8);
+    final dotGap = dotSize * .80;
+    final indicatorPad = dotSize;
+    final bottomOff = dotSize * 2; // space ยก indicator
+
     const arrowColor = Color(0xFF666666);
     const bgColor = Colors.white;
     const dotActive = Color(0xFFFF9B05);
@@ -80,49 +80,45 @@ class _CarouselWidgetState extends State<CarouselWidget> {
 
     return SizedBox(
       width: double.infinity,
-      height: widget.height + 13.088,
+      height: widget.height + bottomOff + indicatorPad * 2,
       child: Stack(
         children: [
-          // รูปหรือ placeholder
+          /* รูปหลัก / fallback */
           Positioned.fill(
             child: hasImages
                 ? PageView.builder(
                     controller: _controller,
                     itemCount: urls.length,
                     onPageChanged: widget.onPageChanged ??
-                        (i) {
-                          // ถ้าไม่มี callback ภายนอก ให้อัปเดต internal dot
-                          setState(() => _currentIndex = i);
-                        },
+                        (i) => setState(() => _currentIndex = i),
                     itemBuilder: (_, i) => Image.network(
                       urls[i],
                       width: double.infinity,
                       height: widget.height,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => const Center(
-                        child: Icon(
-                          Icons.broken_image,
-                          size: 48,
-                          color: Colors.grey,
-                        ),
+                        child: Icon(Icons.broken_image,
+                            size: 48, color: Colors.grey),
                       ),
                     ),
                   )
-                : Image.asset(
-                    // fallback ถ้าไม่มีรูป
-                    'assets/images/default_recipe.png',
+                : Image.asset('assets/images/default_recipe.png',
                     width: double.infinity,
                     height: widget.height,
-                    fit: BoxFit.cover,
-                  ),
+                    fit: BoxFit.cover),
           ),
 
+          /* ───────── controls / indicator ───────── */
           if (hasImages && urls.length > 1) ...[
-            // ปุ่มเลื่อนซ้าย
+            /* ปุ่มซ้าย */
             Positioned(
-              left: 8.73,
+              left: sideInset,
               top: (widget.height - arrowSize) / 2,
-              child: InkWell(
+              child: _ArrowButton(
+                size: arrowSize,
+                iconSize: iconSize,
+                padding: arrowPad,
+                icon: Icons.arrow_back_ios,
                 onTap: () {
                   final prev = (_currentIndex - 1 + urls.length) % urls.length;
                   _controller.animateToPage(
@@ -131,29 +127,18 @@ class _CarouselWidgetState extends State<CarouselWidget> {
                     curve: Curves.easeInOut,
                   );
                 },
-                borderRadius: BorderRadius.circular(arrowSize / 2),
-                child: Container(
-                  width: arrowSize,
-                  height: arrowSize,
-                  padding: const EdgeInsets.all(arrowPadding),
-                  decoration: const BoxDecoration(
-                    color: bgColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.arrow_back_ios,
-                    size: iconSize,
-                    color: arrowColor,
-                  ),
-                ),
               ),
             ),
 
-            // ปุ่มเลื่อนขวา
+            /* ปุ่มขวา */
             Positioned(
-              right: 8.73,
+              right: sideInset,
               top: (widget.height - arrowSize) / 2,
-              child: InkWell(
+              child: _ArrowButton(
+                size: arrowSize,
+                iconSize: iconSize,
+                padding: arrowPad,
+                icon: Icons.arrow_forward_ios,
                 onTap: () {
                   final next = (_currentIndex + 1) % urls.length;
                   _controller.animateToPage(
@@ -162,46 +147,31 @@ class _CarouselWidgetState extends State<CarouselWidget> {
                     curve: Curves.easeInOut,
                   );
                 },
-                borderRadius: BorderRadius.circular(arrowSize / 2),
-                child: Container(
-                  width: arrowSize,
-                  height: arrowSize,
-                  padding: const EdgeInsets.all(arrowPadding),
-                  decoration: const BoxDecoration(
-                    color: bgColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.arrow_forward_ios,
-                    size: iconSize,
-                    color: arrowColor,
-                  ),
-                ),
               ),
             ),
 
-            // ดอทอินดิเคเตอร์
+            /* dot-indicator */
             Positioned(
-              bottom: 13.088,
+              bottom: bottomOff,
               left: 0,
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.all(4.38465),
+                  padding: EdgeInsets.all(indicatorPad * .6),
                   decoration: BoxDecoration(
                     color: bgColor,
-                    borderRadius: BorderRadius.circular(38.3657),
+                    borderRadius: BorderRadius.circular(40),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: List.generate(urls.length, (i) {
-                      final isActive = i == _currentIndex;
+                      final active = i == _currentIndex;
                       return Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 4.38),
-                        width: 5.48,
-                        height: 5.48,
+                        margin: EdgeInsets.symmetric(horizontal: dotGap / 2),
+                        width: dotSize,
+                        height: dotSize,
                         decoration: BoxDecoration(
-                          color: isActive ? dotActive : dotInactive,
+                          color: active ? dotActive : dotInactive,
                           shape: BoxShape.circle,
                         ),
                       );
@@ -212,6 +182,40 @@ class _CarouselWidgetState extends State<CarouselWidget> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/*─────────── arrow button widget ─────────*/
+class _ArrowButton extends StatelessWidget {
+  final double size;
+  final double iconSize;
+  final double padding;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _ArrowButton({
+    required this.size,
+    required this.iconSize,
+    required this.padding,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(size / 2),
+      child: Container(
+        width: size,
+        height: size,
+        padding: EdgeInsets.all(padding),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: iconSize, color: Color(0xFF666666)),
       ),
     );
   }

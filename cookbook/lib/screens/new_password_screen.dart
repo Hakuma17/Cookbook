@@ -2,7 +2,8 @@
 
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
-import 'login_screen.dart'; // นำเข้า LoginScreen เพื่อไปหน้าล็อกอิน
+import 'login_screen.dart';
+import '../widgets/custom_bottom_nav.dart'; // ★ ใช้ bottom-nav กลางของแอป
 
 /// หน้าตั้งรหัสผ่านใหม่: รับ email + otp จากหน้าก่อนหน้า
 class NewPasswordScreen extends StatefulWidget {
@@ -28,7 +29,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
   bool _isLoading = false; // แสดงสถานะกำลังส่งข้อมูล
   String? _errorMsg; // ข้อความแสดงข้อผิดพลาด
 
-  /// ส่งคำขออัปเดตรหัสผ่านใหม่ไปยังเซิร์ฟเวอร์
+  /* ───────── submit reset ───────── */
   Future<void> _submitNewPassword() async {
     setState(() {
       _errorMsg = null;
@@ -51,20 +52,16 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
       _pass1Ctrl.text,
     );
 
-    setState(() {
-      _isLoading = false;
-    });
+    setState(() => _isLoading = false);
 
     if (res['success'] == true) {
       await _showSuccessDialog();
     } else {
-      setState(() {
-        _errorMsg = res['message'];
-      });
+      setState(() => _errorMsg = res['message']);
     }
   }
 
-  /// แสดง dialog แจ้ง “สำเร็จ” และกดดำเนินการต่อไปหน้า Login
+  /* ───────── dialog สำเร็จ ───────── */
   Future<void> _showSuccessDialog() async {
     return showDialog(
       context: context,
@@ -139,11 +136,21 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
     );
   }
 
+  /* ──────────── build ──────────── */
   @override
   Widget build(BuildContext context) {
+    /* —— responsive metrics —— */
+    final w = MediaQuery.of(context).size.width;
+    final padH = w * 0.09; // ≈36 ที่ 400dp
+    final fieldH = w * 0.12; // ≈50
+    final btnW = w * 0.85; // ≈340
+    final btnH = w * 0.13; // ≈49
+    final titleSz = w * 0.06; // ≈24
+    final bodySz = w * 0.04; // ≈16
+
     return Scaffold(
       backgroundColor: Colors.white,
-      // AppBar แบบกำหนดเอง
+      /* —— custom app-bar —— */
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(70),
         child: SafeArea(
@@ -152,32 +159,32 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
               icon: const Icon(Icons.arrow_back, color: Color(0xFF0A2533)),
               onPressed: () => Navigator.of(context).pop(),
             ),
-            const Text(
+            Text(
               'ตั้งรหัสผ่านใหม่',
               style: TextStyle(
                   fontFamily: 'Montserrat',
                   fontWeight: FontWeight.w500,
-                  fontSize: 24,
+                  fontSize: titleSz,
                   color: Colors.black),
             ),
           ]),
         ),
       ),
-      // เนื้อหา: คำอธิบาย + ฟิลด์รหัสผ่าน + ปุ่มอัปเดต
+      /* —— body —— */
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 36),
+        padding: EdgeInsets.symmetric(horizontal: padH),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'สร้างรหัสผ่านใหม่และตรวจสอบให้แน่ใจว่า\nรหัสผ่านใหม่นี้แตกต่างจากรหัสผ่านเดิมเพื่อความปลอดภัย',
               style: TextStyle(
                   fontFamily: 'Montserrat',
                   fontWeight: FontWeight.w400,
-                  fontSize: 16,
+                  fontSize: bodySz,
                   height: 1.5,
-                  color: Color(0xFF666666)),
+                  color: const Color(0xFF666666)),
             ),
             const SizedBox(height: 24),
             // แสดง error ถ้ามี
@@ -198,7 +205,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
             ),
             const SizedBox(height: 8),
             SizedBox(
-              height: 50,
+              height: fieldH,
               child: TextField(
                 controller: _pass1Ctrl,
                 obscureText: _obscure1,
@@ -230,7 +237,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
             ),
             const SizedBox(height: 8),
             SizedBox(
-              height: 50,
+              height: fieldH,
               child: TextField(
                 controller: _pass2Ctrl,
                 obscureText: _obscure2,
@@ -252,8 +259,8 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
             // ปุ่ม “อัปเดตรหัสผ่าน”
             Center(
               child: SizedBox(
-                width: 340,
-                height: 49,
+                width: btnW,
+                height: btnH,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _submitNewPassword,
                   style: ElevatedButton.styleFrom(
@@ -264,12 +271,12 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
+                      : Text(
                           'อัปเดตรหัสผ่าน',
                           style: TextStyle(
                               fontFamily: 'Montserrat',
                               fontWeight: FontWeight.w500,
-                              fontSize: 20,
+                              fontSize: bodySz + 4,
                               color: Colors.black),
                         ),
                 ),
@@ -278,39 +285,12 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
           ],
         ),
       ),
-      // bottom navigation bar (ตามดีไซน์หลัก)
-      bottomNavigationBar: BottomAppBar(
-        elevation: 1,
-        color: Colors.white,
-        child: Container(
-          height: 74,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: Color(0xFFD2D2D2))),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _NavIcon(Icons.home_outlined, false, onTap: () {}),
-              _NavIcon(Icons.explore_outlined, false, onTap: () {}),
-              _NavIcon(Icons.list_alt_outlined, false, onTap: () {}),
-              _NavIcon(Icons.person, true, onTap: () {}),
-            ],
-          ),
-        ),
+      /* —— bottom-navigation (ใช้ widget กลาง) —— */
+      bottomNavigationBar: CustomBottomNav(
+        selectedIndex: 3, // โปรไฟล์
+        isLoggedIn: false, // ยังไม่ได้ล็อกอิน (เพิ่งรีเซ็ต)
+        onItemSelected: (_) {}, // ไม่ต้องทำ action เพิ่มในหน้านี้
       ),
     );
   }
-
-  /// วาดไอคอนใน bottom navigation bar
-  Widget _NavIcon(IconData icon, bool selected,
-          {required VoidCallback onTap}) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Icon(
-          icon,
-          size: 24,
-          color: selected ? const Color(0xFFFF9B05) : const Color(0xFFC1C1C1),
-        ),
-      );
 }

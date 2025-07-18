@@ -84,36 +84,68 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // คำนวณสัดส่วนจากหน้าจอจริง
+    final w = MediaQuery.of(context).size.width;
+    final h = MediaQuery.of(context).size.height;
+
+    // dynamic sizing
+    final padH = w * 0.064; // ~24px
+    final padV = h * 0.04; // ~32px
+    final titleFont = w * 0.053; // ~20px
+    final textFont = w * 0.037; // ~14px
+    final labelFont = w * 0.042; // ~16px
+    final errFont = w * 0.035; // ~13px
+    final spacingL = h * 0.03; // ~24px
+    final spacingS = h * 0.02; // ~16px
+    final spacingXs = h * 0.01; // ~8px
+    final fieldPadH = w * 0.043; // ~16px
+    final fieldPadV = h * 0.02; // ~16px
+    final btnHeight = h * 0.07; // ~56px
+    final btnRadius = BorderRadius.circular(w * 0.075); // ~28px
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         foregroundColor: Colors.black87,
         backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text(
+        title: Text(
           'รีเซ็ตรหัสผ่าน',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: titleFont,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'กรอกอีเมลที่ใช้สมัครเพื่อรับรหัส OTP สำหรับรีเซ็ตรหัสผ่าน',
-              style:
-                  TextStyle(fontSize: 14, height: 1.6, color: Colors.black54),
+            Text(
+              'กรอกอีเมลที่ใช้สมัครเพื่อรับรหัส OTP \nสำหรับรีเซ็ตรหัสผ่านของคุณ',
+              style: TextStyle(
+                fontSize: textFont,
+                height: 1.6,
+                color: Colors.black54,
+              ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: spacingL),
             if (_errorMsg != null) ...[
-              Text(_errorMsg!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13)),
-              const SizedBox(height: 12),
+              Text(
+                _errorMsg!,
+                style: TextStyle(color: Colors.red, fontSize: errFont),
+              ),
+              SizedBox(height: spacingXs),
             ],
-            const Text('อีเมลของคุณ',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
+            Text(
+              'อีเมลของคุณ',
+              style: TextStyle(
+                fontSize: labelFont,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: spacingXs),
             TextField(
               controller: _emailCtrl,
               keyboardType: TextInputType.emailAddress,
@@ -125,29 +157,32 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: fieldPadH,
+                  vertical: fieldPadV,
+                ),
               ),
               onSubmitted: (_) => _sendOtp(),
             ),
-            const SizedBox(height: 32),
+            SizedBox(height: spacingL),
             SizedBox(
               width: double.infinity,
-              height: 56,
+              height: btnHeight,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _sendOtp,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFFF8A65),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(28),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: btnRadius),
                 ),
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
+                    : Text(
                         'ส่งรหัส OTP',
                         style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600),
+                          fontSize: labelFont,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
                       ),
               ),
             ),

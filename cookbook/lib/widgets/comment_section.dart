@@ -9,13 +9,13 @@ import 'comment_input_field.dart';
 /// ส่วนแสดงและจัดการคอมเมนต์ทั้งหมดของสูตรอาหาร
 class CommentSection extends StatelessWidget {
   final List<Comment> comments;
-  final int currentRating; // ดาวที่ user เลือกไว้
+  final int currentRating;
   final bool isLoggedIn;
-  final ValueChanged<int> onRatingSelected; // เมื่อกดดาว (1–5)
-  final VoidCallback onCommentPressed; // เมื่อแตะ “แสดงความคิดเห็น”
+  final ValueChanged<int> onRatingSelected;
+  final VoidCallback onCommentPressed;
   final ValueChanged<Comment> onEdit;
   final ValueChanged<Comment> onDelete;
-  final VoidCallback? onViewAll; // (opt.) ปุ่ม “ดูทั้งหมด”
+  final VoidCallback? onViewAll;
 
   const CommentSection({
     super.key,
@@ -31,7 +31,16 @@ class CommentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // แยก “คอมเมนต์ของฉัน” ออกจากคอมเมนต์คนอื่น
+    /* ── responsive helpers ── */
+    final w = MediaQuery.of(context).size.width;
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final headFont = clamp(w * 0.044, 15, 18); // ฟอนต์หัวข้อ
+    final hrPadH = clamp(w * 0.042, 12, 20); // padding ซ้าย-ขวาหัวข้อ
+    final spaceV = clamp(w * 0.032, 10, 18); // ช่องว่างระหว่างบล็อก
+
+    /* ── แยกคอมเมนต์ของฉันกับคนอื่น ── */
     final myComment = comments.firstWhere(
       (c) => c.isMine,
       orElse: Comment.empty,
@@ -57,83 +66,74 @@ class CommentSection extends StatelessWidget {
                 ? otherComments.length
                 : otherComments.length + 1);
 
-        // ───────────────────────── UI ─────────────────────────
+        /* ── UI ── */
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(height: 16),
+            SizedBox(height: spaceV),
 
-            // ▶︎ กล่อง “ความคิดเห็นของฉัน”
-            if (isLoggedIn && updatedMy.isMine && !updatedMy.isEmpty) ...[
+            /*  “ความคิดเห็นของฉัน” */
+            if (isLoggedIn && updatedMy.isMine && !updatedMy.isEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: EdgeInsets.symmetric(horizontal: hrPadH),
                 child: _MyCommentBox(
                   comment: updatedMy,
                   onEdit: onEdit,
                   onDelete: onDelete,
+                  baseW: w,
                 ),
               ),
-            ],
 
-            // ▶︎ กล่องสร้างรีวิว (ครั้งแรก)
-            if (isLoggedIn && updatedMy.isEmpty) ...[
+            /*  กล่องสร้างคอมเมนต์แรก */
+            if (isLoggedIn && updatedMy.isEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: EdgeInsets.symmetric(horizontal: hrPadH),
                 child: _FirstCommentBox(
                   currentRating: currentRating,
                   onRatingSelected: onRatingSelected,
                   onCommentPressed: onCommentPressed,
+                  baseW: w,
                 ),
               ),
-            ],
+            SizedBox(height: spaceV),
 
-            const SizedBox(height: 24),
-
-            // ▶︎ หัวข้อความคิดเห็น
+            /*  หัวข้อ “ความคิดเห็น (x)” */
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: EdgeInsets.symmetric(horizontal: hrPadH),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
                       'ความคิดเห็น ($commentCount)',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600, fontSize: headFont),
                     ),
                   ),
                   if (onViewAll != null)
                     TextButton(
-                      onPressed: onViewAll,
-                      child: const Text('ดูทั้งหมด'),
-                    ),
+                        onPressed: onViewAll, child: const Text('ดูทั้งหมด')),
                 ],
               ),
             ),
             const SizedBox(height: 8),
 
-            // ▶︎ รายการคอมเมนต์อื่น ๆ
+            /* ▶︎ คอมเมนต์คนอื่น ๆ */
             if (otherComments.isNotEmpty)
               ...otherComments.map(
                 (c) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: EdgeInsets.symmetric(horizontal: hrPadH),
                   child: CommentCard(
-                    comment: c,
-                    onEdit: onEdit,
-                    onDelete: onDelete,
-                  ),
+                      comment: c, onEdit: onEdit, onDelete: onDelete),
                 ),
               ),
 
-            // ▶︎ ไม่มีคอมเมนต์เลย
+            /*  ถ้ายังไม่มีคอมเมนต์ */
             if (commentCount == 0)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Text(
-                  'ยังไม่มีความคิดเห็นในขณะนี้',
-                  style: TextStyle(fontSize: 14, color: Color(0xFF666666)),
-                ),
+              Padding(
+                padding: EdgeInsets.symmetric(
+                    horizontal: hrPadH, vertical: spaceV / 1.5),
+                child: const Text('ยังไม่มีความคิดเห็นในขณะนี้',
+                    style: TextStyle(fontSize: 14, color: Color(0xFF666666))),
               ),
           ],
         );
@@ -142,98 +142,101 @@ class CommentSection extends StatelessWidget {
   }
 }
 
-/*────────────────────────  Widgets ย่อย ────────────────────────*/
-
+/*──────────────────── “ความคิดเห็นของฉัน” ───────────────────*/
 class _MyCommentBox extends StatelessWidget {
   final Comment comment;
   final ValueChanged<Comment> onEdit;
   final ValueChanged<Comment> onDelete;
+  final double baseW;
+
   const _MyCommentBox({
     required this.comment,
     required this.onEdit,
     required this.onDelete,
+    required this.baseW,
   });
 
   @override
   Widget build(BuildContext context) {
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final radius = clamp(baseW * 0.042, 14, 20);
+    final titleF = clamp(baseW * 0.043, 14, 16);
+    final padBox = clamp(baseW * 0.042, 12, 20);
+    final gapV = clamp(baseW * 0.028, 8, 14);
+
     final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(padBox),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(
-          color: primaryColor,
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: primaryColor, width: 1.5),
+        borderRadius: BorderRadius.circular(radius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 6,
+              offset: const Offset(0, 3)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'ความคิดเห็นของคุณ',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Color.fromARGB(255, 0, 0, 0),
-            ),
-          ),
-          const SizedBox(height: 12),
-          CommentCard(
-            comment: comment,
-            onEdit: onEdit,
-            onDelete: onDelete,
-          ),
+          Text('ความคิดเห็นของคุณ',
+              style: TextStyle(fontSize: titleF, fontWeight: FontWeight.w700)),
+          SizedBox(height: gapV),
+          CommentCard(comment: comment, onEdit: onEdit, onDelete: onDelete),
         ],
       ),
     );
   }
 }
 
+/*──────────────────── กล่องสร้างคอมเมนต์แรก ───────────────────*/
 class _FirstCommentBox extends StatelessWidget {
   final int currentRating;
   final ValueChanged<int> onRatingSelected;
   final VoidCallback onCommentPressed;
+  final double baseW;
+
   const _FirstCommentBox({
     required this.currentRating,
     required this.onRatingSelected,
     required this.onCommentPressed,
+    required this.baseW,
   });
 
   @override
   Widget build(BuildContext context) {
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final radius = clamp(baseW * 0.042, 14, 20);
+    final padBox = clamp(baseW * 0.042, 12, 20);
+    final titleF = clamp(baseW * 0.043, 14, 16);
+    final starSz = clamp(baseW * 0.08, 24, 34);
+    final gapV = clamp(baseW * 0.028, 8, 14);
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(padBox),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: const Color(0xFFDADADA), width: 1),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(radius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 5,
+              offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
         children: [
-          Text(
-            'คุณคิดอย่างไรกับสูตรนี้บ้าง?',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
+          Text('คุณคิดอย่างไรกับสูตรนี้บ้าง?',
+              style: TextStyle(fontSize: titleF, fontWeight: FontWeight.w600)),
+          SizedBox(height: gapV),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(5, (i) {
@@ -242,21 +245,16 @@ class _FirstCommentBox extends StatelessWidget {
                 onTap: () => onRatingSelected(i + 1),
                 child: Icon(
                   filled ? Icons.star : Icons.star_outline,
-                  size: 30,
+                  size: starSz,
                   color: filled ? const Color(0xFFFF9B05) : Colors.grey,
                 ),
               );
             }),
           ),
-          const SizedBox(height: 8),
-          CommentInputField(
-            onTap: onCommentPressed,
-            label: 'แสดงความคิดเห็น',
-          ),
+          SizedBox(height: gapV),
+          CommentInputField(onTap: onCommentPressed),
         ],
       ),
     );
   }
 }
-
-/*───────────────────────────────────────────────────────────────*/

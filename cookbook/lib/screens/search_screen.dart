@@ -1,6 +1,6 @@
 // lib/screens/search_screen.dart
 // ─────────────────────────────────────────────────────────────
-// Search Screen (rev. allergy-dialog – 2025-07-07)
+// Search Screen (rev. allergy-dialog – 2025-07-07) – responsive edition
 // ─────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -37,6 +37,7 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
+  /* ───────────── constants ───────────── */
   static const _pageSize = 26;
   static const List<FilterOption> _sortOptions = [
     FilterOption('ยอดนิยม', 'popular'),
@@ -45,9 +46,11 @@ class _SearchScreenState extends State<SearchScreen> {
     FilterOption('แนะนำ', 'recommended'),
   ];
 
+  /* ───────────── controllers & helpers ───────────── */
   final _scrollCtl = ScrollController();
   final _debouncer = Debouncer(delay: const Duration(milliseconds: 400));
 
+  /* ───────────── state ───────────── */
   List<Recipe> _gridRecipes = [];
   List<Recipe> _heroRecipes = [];
   List<String> _respTokens = [];
@@ -55,7 +58,7 @@ class _SearchScreenState extends State<SearchScreen> {
   List<String> _includeNames = [];
   List<String> _excludeNames = [];
   List<int> _allergyIngredientIds = [];
-  List<Ingredient> _allergyList = []; // ★ เก็บ Ingredient เต็มรูปแบบ
+  List<Ingredient> _allergyList = []; // ★ ingredients objects
 
   String _searchQuery = '';
   bool _loading = false;
@@ -68,6 +71,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isLoggedIn = false;
   int _reqId = 0;
 
+  /* ───────────── init / dispose ───────────── */
   @override
   void initState() {
     super.initState();
@@ -91,6 +95,16 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
+  /* ───────────── responsive helpers ───────────── */
+  int _gridCountForWidth(double w) {
+    if (w >= 900) return 4; // tablet landscape
+    if (w >= 600) return 3; // tablet / large phone
+    return 2; // phone
+  }
+
+  double _heroItemSize(double w) => w * 0.26 > 140 ? 140 : w * 0.26;
+
+  /* ───────────── networking (เหมือนเดิม) ───────────── */
   Future<void> _loadInitial() async {
     setState(() => _loading = true);
     try {
@@ -111,7 +125,6 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() => _isLoggedIn = ok);
 
     if (ok) {
-      // ดึงทั้ง id และข้อมูลเต็มของวัตถุดิบที่แพ้
       final allergy = await ApiService.fetchAllergyIngredients()
           .timeout(const Duration(seconds: 8));
       if (!mounted) return;
@@ -177,6 +190,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  /* ───────────── misc helpers ───────────── */
   void _showError(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
@@ -201,6 +215,70 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() => _excludeNames.remove(n));
     _performSearch(_searchQuery);
   }
+
+  /* ───────────── UI small widgets ───────────── */
+  Widget _chip(String label,
+          {required bool positive, required VoidCallback onDelete}) =>
+      Chip(
+        label: Text(label, style: const TextStyle(fontSize: 12)),
+        backgroundColor:
+            positive ? const Color(0xFFE9F9EB) : const Color(0xFFFFE8E8),
+        deleteIcon: const Icon(Icons.close, size: 16),
+        onDeleted: onDelete,
+        shape: StadiumBorder(
+          side: BorderSide(
+              color:
+                  positive ? const Color(0xFF55B85E) : const Color(0xFFFF6B6B)),
+        ),
+      );
+
+  Widget _extraChip(int n) => Chip(
+        label: Text('+$n',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        backgroundColor: const Color(0xFFF1F1F1),
+        shape: StadiumBorder(side: BorderSide(color: Colors.grey.shade500)),
+      );
+
+  Widget _bullet(String t) =>
+      Row(children: [const Text('• '), Expanded(child: Text(t))]);
+
+  /* ───────────── main build ───────────── */
+  @override
+  Widget build(BuildContext context) {
+    final w = MediaQuery.of(context).size.width;
+    final heroSize = _heroItemSize(w);
+    final gridCount = _gridCountForWidth(w);
+
+    return Scaffold(
+      body: CustomScrollView(
+        controller: _scrollCtl,
+        slivers: [
+          _buildAppBar(),
+          SliverToBoxAdapter(child: _resultHeading()),
+          SliverToBoxAdapter(child: _filterSummary()),
+          SliverToBoxAdapter(child: _buildHero(heroSize)),
+          SliverToBoxAdapter(
+            child: ChoiceChipFilter(
+              options: _sortOptions,
+              initialIndex: _sortIndex,
+              onChanged: (i, _) {
+                setState(() => _sortIndex = i);
+                _performSearch(_searchQuery);
+              },
+            ),
+          ),
+          _buildGrid(gridCount),
+        ],
+      ),
+      bottomNavigationBar: CustomBottomNav(
+        selectedIndex: _navIndex,
+        isLoggedIn: _isLoggedIn,
+        onItemSelected: _onBottomNavTap,
+      ),
+    );
+  }
+
+  /* ───────────── sections ───────────── */
 
   Widget _filterSummary() {
     if (_includeNames.isEmpty && _excludeNames.isEmpty) {
@@ -227,28 +305,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _chip(String label,
-          {required bool positive, required VoidCallback onDelete}) =>
-      Chip(
-        label: Text(label, style: const TextStyle(fontSize: 12)),
-        backgroundColor:
-            positive ? const Color(0xFFE9F9EB) : const Color(0xFFFFE8E8),
-        deleteIcon: const Icon(Icons.close, size: 16),
-        onDeleted: onDelete,
-        shape: StadiumBorder(
-          side: BorderSide(
-              color:
-                  positive ? const Color(0xFF55B85E) : const Color(0xFFFF6B6B)),
-        ),
-      );
-
-  Widget _extraChip(int n) => Chip(
-        label: Text('+$n',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-        backgroundColor: const Color(0xFFF1F1F1),
-        shape: StadiumBorder(side: BorderSide(color: Colors.grey.shade500)),
-      );
-
   Widget _resultHeading() {
     if (_searchQuery.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -258,18 +314,18 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildHero() {
+  Widget _buildHero(double itemSize) {
     if (_heroRecipes.isEmpty) return const SizedBox.shrink();
     final combined = {..._includeNames, ..._highlightTerms}.toList();
     return HeroCarousel(
       recipes: _heroRecipes,
-      itemSize: 110,
+      itemSize: itemSize,
       highlightTerms: combined,
       onTap: _handleRecipeTap,
     );
   }
 
-  Widget _buildGrid() {
+  Widget _buildGrid(int crossAxisCount) {
     if (_loading && _gridRecipes.isEmpty) {
       return const SliverFillRemaining(
           child: Center(child: CircularProgressIndicator()));
@@ -278,14 +334,18 @@ class _SearchScreenState extends State<SearchScreen> {
       return const SliverFillRemaining(
           child: Center(child: Text('ไม่พบสูตรอาหารที่ต้องการ')));
     }
+
+    final aspect = crossAxisCount >= 3 ? 0.64 : 0.56;
+
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 12,
-            childAspectRatio: 0.56),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 12,
+          childAspectRatio: aspect,
+        ),
         delegate: SliverChildBuilderDelegate(
           (ctx, i) {
             if (i == _gridRecipes.length) {
@@ -306,6 +366,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  /* ───────────── allergy / tap handling ───────────── */
   void _handleRecipeTap(Recipe recipe) {
     final hasAllergy =
         _isLoggedIn && recipe.ingredientIds.any(_allergyIngredientIds.contains);
@@ -339,6 +400,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  /* ───────────── bottom-nav / help sheet ───────────── */
   Future<void> _onBottomNavTap(int i) async {
     if ((i == 2 || i == 3) &&
         !await AuthService.checkAndRedirectIfLoggedOut(context)) return;
@@ -383,40 +445,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       );
 
-  Widget _bullet(String t) =>
-      Row(children: [const Text('• '), Expanded(child: Text(t))]);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: CustomScrollView(
-        controller: _scrollCtl,
-        slivers: [
-          _buildAppBar(),
-          SliverToBoxAdapter(child: _resultHeading()),
-          SliverToBoxAdapter(child: _filterSummary()),
-          SliverToBoxAdapter(child: _buildHero()),
-          SliverToBoxAdapter(
-            child: ChoiceChipFilter(
-              options: _sortOptions,
-              initialIndex: _sortIndex,
-              onChanged: (i, _) {
-                setState(() => _sortIndex = i);
-                _performSearch(_searchQuery);
-              },
-            ),
-          ),
-          _buildGrid(),
-        ],
-      ),
-      bottomNavigationBar: CustomBottomNav(
-        selectedIndex: _navIndex,
-        isLoggedIn: _isLoggedIn,
-        onItemSelected: _onBottomNavTap,
-      ),
-    );
-  }
-
+  /* ───────────── app-bar ───────────── */
   SliverAppBar _buildAppBar() => SliverAppBar(
         pinned: true,
         centerTitle: true,

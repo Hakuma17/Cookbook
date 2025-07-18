@@ -1,3 +1,5 @@
+// lib/screens/change_password_screen.dart
+
 import 'dart:async';
 import 'dart:io';
 
@@ -26,9 +28,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   /* ───────────────── helper ───────────────── */
   void _showSnack(String msg, {Color color = Colors.red}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
   }
 
   @override
@@ -50,15 +51,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   /* ───────────────── main action ───────────────── */
   Future<void> _changePassword() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_newPassCtrl.text.trim() != _confirmPassCtrl.text.trim()) {
+      _showSnack('รหัสผ่านใหม่กับยืนยันไม่ตรงกัน');
+      return;
+    }
 
     setState(() => _loading = true);
-
     try {
       final res = await ApiService.changePassword(
               _oldPassCtrl.text.trim(), _newPassCtrl.text.trim())
           .timeout(const Duration(seconds: 15));
 
-      if (!(mounted)) return;
+      if (!mounted) return;
       setState(() => _loading = false);
 
       if (res['success'] == true) {
@@ -86,21 +90,28 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     required TextEditingController ctrl,
     required bool obscure,
     required VoidCallback toggle,
+    required double labelFont,
+    required double contentPadH,
+    required double borderRad,
+    required double space,
+    required double iconSize,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-        const SizedBox(height: 8),
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: labelFont)),
+        SizedBox(height: space),
         TextFormField(
           controller: ctrl,
           obscureText: obscure,
           decoration: InputDecoration(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            contentPadding: EdgeInsets.symmetric(horizontal: contentPadH),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(borderRad)),
             suffixIcon: IconButton(
-              icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
+              icon: Icon(obscure ? Icons.visibility_off : Icons.visibility,
+                  size: iconSize),
               onPressed: toggle,
             ),
           ),
@@ -117,12 +128,29 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   /* ───────────────── build ───────────────── */
   @override
   Widget build(BuildContext context) {
+    /* responsive numbers */
+    final w = MediaQuery.of(context).size.width;
+    final h = MediaQuery.of(context).size.height;
+    double scale = (w / 360).clamp(0.85, 1.25);
+    double px(double v) => v * scale;
+
+    final pad = px(24);
+    final space = px(20);
+    final labelFont = px(16);
+    final contentPadH = px(16);
+    final borderRad = px(10);
+    final btnHeight = px(48).clamp(44.0, 60.0);
+    final iconSize = px(24);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('เปลี่ยนรหัสผ่าน'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('เปลี่ยนรหัสผ่าน'),
+        centerTitle: true,
+      ),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(pad),
           child: Column(
             children: [
               _passField(
@@ -130,26 +158,41 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 ctrl: _oldPassCtrl,
                 obscure: _obscureOld,
                 toggle: () => setState(() => _obscureOld = !_obscureOld),
+                labelFont: labelFont,
+                contentPadH: contentPadH,
+                borderRad: borderRad,
+                space: space * .6,
+                iconSize: iconSize,
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: space),
               _passField(
                 label: 'รหัสผ่านใหม่',
                 ctrl: _newPassCtrl,
                 obscure: _obscureNew,
                 toggle: () => setState(() => _obscureNew = !_obscureNew),
+                labelFont: labelFont,
+                contentPadH: contentPadH,
+                borderRad: borderRad,
+                space: space * .6,
+                iconSize: iconSize,
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: space),
               _passField(
                 label: 'ยืนยันรหัสผ่านใหม่',
                 ctrl: _confirmPassCtrl,
                 obscure: _obscureConfirm,
                 toggle: () =>
                     setState(() => _obscureConfirm = !_obscureConfirm),
+                labelFont: labelFont,
+                contentPadH: contentPadH,
+                borderRad: borderRad,
+                space: space * .6,
+                iconSize: iconSize,
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: space * 1.2),
               SizedBox(
                 width: double.infinity,
-                height: 48,
+                height: btnHeight,
                 child: ElevatedButton(
                   onPressed: _loading ? null : _changePassword,
                   child: _loading

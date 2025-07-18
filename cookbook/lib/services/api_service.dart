@@ -1,9 +1,15 @@
-import 'dart:io';
+// lib/services/api_service.dart
+// ──────────────────────────────────────────────────────────────
+// 2025-07-14 refactor: รวม header/cookie helper -- ไม่เปลี่ยนพฤติกรรม
+// ──────────────────────────────────────────────────────────────
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:device_info_plus/device_info_plus.dart';
 
-import 'package:cookbook/main.dart' show navKey; // ← ใช้ navigatorKey
+import 'package:cookbook/main.dart' show navKey; // navigatorKey
 import 'package:cookbook/services/auth_service.dart';
 
 import '../models/ingredient.dart';
@@ -13,85 +19,75 @@ import '../models/comment.dart';
 import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import '../models/search_response.dart';
 
 /// จัดการทุก API call กับ backend (PHP)
 class ApiService {
-  /* ───────────── http & session ───────────── */
-
+  /* ───── http & session ───── */
   static final _client = http.Client();
   static const _timeout = Duration(seconds: 30);
   static String? _sessionCookie;
-
   static late final String baseUrl;
 
-  /// เรียกครั้งเดียวก่อน runApp()
+  /// เรียก 1× ก่อน runApp()
   static Future<void> initBaseUrl() async {
     if (Platform.isAndroid) {
       final info = await DeviceInfoPlugin().androidInfo;
-      if (info.isPhysicalDevice) {
-        // เครื่องจริง ให้ใช้ IP ของคอมพ์ (เปลี่ยนตาม ipconfig)
-        baseUrl = 'http://192.168.60.60/cookbookapp/';
-      } else {
-        // Emulator
-        baseUrl = 'http://10.0.2.2/cookbookapp/';
-      }
+      baseUrl = info.isPhysicalDevice
+          ? 'http://192.168.137.1/cookbookapp/'
+          : 'http://10.0.2.2/cookbookapp/';
     } else {
-      // iOS Simulator / Desktop
       baseUrl = 'http://localhost/cookbookapp/';
     }
   }
 
+  /* ───── cookie & header helper ───── */
   static void clearSession() => _sessionCookie = null;
 
-  /// GET: ping session → ใช้ใน AuthService เพื่อตรวจ session ว่ายังใช้ได้ไหม
+  static void _captureCookie(http.BaseResponse r) {
+    final raw = r.headers['set-cookie'];
+    final m = raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
+    if (m != null) _sessionCookie = m.group(1);
+  }
+
+  static Map<String, String> _headers({bool json = false}) => {
+        if (json)
+          'Content-Type': 'application/json'
+        else
+          'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        if (_sessionCookie != null) 'Cookie': 'PHPSESSID=$_sessionCookie',
+      };
+
+  /* ───── ping session ───── */
   static Future<bool> pingSession() async {
     try {
-      final res = await _getWithSession('ping.php');
+      final res = await _get(Uri.parse('${baseUrl}ping.php'));
       final j = jsonDecode(res.body);
       return j['valid'] == true;
     } catch (_) {
       return false;
     }
   }
-  /* ───────────── low-level helpers ───────────── */
 
-  static Future<http.Response> _get(Uri uri) async {
-    final headers = <String, String>{
-      'Accept': 'application/json',
-      if (_sessionCookie != null) 'Cookie': 'PHPSESSID=$_sessionCookie',
-    };
-    final r = await _client.get(uri, headers: headers).timeout(_timeout);
-
+  /* ───── low-level GET / POST ───── */
+  static Future<http.Response> _get(Uri uri, {bool public = false}) async {
+    final r = await _client
+        .get(uri, headers: public ? null : _headers())
+        .timeout(_timeout);
+    _captureCookie(r);
     if (r.statusCode != 200) _throwHttp('GET ${uri.path}', r);
     return r;
   }
 
-  // 🔹 สำหรับ endpoint ที่เปิดสาธารณะ — ไม่ส่ง cookie
-  static Future<http.Response> _getPublic(String path) =>
-      _client.get(Uri.parse('$baseUrl$path')).timeout(_timeout);
-
   static Future<http.Response> _post(
       String path, Map<String, String> body) async {
     final uri = Uri.parse('$baseUrl$path');
-    // เพิ่ม Content-Type header, คง logic การส่ง PHPSESSID ถ้ามี
-    final headers = <String, String>{
-      'Content-Type': 'application/x-www-form-urlencoded',
-      if (_sessionCookie != null) 'Cookie': 'PHPSESSID=$_sessionCookie',
-    };
-    final r =
-        await _client.post(uri, headers: headers, body: body).timeout(_timeout);
-
+    final r = await _client
+        .post(uri, headers: _headers(), body: body)
+        .timeout(_timeout);
+    _captureCookie(r);
     if (r.statusCode != 200) _throwHttp('POST $path', r);
-
-    // เก็บ PHPSESSID ครั้งแรก
-    if (_sessionCookie == null) {
-      final raw = r.headers['set-cookie'];
-      final m =
-          raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
-      if (m != null) _sessionCookie = m.group(1);
-    }
     return r;
   }
 
@@ -102,44 +98,37 @@ class ApiService {
           String p, Map<String, String> b) =>
       _post(p, b);
 
-  /* ───────────── json-wrapper ───────────── */
-
+  /* ───── JSON wrapper ───── */
   static Future<Map<String, dynamic>> _postAndProcess(
-      String path, Map<String, String> body) async {
-    final r = await _post(path, body);
-    return _safeProcess(r);
-  }
+          String p, Map<String, String> b) async =>
+      _safeProcess(await _post(p, b));
 
   static Map<String, dynamic> _safeProcess(http.Response r) {
     Map<String, dynamic>? j;
     try {
       j = jsonDecode(r.body.trim());
-    } catch (_) {/* ignore */}
-
-    // code / status == 401 ภายใน JSON
-    if (j?['code'] == 401 || j?['status'] == 401) {
+    } catch (_) {}
+    if (j?['code'] == 401 || j?['status'] == 401 || r.statusCode == 401) {
       _forceLogout();
       throw Exception('หมดเวลาการเข้าสู่ระบบ (401)');
     }
-
-    final ok = j != null && (_bool(j['success']) || _bool(j['valid'] ?? false));
-    final msg =
-        j?['message'] ?? (ok ? 'สำเร็จ' : 'เกิดข้อผิดพลาด (${r.statusCode})');
-    final data = (j?['data'] is Map) ? j!['data'] : <String, dynamic>{};
-
-    return {'success': ok, 'message': msg, 'data': data, 'debug': j?['debug']};
+    final ok = j != null && (_truthy(j['success']) || _truthy(j['valid']));
+    return {
+      'success': ok,
+      'message':
+          j?['message'] ?? (ok ? 'สำเร็จ' : 'เกิดข้อผิดพลาด (${r.statusCode})'),
+      'data': (j?['data'] is Map) ? j!['data'] : <String, dynamic>{},
+      'debug': j?['debug'],
+    };
   }
 
-  static bool _bool(dynamic v) {
-    if (v is bool) return v;
-    if (v is String) return v.toLowerCase() == 'true';
-    if (v is num) return v != 0;
-    return false;
-  }
+  static bool _truthy(dynamic v) => v is bool
+      ? v
+      : v is num
+          ? v != 0
+          : v.toString().toLowerCase() == 'true';
 
-  /* ════════════ zone-safe logout & http error ════════════ */
-
-  /// **ต้องเป็น static** เพื่อเรียกได้จากเมท็อด static อื่น
+  /* ═════ logout & error ═════ */
   static Future<void> _forceLogout() async {
     await AuthService.logout(silent: true);
     navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
@@ -153,200 +142,120 @@ class ApiService {
     throw Exception('$what (${r.statusCode})');
   }
 
-  // ─── Data Endpoints ───────────────────────────────────────────────────────
-
-  /// GET: ดึงวัตถุดิบทั้งหมด (public)
+  // ─── Data Endpoints ──────────────────────────────────────
   static Future<List<Ingredient>> fetchIngredients() async {
-    final loggedIn = await AuthService.isLoggedIn();
-    final resp = await (loggedIn
-        ? _getWithSession('get_ingredients.php')
-        : _getPublic('get_ingredients.php'));
-
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดวัตถุดิบได้ (${resp.statusCode})');
-    }
-
-    final Map<String, dynamic> j = jsonDecode(resp.body);
-
+    final logged = await AuthService.isLoggedIn();
+    final r = await _get(
+      Uri.parse('${baseUrl}get_ingredients.php'),
+      public: !logged,
+    );
+    final j = jsonDecode(r.body);
     if (j['success'] != true || j['data'] is! List) {
       throw Exception(j['message'] ?? 'โหลดวัตถุดิบล้มเหลว');
     }
-
-    return (j['data'] as List)
-        .map((e) => Ingredient.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return (j['data'] as List).map((e) => Ingredient.fromJson(e)).toList();
   }
 
-  /// GET: ดึงสูตรยอดนิยม (public)
   static Future<List<Recipe>> fetchPopularRecipes() async {
-    final loggedIn = await AuthService.isLoggedIn();
-    final resp = await (loggedIn
-        ? _getWithSession('get_popular_recipes.php')
-        : _getPublic('get_popular_recipes.php'));
-
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดสูตรยอดนิยมได้ (${resp.statusCode})');
-    }
-
-    final Map<String, dynamic> j = jsonDecode(resp.body);
+    final logged = await AuthService.isLoggedIn();
+    final r = await _get(Uri.parse('${baseUrl}get_popular_recipes.php'),
+        public: !logged);
+    final j = jsonDecode(r.body);
     if (j['success'] != true || j['data'] is! List) {
       throw Exception(j['message'] ?? 'โหลดสูตรยอดนิยมล้มเหลว');
-    }
-
-    return (j['data'] as List)
-        .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
-  /// GET: ดึงสูตรใหม่ล่าสุด (public)
-  static Future<List<Recipe>> fetchNewRecipes() async {
-    final loggedIn = await AuthService.isLoggedIn();
-    final resp = await (loggedIn
-        ? _getWithSession('get_new_recipes.php')
-        : _getPublic('get_new_recipes.php'));
-
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดสูตรใหม่ได้ (${resp.statusCode})');
-    }
-
-    final Map<String, dynamic> j = jsonDecode(resp.body);
-    if (j['success'] != true || j['data'] is! List) {
-      throw Exception(j['message'] ?? 'โหลดสูตรใหม่ล้มเหลว');
-    }
-
-    return (j['data'] as List)
-        .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
-  /// GET: ดึงรายละเอียดสูตร
-  static Future<RecipeDetail> fetchRecipeDetail(int id) async {
-    final resp = await _getWithSession('get_recipe_detail.php?id=$id');
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดรายละเอียดสูตรได้ (${resp.statusCode})');
-    }
-
-    final Map<String, dynamic> json = jsonDecode(resp.body);
-    if (json['success'] != true || json['data'] is! Map) {
-      throw Exception(json['message'] ?? 'โหลดรายละเอียดสูตรล้มเหลว');
-    }
-
-    final Map<String, dynamic> data = json['data'];
-
-    // Normalise fields
-    if (data['image_urls'] == null && data['image_url'] != null) {
-      data['image_urls'] = [data['image_url'].toString()];
-    }
-    data['current_servings'] ??= 1;
-
-    return RecipeDetail.fromJson(data);
-  }
-
-  /// Alias for fetchRecipeDetail
-  static Future<RecipeDetail> getRecipeDetail(int id) => fetchRecipeDetail(id);
-
-  // ─── Favorites & Ratings ─────────────────────────────────────────────────
-
-  // เปลี่ยนจาก void ⇒ Future<int> เพื่อคืน count ใหม่
-  static Future<int> toggleFavorite(int recipeId, bool fav) async {
-    final result = await _postAndProcess('toggle_favorite.php', {
-      'recipe_id': recipeId.toString(),
-      'favorite': fav ? '1' : '0',
-    });
-
-    if (!result['success']) {
-      throw Exception(result['message']);
-    }
-
-    // PHP เราเพิ่งแก้ให้ส่ง favorite_count กลับมา
-    return int.tryParse(result['favorite_count'].toString()) ?? 0;
-  }
-
-  /// POST: โพสต์เรตติ้งใหม่ → คืน average_rating
-  static Future<double> postRating(int recipeId, double rating) async {
-    final result = await _postAndProcess('post_rating.php', {
-      'recipe_id': recipeId.toString(),
-      'rating': rating.toString(),
-    });
-    return (result['data']['average_rating'] as num).toDouble();
-  }
-
-  /// GET: ดึงรายการโปรดของผู้ใช้
-  static Future<List<Recipe>> fetchFavorites() async {
-    final resp = await _getWithSession('get_user_favorites.php');
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดสูตรโปรดได้ (${resp.statusCode})');
-    }
-    final Map<String, dynamic> j = jsonDecode(resp.body);
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'ไม่สามารถโหลดสูตรโปรดได้');
     }
     return (j['data'] as List).map((e) => Recipe.fromJson(e)).toList();
   }
 
-  // ─── Comments ─────────────────────────────────────────────────────────────
+  static Future<List<Recipe>> fetchNewRecipes() async {
+    final logged = await AuthService.isLoggedIn();
+    final r =
+        await _get(Uri.parse('${baseUrl}get_new_recipes.php'), public: !logged);
+    final j = jsonDecode(r.body);
+    if (j['success'] != true || j['data'] is! List) {
+      throw Exception(j['message'] ?? 'โหลดสูตรใหม่ล้มเหลว');
+    }
+    return (j['data'] as List).map((e) => Recipe.fromJson(e)).toList();
+  }
 
-  /// GET: ดึงความคิดเห็นทั้งหมด
+  static Future<RecipeDetail> fetchRecipeDetail(int id) async {
+    final r = await _getWithSession('get_recipe_detail.php?id=$id');
+    final j = jsonDecode(r.body);
+    if (j['success'] != true || j['data'] is! Map) {
+      throw Exception(j['message'] ?? 'โหลดรายละเอียดสูตรล้มเหลว');
+    }
+    final d = j['data'] as Map<String, dynamic>;
+    d['image_urls'] ??= d['image_url'] != null ? [d['image_url']] : [];
+    d['current_servings'] ??= 1;
+    return RecipeDetail.fromJson(d);
+  }
+
+  /// Alias
+  static Future<RecipeDetail> getRecipeDetail(int id) => fetchRecipeDetail(id);
+
+  // ─── Favorites & Ratings ────────────────────────────────
+  static Future<int> toggleFavorite(int recipeId, bool fav) async {
+    final r = await _postAndProcess('toggle_favorite.php', {
+      'recipe_id': recipeId.toString(),
+      'favorite': fav ? '1' : '0',
+    });
+    if (!r['success']) throw Exception(r['message']);
+    return int.tryParse(r['data']['favorite_count'].toString()) ?? 0;
+  }
+
+  static Future<double> postRating(int recipeId, double rating) async {
+    final r = await _postAndProcess('post_rating.php', {
+      'recipe_id': recipeId.toString(),
+      'rating': rating.toString(),
+    });
+    return (r['data']['average_rating'] as num).toDouble();
+  }
+
+  static Future<List<Recipe>> fetchFavorites() async {
+    final r = await _getWithSession('get_user_favorites.php');
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
+    return (j['data'] as List).map((e) => Recipe.fromJson(e)).toList();
+  }
+
+  // ─── Comments ───────────────────────────────────────────
   static Future<List<Comment>> getComments(int recipeId) async {
-    final resp = await _getWithSession('get_comments.php?id=$recipeId');
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดความคิดเห็นได้ (${resp.statusCode})');
-    }
-    final Map<String, dynamic> j = jsonDecode(resp.body);
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'ไม่สามารถโหลดความคิดเห็นได้');
-    }
+    final r = await _getWithSession('get_comments.php?id=$recipeId');
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
     return (j['data'] as List).map((e) => Comment.fromJson(e)).toList();
   }
 
-  /// POST: สร้าง/อัปเดตรีวิว
   static Future<Comment> postComment(
       int recipeId, String text, double rating) async {
-    final result = await _postAndProcess('post_comment.php', {
+    final r = await _postAndProcess('post_comment.php', {
       'recipe_id': recipeId.toString(),
       'comment': text,
       'rating': rating.toStringAsFixed(1),
     });
-    if (!result['success']) {
-      throw Exception(result['message']);
-    }
-    return Comment.fromJson(result['data']);
+    if (!r['success']) throw Exception(r['message']);
+    return Comment.fromJson(r['data']);
   }
 
-  /// POST: ลบความคิดเห็น
   static Future<void> deleteComment(int recipeId) async {
-    final result = await _postAndProcess('delete_comment.php', {
-      'recipe_id': recipeId.toString(),
-    });
-    if (!result['success']) {
-      throw Exception(result['message']);
-    }
+    final r =
+        await _postAndProcess('delete_comment.php', {'recipe_id': '$recipeId'});
+    if (!r['success']) throw Exception(r['message']);
   }
 
-  // ─── Cart ─────────────────────────────────────────────────────────────────
-
-  /// POST: อัปเดตจำนวนเสิร์ฟในตะกร้า
+  // ─── Cart ───────────────────────────────────────────────
   static Future<void> updateCart(int recipeId, double count) async {
-    final result = await _postAndProcess(
-      'update_cart.php',
-      {
-        'recipe_id': recipeId.toString(),
-        'nServings': count.toString(),
-      },
-    );
-    if (!result['success']) throw Exception(result['message']);
+    final r = await _postAndProcess('update_cart.php', {
+      'recipe_id': '$recipeId',
+      'nServings': '$count',
+    });
+    if (!r['success']) throw Exception(r['message']);
   }
 
-  /// GET: ดึงรายการเมนูทั้งหมด + ingredients
   static Future<CartResponse> fetchCartData() async {
-    final resp = await _getWithSession('get_cart_items.php');
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดตะกร้าได้ (${resp.statusCode})');
-    }
-    final Map<String, dynamic> j = jsonDecode(resp.body);
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'ไม่สามารถโหลดตะกร้าได้');
-    }
+    final r = await _getWithSession('get_cart_items.php');
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
     return CartResponse(
       totalItems: int.tryParse(j['totalItems'].toString()) ??
           (j['data'] as List).length,
@@ -354,393 +263,214 @@ class ApiService {
     );
   }
 
-  /// POST: ล้างตะกร้า
   static Future<void> clearCart() async {
-    final result = await _postAndProcess('clear_cart.php', {});
-    if (!result['success']) throw Exception(result['message']);
+    final r = await _postAndProcess('clear_cart.php', {});
+    if (!r['success']) throw Exception(r['message']);
   }
 
-  /// GET: ดึงวัตถุดิบรวมในตะกร้า
   static Future<List<CartIngredient>> fetchCartIngredients() async {
-    final resp = await _getWithSession('get_cart_ingredients.php');
-    if (resp.statusCode != 200) {
-      throw Exception('ไม่สามารถโหลดวัตถุดิบในตะกร้าได้ (${resp.statusCode})');
-    }
-    final Map<String, dynamic> j = jsonDecode(resp.body);
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'ไม่สามารถโหลดวัตถุดิบในตะกร้าได้');
-    }
+    final r = await _getWithSession('get_cart_ingredients.php');
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
     return (j['data'] as List).map((e) => CartIngredient.fromJson(e)).toList();
   }
 
-  /// POST: เพิ่มเมนูใหม่ลงตะกร้า
-  static Future<void> addCartItem(int recipeId, double nServings) async {
-    final result = await _postAndProcess('add_cart_item.php', {
-      'recipe_id': recipeId.toString(),
-      'nServings': nServings.toString(),
-    });
-    if (!result['success']) throw Exception(result['message']);
+  static Future<void> addCartItem(int id, double n) async {
+    final r = await _postAndProcess(
+        'add_cart_item.php', {'recipe_id': '$id', 'nServings': '$n'});
+    if (!r['success']) throw Exception(r['message']);
   }
 
-  /// POST: ลบเมนูออกจากตะกร้า
-  static Future<void> removeCartItem(int recipeId) async {
-    final result = await _postAndProcess('remove_cart_item.php', {
-      'recipe_id': recipeId.toString(),
-    });
-    if (!result['success']) throw Exception(result['message']);
+  static Future<void> removeCartItem(int id) async {
+    final r =
+        await _postAndProcess('remove_cart_item.php', {'recipe_id': '$id'});
+    if (!r['success']) throw Exception(r['message']);
   }
 
-  // ─── Allergies ───────────────────────────────────────────────────────────
-
-  /// GET: ดึงรายการวัตถุดิบที่แพ้ (guard guest)
+  // ─── Allergies ──────────────────────────────────────────
   static Future<List<Ingredient>> fetchAllergyIngredients() async {
-    if (!await AuthService.isLoggedIn()) return <Ingredient>[];
-
-    final resp = await _getWithSession('get_allergy_list.php');
-    if (resp.statusCode != 200) {
-      throw Exception('โหลดข้อมูลวัตถุดิบที่แพ้ไม่สำเร็จ (${resp.statusCode})');
-    }
-
-    final Map<String, dynamic> j = jsonDecode(resp.body);
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'โหลดข้อมูลวัตถุดิบที่แพ้ไม่สำเร็จ');
-    }
-
+    if (!await AuthService.isLoggedIn()) return [];
+    final r = await _getWithSession('get_allergy_list.php');
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
     return (j['data'] as List).map((e) => Ingredient.fromJson(e)).toList();
   }
 
-  /// POST: เพิ่มวัตถุดิบที่แพ้
-  static Future<void> addAllergy(int ingredientId) async {
-    final result = await _postAndProcess('manage_allergy.php', {
-      'action': 'add',
-      'ingredient_id': ingredientId.toString(),
-    });
-    if (!result['success']) throw Exception(result['message']);
+  static Future<void> addAllergy(int id) async {
+    final r = await _postAndProcess(
+        'manage_allergy.php', {'action': 'add', 'ingredient_id': '$id'});
+    if (!r['success']) throw Exception(r['message']);
   }
 
-  /// POST: ลบวัตถุดิบที่แพ้
-  static Future<void> removeAllergy(int ingredientId) async {
-    final result = await _postAndProcess('manage_allergy.php', {
-      'action': 'remove',
-      'ingredient_id': ingredientId.toString(),
-    });
-    if (!result['success']) throw Exception(result['message']);
+  static Future<void> removeAllergy(int id) async {
+    final r = await _postAndProcess(
+        'manage_allergy.php', {'action': 'remove', 'ingredient_id': '$id'});
+    if (!r['success']) throw Exception(r['message']);
   }
 
-  // ─── Auth / Password / OTP ────────────────────────────────────────────────
-
-  /// POST: เปลี่ยนรหัสผ่าน
+  // ─── Auth / Password / OTP ─────────────────────────────
   static Future<Map<String, dynamic>> changePassword(
-      String oldPassword, String newPassword) {
-    return _postAndProcess('change_password.php', {
-      'old_password': oldPassword,
-      'new_password': newPassword,
-    });
+          String oldP, String newP) =>
+      _postAndProcess(
+          'change_password.php', {'old_password': oldP, 'new_password': newP});
+
+  static Future<Map<String, dynamic>> login(String email, String pwd) async {
+    final r = await _client.post(Uri.parse('${baseUrl}login.php'),
+        headers: _headers(),
+        body: {'email': email, 'password': pwd}).timeout(_timeout);
+    _captureCookie(r);
+    return _safeProcess(r);
   }
 
-  /// POST: ล็อกอิน (email/password)
-  static Future<Map<String, dynamic>> login(
-      String email, String password) async {
-    final uri = Uri.parse('${baseUrl}login.php');
-    final res = await _client.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: {
-        'email': email,
-        'password': password,
-      },
-    ).timeout(_timeout);
-
-    //  จับ session จาก Set-Cookie เสมอ
-    final raw = res.headers['set-cookie'];
-    final m = raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
-    if (m != null) _sessionCookie = m.group(1);
-
-    return _safeProcess(res);
-  }
-
-  /// POST: ออกจากระบบ
   static Future<void> logout() async {
-    clearSession();
     try {
-      await _postWithSession('logout.php', {});
+      await _post('logout.php', {}); // hit server; ignore error
     } catch (_) {}
+    clearSession();
   }
 
-  /// POST: สมัครสมาชิก
-  static Future<Map<String, dynamic>> register(String email, String password,
-          String confirmPassword, String username) =>
+  static Future<Map<String, dynamic>> register(
+          String email, String pwd, String cPwd, String name) =>
       _postAndProcess('register.php', {
         'email': email,
-        'password': password,
-        'confirm_password': confirmPassword,
-        'username': username,
+        'password': pwd,
+        'confirm_password': cPwd,
+        'username': name,
       });
 
-  /// POST: Google Sign-In
   static Future<Map<String, dynamic>> googleSignIn(String idToken) async {
-    final uri = Uri.parse('${baseUrl}google_login.php');
-    final res = await _client.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: {
-        'id_token': idToken,
-      },
-    ).timeout(_timeout);
-
-    // ✅ จับ session จาก Set-Cookie เสมอ
-    final raw = res.headers['set-cookie'];
-    final m = raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
-    if (m != null) _sessionCookie = m.group(1);
-
-    return _safeProcess(res);
+    final r = await _client.post(Uri.parse('${baseUrl}google_login.php'),
+        headers: _headers(), body: {'id_token': idToken}).timeout(_timeout);
+    _captureCookie(r);
+    return _safeProcess(r);
   }
 
-  /// POST: ขอ OTP (reset password)
   static Future<Map<String, dynamic>> sendOtp(String email) =>
-      _postAndProcess('reset_password.php', {
-        'email': email,
-      });
+      _postAndProcess('reset_password.php', {'email': email});
 
-  /// POST: ยืนยัน OTP
   static Future<Map<String, dynamic>> verifyOtp(String email, String otp) =>
-      _postAndProcess('verify_otp.php', {
-        'email': email,
-        'otp': otp,
-      });
+      _postAndProcess('verify_otp.php', {'email': email, 'otp': otp});
 
-  /// POST: รีเซตรหัสผ่านใหม่
   static Future<Map<String, dynamic>> resetPassword(
-          String email, String otp, String newPassword) =>
-      _postAndProcess('new_password.php', {
-        'email': email,
-        'otp': otp,
-        'new_password': newPassword,
-      });
+          String email, String otp, String newP) =>
+      _postAndProcess('new_password.php',
+          {'email': email, 'otp': otp, 'new_password': newP});
 
-  static Future<String> uploadProfileImage(File imageFile) async {
+  // ─── Profile Image & Update ────────────────────────────
+  static Future<String> uploadProfileImage(File img) async {
     final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('${baseUrl}upload_profile_image.php'),
-    );
-
-    if (_sessionCookie != null) {
-      req.headers['Cookie'] = 'PHPSESSID=$_sessionCookie';
-    }
-
-    req.files.add(
-      await http.MultipartFile.fromPath('profile_image', imageFile.path),
-    );
+        'POST', Uri.parse('${baseUrl}upload_profile_image.php'))
+      ..headers.addAll(_headers())
+      ..files.add(await http.MultipartFile.fromPath('profile_image', img.path));
 
     final streamed = await req.send().timeout(_timeout);
     final resp = await http.Response.fromStream(streamed);
+    _captureCookie(resp);
 
     if (resp.statusCode != 200) {
       throw Exception('อัปโหลดรูปไม่สำเร็จ (${resp.statusCode})');
     }
-
-    Map<String, dynamic> j;
-    try {
-      j = jsonDecode(resp.body);
-    } catch (e) {
-      throw Exception('Response ไม่ใช่ JSON: ${resp.body}');
-    }
-
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'อัปโหลดรูปไม่สำเร็จ');
-    }
-
-    // ✅ ใช้ relative_path แทน image_url
+    final j = jsonDecode(resp.body);
+    if (j['success'] != true) throw Exception(j['message']);
     final path = j['data']?['relative_path'];
-    if (path == null || path is! String) {
-      throw Exception('ไม่มี relative path ส่งกลับมา');
-    }
-
+    if (path is! String) throw Exception('ไม่มี relative path ส่งกลับมา');
     return path;
   }
 
-  /// POST: อัปเดตโปรไฟล์ (ชื่อ + URL รูป) — คืน data ใหม่กลับมาด้วย
-  static Future<Map<String, dynamic>> updateProfile({
-    required String profileName,
-    required String imageUrl,
-  }) async {
-    final uri = Uri.parse('${baseUrl}update_profile.php');
-    final resp = await _client.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        if (_sessionCookie != null) 'Cookie': 'PHPSESSID=$_sessionCookie',
-      },
-      body: jsonEncode({
-        'profile_name': profileName,
-        'profile_image': imageUrl,
-      }),
-    );
-
-    Map<String, dynamic> j;
-    try {
-      j = jsonDecode(resp.body);
-    } catch (e) {
-      throw Exception('Response ไม่ใช่ JSON: ${resp.body}');
-    }
-
-    if (j['success'] != true) {
-      throw Exception(j['message']);
-    }
-
-    return (j['data'] is Map<String, dynamic>) ? j['data'] : {};
+  static Future<Map<String, dynamic>> updateProfile(
+      {required String profileName, required String imageUrl}) async {
+    final r = await _client
+        .post(Uri.parse('${baseUrl}update_profile.php'),
+            headers: _headers(json: true),
+            body: jsonEncode(
+                {'profile_name': profileName, 'profile_image': imageUrl}))
+        .timeout(_timeout);
+    _captureCookie(r);
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
+    return (j['data'] is Map) ? j['data'] : {};
   }
 
-  /// ค้นหาสูตรอาหาร (keyword + filters) – เวอร์ชันรับ tokens จาก backend
+  // ─── Search / Suggest ─────────────────────────────────
   static Future<SearchResponse> searchRecipes({
     required String query,
     int page = 1,
     int limit = 26,
     String sort = 'latest',
-    String mode = 'recipe', // ★ NEW (recipe | ingredient)
-    List<String>? ingredientNames, // ★ NEW (include by “ชื่อ”)
+    String mode = 'recipe',
+    List<String>? ingredientNames,
     List<int>? includeIngredientIds,
-    List<String>? excludeIngredientNames, // ★ NEW
+    List<String>? excludeIngredientNames,
     List<int>? excludeIngredientIds,
     int? categoryId,
   }) async {
-    /* 1) query-string */
-    final entries = <MapEntry<String, String>>[
-      MapEntry('page', page.toString()),
-      MapEntry('limit', limit.toString()),
-      MapEntry('sort', sort),
-      MapEntry('mode', mode), // ★ NEW
-    ];
+    final qp = <String, String>{
+      'page': '$page',
+      'limit': '$limit',
+      'sort': sort,
+      'mode': mode,
+      if (query.trim().isNotEmpty) 'q': query.trim(),
+      if (categoryId != null) 'cat_id': '$categoryId',
+      if (ingredientNames?.isNotEmpty ?? false)
+        'include': ingredientNames!.join(','),
+      if (excludeIngredientNames?.isNotEmpty ?? false)
+        'exclude': excludeIngredientNames!.join(','),
+    };
+    includeIngredientIds?.forEach((id) => qp['include_ids[]'] = '$id');
+    excludeIngredientIds?.forEach((id) => qp['exclude_ids[]'] = '$id');
 
-    /* 1-A keyword — ★ ALWAYS add ★ */
-    if (query.trim().isNotEmpty) {
-      entries.add(MapEntry('q', query.trim()));
-    }
-
-    /* 1-B category */
-    if (categoryId != null) {
-      entries.add(MapEntry('cat_id', categoryId.toString()));
-    }
-
-    /* 1-C include “ชื่อวัตถุดิบ” (ใหม่) */
-    if (ingredientNames?.isNotEmpty ?? false) {
-      // backend รับ comma-separated string → include=กุ้ง,หมูสับ
-      entries.add(MapEntry('include', ingredientNames!.join(',')));
-    }
-
-    /* 1-D exclude by “ชื่อ” */
-    if (excludeIngredientNames?.isNotEmpty ?? false) {
-      entries.add(MapEntry('exclude', excludeIngredientNames!.join(',')));
-    }
-
-    /* 1-E include / exclude id (คงเดิม) */
-    if (includeIngredientIds?.isNotEmpty ?? false) {
-      entries.addAll(includeIngredientIds!
-          .map((id) => MapEntry('include_ids[]', id.toString())));
-    }
-    if (excludeIngredientIds?.isNotEmpty ?? false) {
-      entries.addAll(excludeIngredientIds!
-          .map((id) => MapEntry('exclude_ids[]', id.toString())));
-    }
-
-    /* 2) call API */
     final uri = Uri.parse('${baseUrl}search_recipes_unified.php')
-        .replace(queryParameters: Map.fromEntries(entries));
-
-    final resp = await _get(uri);
-    if (resp.statusCode != 200) {
-      throw Exception('ค้นหาไม่สำเร็จ (${resp.statusCode})');
-    }
-
-    final j = jsonDecode(resp.body) as Map<String, dynamic>;
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'ค้นหาไม่สำเร็จ');
-    }
-
+        .replace(queryParameters: qp);
+    final r = await _get(uri);
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
     return SearchResponse(
       page: j['page'] ?? 1,
-      tokens: List<String>.from(j['tokens'] ?? <String>[]), // ★ รับ tokens
-      recipes: (j['data'] as List)
-          .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      tokens: List<String>.from(j['tokens'] ?? []),
+      recipes: (j['data'] as List).map((e) => Recipe.fromJson(e)).toList(),
     );
   }
 
-  /// Suggest ชื่อเมนู (autocomplete)
   static Future<List<String>> getRecipeSuggestions(String pattern) async {
     if (pattern.isEmpty) return [];
     try {
-      final resp = await _client
+      final r = await _client
           .get(Uri.parse(
-            '${baseUrl}get_recipe_suggestions.php?q=${Uri.encodeComponent(pattern)}',
-          ))
+              '${baseUrl}get_recipe_suggestions.php?q=${Uri.encodeComponent(pattern)}'))
           .timeout(_timeout);
-
-      final list = jsonDecode(resp.body);
-      if (list is List) {
-        return List<String>.from(list);
-      }
-    } catch (e) {
-      debugPrint('RecipeSuggest error: $e');
-    }
+      final list = jsonDecode(r.body);
+      if (list is List) return List<String>.from(list);
+    } catch (_) {}
     return [];
   }
 
-  /// ค้นหาสูตรจาก “รายชื่อวัตถุดิบ” ตรง ๆ  (ยังอิง ingredients=)
-  static Future<List<Recipe>> searchRecipesByIngredientNames(
-    List<String> names, {
-    String sort = 'popular',
-    int limit = 26,
-  }) async {
+  static Future<List<Recipe>> searchRecipesByIngredientNames(List<String> names,
+      {String sort = 'popular', int limit = 26}) async {
     final clean =
         names.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    if (clean.isEmpty) return <Recipe>[];
-
-    final uri = Uri.parse('${baseUrl}search_recipes_unified.php').replace(
-      queryParameters: {
-        'ingredients': clean.join(','), // backend legacy
-        'sort': sort,
-        'limit': limit.toString(),
-      },
-    );
-
-    final resp = await _client.get(uri).timeout(_timeout);
-    if (resp.statusCode != 200) {
-      throw Exception('ค้นหาสูตรจากวัตถุดิบล้มเหลว (${resp.statusCode})');
-    }
-
-    final j = jsonDecode(resp.body) as Map<String, dynamic>;
-    if (j['success'] != true) {
-      throw Exception(j['message'] ?? 'ค้นหาสูตรไม่สำเร็จ');
-    }
-
-    return (j['data'] as List)
-        .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
-        .toList();
+    if (clean.isEmpty) return [];
+    final uri = Uri.parse('${baseUrl}search_recipes_unified.php')
+        .replace(queryParameters: {
+      'ingredients': clean.join(','),
+      'sort': sort,
+      'limit': '$limit',
+    });
+    final r = await _client.get(uri).timeout(_timeout);
+    final j = jsonDecode(r.body);
+    if (j['success'] != true) throw Exception(j['message']);
+    return (j['data'] as List).map((e) => Recipe.fromJson(e)).toList();
   }
 
-  /// Suggestion Autocomplete
   static Future<List<String>> getIngredientSuggestions(String pattern) async {
     if (pattern.isEmpty) return [];
-
     try {
-      final resp = await _client
+      final r = await _client
           .get(Uri.parse(
-            '${baseUrl}get_ingredient_suggestions.php?term=${Uri.encodeComponent(pattern)}',
-          ))
+              '${baseUrl}get_ingredient_suggestions.php?term=${Uri.encodeComponent(pattern)}'))
           .timeout(_timeout);
-
-      final j = jsonDecode(resp.body) as Map<String, dynamic>;
-      if (j['success'] == true) {
-        return List<String>.from(j['data']);
-      }
-    } catch (e) {
-      debugPrint('Suggestion error: $e');
-    }
+      final j = jsonDecode(r.body);
+      if (j['success'] == true) return List<String>.from(j['data']);
+    } catch (_) {}
     return [];
   }
 }

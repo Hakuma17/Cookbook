@@ -260,6 +260,14 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
+  // ─── Responsive grid for favorites ───
+  int _calcCrossAxisCount(double maxWidth) {
+    if (maxWidth >= 1200) return 5;
+    if (maxWidth >= 900) return 4;
+    if (maxWidth >= 600) return 3;
+    return 2;
+  }
+
   Widget _buildFavoritesView() {
     return FutureBuilder<List<Recipe>>(
       future: _futureFavorites,
@@ -274,26 +282,33 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         if (list.isEmpty) {
           return const Center(child: Text('ยังไม่มีสูตรโปรด'));
         }
-        return GridView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            childAspectRatio: 0.74,
-          ),
-          itemCount: list.length,
-          itemBuilder: (_, i) {
-            final r = list[i];
-            return MyRecipeCard(
-              recipe: r,
-              onTap: () async {
-                // ★ ถ้ามี allergy → dialog ใหม่
-                if (r.hasAllergy) {
-                  _showAllergyDialog(r);
-                  return;
-                }
-                Navigator.pushNamed(context, '/recipe_detail', arguments: r);
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final cnt = _calcCrossAxisCount(constraints.maxWidth);
+            return GridView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: cnt,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 0.74,
+              ),
+              itemCount: list.length,
+              itemBuilder: (_, i) {
+                final r = list[i];
+                return MyRecipeCard(
+                  recipe: r,
+                  onTap: () async {
+                    // ★ ถ้ามี allergy → dialog ใหม่
+                    if (r.hasAllergy) {
+                      _showAllergyDialog(r);
+                      return;
+                    }
+                    Navigator.pushNamed(context, '/recipe_detail',
+                        arguments: r);
+                  },
+                );
               },
             );
           },
@@ -302,6 +317,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
+  // ─── Responsive cart view ───
   Widget _buildCartView() {
     if (_loadingCart) {
       return const Center(child: CircularProgressIndicator());
@@ -309,13 +325,17 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     if (_cartItems.isEmpty) {
       return const Center(child: Text('ยังไม่มีรายการในตะกร้า'));
     }
+
+    final screenH = MediaQuery.of(context).size.height;
+    final cardHeight = screenH * 0.26; // ≈220 บนอุปกรณ์ปกติ
+
     return SingleChildScrollView(
       padding: const EdgeInsets.only(top: 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            height: 220,
+            height: cardHeight,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),

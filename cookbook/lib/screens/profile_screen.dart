@@ -1,3 +1,4 @@
+// lib/screens/profile_screen.dart
 import 'dart:async';
 import 'dart:io';
 
@@ -115,7 +116,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Widget _buildAvatar() {
+  Widget _buildAvatar(double size) {
     const placeholder = AssetImage('assets/images/default_avatar.png');
     final url = _profileImageUrl;
 
@@ -123,181 +124,207 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: url != null && url.isNotEmpty
           ? Image.network(
               '$url?${DateTime.now().millisecondsSinceEpoch}',
-              width: 100,
-              height: 100,
+              width: size,
+              height: size,
               fit: BoxFit.cover,
               loadingBuilder: (_, child, progress) => progress == null
                   ? child
-                  : const SizedBox(
-                      width: 100,
-                      height: 100,
-                      child: Center(child: CircularProgressIndicator()),
+                  : SizedBox(
+                      width: size,
+                      height: size,
+                      child: const Center(child: CircularProgressIndicator()),
                     ),
               errorBuilder: (_, __, ___) =>
-                  const Image(image: placeholder, width: 100, height: 100),
+                  Image(image: placeholder, width: size, height: size),
             )
-          : const Image(image: placeholder, width: 100, height: 100),
+          : Image(image: placeholder, width: size, height: size),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('โปรไฟล์ของฉัน'), centerTitle: true),
-      bottomNavigationBar: CustomBottomNav(
-        selectedIndex: 3,
-        isLoggedIn: true,
-        onItemSelected: (i) async {
-          if (i == 3) {
-            await _loadProfile();
-            await _fetchAllergies();
-            return;
-          }
-          if (i == 2 || i == 1) {
-            final ok = await AuthService.checkAndRedirectIfLoggedOut(context);
-            if (!ok) return;
-          }
-          if (i == 2) {
-            Navigator.pushReplacementNamed(context, '/myrecipes');
-          } else if (i == 1) {
-            Navigator.pushReplacementNamed(context, '/search');
-          } else if (i == 0) {
-            Navigator.pushReplacementNamed(context, '/home');
-          }
-        },
-      ),
-      body: _loadingProfile
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                Center(child: _buildAvatar()),
-                const SizedBox(height: 16),
-                Center(
-                  child: Text(
-                    _username,
-                    style: const TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                if (_email.isNotEmpty)
-                  Center(
-                    child: Text(_email,
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 14)),
-                  ),
-                Center(
-                  child: TextButton(
-                    onPressed: () async {
-                      final updated = await Navigator.push<bool>(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const EditProfileScreen()),
-                      );
-                      if (updated == true && mounted) {
-                        setState(() {
-                          _loadingProfile = true;
-                          _profileImageUrl = null;
-                        });
-                        await _loadProfile();
-                      }
-                    },
-                    child: const Text('แก้ไขโปรไฟล์',
-                        style: TextStyle(color: Color(0xFFFF9B05))),
-                  ),
-                ),
-                const SizedBox(height: 30),
-                Card(
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  elevation: 2,
-                  child: Column(
-                    children: [
-                      ListTile(
-                        title: const Text('การตั้งค่าทั่วไป'),
-                        trailing: const Icon(Icons.arrow_forward_ios),
-                        onTap: () => Navigator.pushNamed(context, '/settings'),
+    return LayoutBuilder(builder: (context, constraints) {
+      /* ───── responsive metrics ───── */
+      final w = constraints.maxWidth;
+      final h = constraints.maxHeight;
+
+      double clamp(double v, double min, double max) =>
+          v < min ? min : (v > max ? max : v);
+
+      final pad = clamp(w * 0.05, 16, 32); // list padding
+      final avatar = clamp(w * 0.28, 80, 140); // avatar size
+      final titleSz = clamp(w * 0.055, 18, 26); // username font
+      final subSz = clamp(w * 0.035, 12, 16); // email font
+      final secHd = clamp(w * 0.042, 14, 18); // section header
+      final chipImg = clamp(w * 0.16, 56, 72); // allergy image
+      final chipFont = clamp(w * 0.033, 11, 14); // allergy text
+      final gapL = h * 0.04; // ~32
+      final gapM = h * 0.03; // ~24
+      final gapS = h * 0.02; // ~16
+
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('โปรไฟล์ของฉัน'),
+          centerTitle: true,
+        ),
+        /* ───── bottom-nav: ใช้ widget กลาง — ไม่ซ้อน Navigator ซ้ำ ───── */
+        bottomNavigationBar: CustomBottomNav(
+          selectedIndex: 3,
+          isLoggedIn: true,
+          onItemSelected: (i) async {
+            if (i == 3) {
+              await _loadProfile();
+              await _fetchAllergies();
+            }
+            // Navigation ด้านในจัดการแล้วใน CustomBottomNav
+          },
+        ),
+        body: _loadingProfile
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                padding: EdgeInsets.all(pad),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(child: _buildAvatar(avatar)),
+                    SizedBox(height: gapS),
+                    Center(
+                      child: Text(
+                        _username,
+                        style: TextStyle(
+                            fontSize: titleSz, fontWeight: FontWeight.bold),
                       ),
-                      const Divider(),
-                      ListTile(
-                        title: const Text('เพิ่มวัตถุดิบที่แพ้'),
-                        trailing: const Icon(Icons.arrow_forward_ios),
-                        onTap: () async {
+                    ),
+                    if (_email.isNotEmpty)
+                      Center(
+                        child: Text(_email,
+                            style:
+                                TextStyle(color: Colors.grey, fontSize: subSz)),
+                      ),
+                    Center(
+                      child: TextButton(
+                        onPressed: () async {
                           final updated = await Navigator.push<bool>(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => const AllergyScreen()),
+                                builder: (_) => const EditProfileScreen()),
                           );
                           if (updated == true && mounted) {
                             setState(() {
-                              _loadingAllergy = true;
-                              _allergyList = [];
+                              _loadingProfile = true;
+                              _profileImageUrl = null;
                             });
-                            await _fetchAllergies();
+                            await _loadProfile();
                           }
                         },
+                        child: const Text('แก้ไขโปรไฟล์',
+                            style: TextStyle(color: Color(0xFFFF9B05))),
                       ),
-                      const Divider(),
-                      ListTile(
-                        leading: const Icon(Icons.logout),
-                        title: const Text('ออกจากระบบ'),
-                        onTap: _logout,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 30),
-                Text(
-                  'รายการวัตถุดิบที่แพ้ (${_allergyList.length})',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                _loadingAllergy
-                    ? const Center(child: CircularProgressIndicator())
-                    : _allergyList.isEmpty
-                        ? const Text('ยังไม่มีวัตถุดิบที่แพ้',
-                            style: TextStyle(color: Colors.grey))
-                        : Wrap(
-                            spacing: 16,
-                            runSpacing: 16,
-                            children: _allergyList.map((ing) {
-                              return Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.network(
-                                      '${ing.imageUrl}?${DateTime.now().millisecondsSinceEpoch}',
-                                      width: 60,
-                                      height: 60,
-                                      fit: BoxFit.cover,
-                                      loadingBuilder: (_, child, progress) =>
-                                          progress == null
-                                              ? child
-                                              : const SizedBox(
-                                                  width: 60,
-                                                  height: 60,
-                                                  child: Center(
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                            strokeWidth: 2),
-                                                  ),
-                                                ),
-                                      errorBuilder: (_, __, ___) =>
-                                          const Icon(Icons.broken_image),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(ing.name,
-                                      style: const TextStyle(fontSize: 13),
-                                      textAlign: TextAlign.center),
-                                ],
-                              );
-                            }).toList(),
+                    ),
+                    SizedBox(height: gapL),
+                    /* ───── setting card ───── */
+                    Card(
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 2,
+                      child: Column(
+                        children: [
+                          ListTile(
+                            title: const Text('การตั้งค่าทั่วไป'),
+                            trailing: const Icon(Icons.arrow_forward_ios),
+                            onTap: () =>
+                                Navigator.pushNamed(context, '/settings'),
                           ),
-              ],
-            ),
-    );
+                          const Divider(),
+                          ListTile(
+                            title: const Text('เพิ่มวัตถุดิบที่แพ้'),
+                            trailing: const Icon(Icons.arrow_forward_ios),
+                            onTap: () async {
+                              final updated = await Navigator.push<bool>(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const AllergyScreen()),
+                              );
+                              if (updated == true && mounted) {
+                                setState(() {
+                                  _loadingAllergy = true;
+                                  _allergyList = [];
+                                });
+                                await _fetchAllergies();
+                              }
+                            },
+                          ),
+                          const Divider(),
+                          ListTile(
+                            leading: const Icon(Icons.logout),
+                            title: const Text('ออกจากระบบ'),
+                            onTap: _logout,
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: gapL),
+                    Text(
+                      'รายการวัตถุดิบที่แพ้ (${_allergyList.length})',
+                      style: TextStyle(
+                          fontSize: secHd, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: gapS),
+                    _loadingAllergy
+                        ? const Center(child: CircularProgressIndicator())
+                        : _allergyList.isEmpty
+                            ? const Text('ยังไม่มีวัตถุดิบที่แพ้',
+                                style: TextStyle(color: Colors.grey))
+                            : Wrap(
+                                spacing: 16,
+                                runSpacing: 16,
+                                children: _allergyList.map((ing) {
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Image.network(
+                                          '${ing.imageUrl}?${DateTime.now().millisecondsSinceEpoch}',
+                                          width: chipImg,
+                                          height: chipImg,
+                                          fit: BoxFit.cover,
+                                          loadingBuilder: (_, child,
+                                                  progress) =>
+                                              progress == null
+                                                  ? child
+                                                  : SizedBox(
+                                                      width: chipImg,
+                                                      height: chipImg,
+                                                      child: const Center(
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                                strokeWidth: 2),
+                                                      ),
+                                                    ),
+                                          errorBuilder: (_, __, ___) =>
+                                              const Icon(Icons.broken_image),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      SizedBox(
+                                        width: chipImg,
+                                        child: Text(
+                                          ing.name,
+                                          style: TextStyle(fontSize: chipFont),
+                                          textAlign: TextAlign.center,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }).toList(),
+                              ),
+                  ],
+                ),
+              ),
+      );
+    });
   }
 }

@@ -1,260 +1,164 @@
-import 'dart:async';
-import 'package:cookbook/services/auth_service.dart';
+// lib/screens/welcome_screen.dart (New Design)
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cookbook/screens/login_screen.dart';
+import 'package:cookbook/screens/register_screen.dart';
 
-import '../services/api_service.dart';
-import 'home_screen.dart';
-import 'login_screen.dart';
-import 'register_screen.dart';
-
-class WelcomeScreen extends StatefulWidget {
+class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({Key? key}) : super(key: key);
 
-  @override
-  State<WelcomeScreen> createState() => _WelcomeScreenState();
-}
-
-class _WelcomeScreenState extends State<WelcomeScreen> {
-  // ─────────────────── Google Sign-In client ────────────────────
-  /// *สร้างครั้งเดียวพอ* ลดปัญหา session ค้างข้ามหน้า
-  static final _google = GoogleSignIn(
-    scopes: ['email', 'profile', 'openid'],
-    serverClientId:
-        '84901598956-dui13r3k1qmvo0t0kpj6h5mhjrjbvoln.apps.googleusercontent.com',
-  );
-
-  bool _signing = false; // true ระหว่าง sign-in
-  String? _error; // ข้อผิดพลาดล่าสุด
-
-  @override
-  void initState() {
-    super.initState();
-    //  ลบ listener ทิ้ง — ป้องกันเรียกซ้ำ
-    // ถ้าเคยใช้ signInSilently() หรือ restore session ค่อยใช้ภายหลัง
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
-  /*──────────────────── Google Sign-In Flow ────────────────────*/
-  Future<void> _startGoogleFlow() async {
-    if (_signing) return; // กันกดรัว
-    setState(() => _signing = true);
-
-    try {
-      // 1) เคลียร์ session เดิมทุกครั้ง
-      await _google.signOut();
-
-      // 2) เริ่ม sign-in (อาจ throw หรือคืน null หากยกเลิก)
-      final account = await _google.signIn();
-      if (account == null) {
-        throw Exception('ยกเลิกการลงทะเบียนด้วย Google');
-      }
-
-      await _finishGoogleFlow(account);
-    } on Exception catch (e) {
-      _showErr(e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _signing = false);
-    }
-  }
-
-  Future<void> _finishGoogleFlow(GoogleSignInAccount account) async {
-    try {
-      // 1) ขอ idToken
-      final auth =
-          await account.authentication.timeout(const Duration(seconds: 10));
-      final idToken = auth.idToken;
-      if (idToken == null) {
-        throw Exception('ไม่สามารถดึง Google ID Token ได้');
-      }
-
-      // 2) ส่งไป backend
-      final res = await ApiService.googleSignIn(idToken)
-          .timeout(const Duration(seconds: 10));
-
-      //  เช็คว่าสำเร็จก่อนบันทึก
-      if (res['success'] != true) {
-        throw Exception(res['message'] ?? 'ล็อกอินไม่สำเร็จ');
-      }
-
-      // 3) บันทึก session/token ฝั่ง client
-      await AuthService.saveLoginData(res['data'] as Map<String, dynamic>);
-
-      // 4) ไปหน้า Home
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
-    } on TimeoutException {
-      _showErr('การเชื่อมต่อช้า กรุณาลองใหม่');
-    } on Exception catch (e) {
-      _showErr(e.toString().replaceFirst('Exception: ', ''));
-      await _google.signOut(); // เคลียร์ session เผื่อซ้ำ
-    }
-  }
-
-  /*──────────────────── helpers ────────────────────*/
-  void _showErr(String msg) {
-    if (!mounted) return;
-    setState(() => _error = msg);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+  // ฟังก์ชันสำหรับนำทางไปยังหน้าลงทะเบียน
+  void _goToRegister(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RegisterScreen()),
     );
   }
 
-  void _enterAsGuest() {
-    ApiService.clearSession(); // กัน cookie เก่าแอบติด
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+  // ฟังก์ชันสำหรับนำทางไปยังหน้าล็อกอิน
+  void _goToLogin(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
   }
 
-  /*──────────────────── UI ────────────────────*/
   @override
   Widget build(BuildContext context) {
-    final w = MediaQuery.of(context).size.width;
+    final size = MediaQuery.of(context).size;
+    final textTheme = Theme.of(context).textTheme;
+    const primaryColor = Color(0xFFFF9B05); // สีส้มหลักของแอป
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Image.asset('assets/images/logo.png',
-                    width: w * 0.4, height: w * 0.4),
-              ),
-              const SizedBox(height: 24),
-              const Center(
-                child: Text('เข้าร่วม',
-                    style:
-                        TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-              ),
-              const Center(
-                  child: Text('CookingBook',
-                      style: TextStyle(
-                          fontSize: 28, fontWeight: FontWeight.bold))),
-              const SizedBox(height: 16),
-              const Text('“ ลดขยะอาหาร สร้างคุณค่าจากวัตถุดิบที่มี ”',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic)),
-              const Text('สมัครเพื่อบันทึกและแชร์สูตรอาหารในสไตล์คุณ',
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: 16)),
-              const SizedBox(height: 32),
+      body: Stack(
+        children: [
+          // 1. ภาพพื้นหลัง
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/chef_background.jpg',
+              fit: BoxFit.cover,
+              // เพิ่มสีเพื่อลดความสว่างของภาพพื้นหลังเล็กน้อย
+              color: Colors.black.withOpacity(0.1),
+              colorBlendMode: BlendMode.darken,
+            ),
+          ),
+          // 2. Overlay สีเข้มโปร่งแสง
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withOpacity(0.45),
+            ),
+          ),
+          // 3. เนื้อหาหลัก
+          SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ส่วนบน (เว้นว่าง)
+                const Spacer(flex: 2),
 
-              /*────────── Google Sign-Up ──────────*/
-              SizedBox(
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _signing ? null : _startGoogleFlow,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF2F2F2),
-                    foregroundColor: Colors.black87,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                // ข้อความหลัก
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                  child: Text(
+                    'ค้นหา,\nแบ่งปัน,\nสร้างสรรค์.',
+                    style: textTheme.displayMedium?.copyWith(
+                      fontFamily:
+                          'Mitr', // แนะนำให้ใช้ฟอนต์ที่รองรับภาษาไทยสวยๆ
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3,
+                      shadows: [
+                        const Shadow(
+                          blurRadius: 10.0,
+                          color: Colors.black54,
+                          offset: Offset(2.0, 2.0),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: _signing
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 3))
-                      : Row(mainAxisSize: MainAxisSize.min, children: [
-                          SvgPicture.asset('assets/icons/google.svg',
-                              width: 24, height: 24),
-                          const SizedBox(width: 12),
-                          const Text('ลงทะเบียนผ่าน Google',
-                              style: TextStyle(fontSize: 16)),
-                        ]),
                 ),
-              ),
-              const SizedBox(height: 16),
 
-              /*────────── Email Sign-Up ──────────*/
-              SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _signing
-                      ? null
-                      : () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const RegisterScreen())),
-                  icon: const Icon(Icons.email_outlined),
-                  label: const Text('ลงทะเบียนด้วย email',
-                      style: TextStyle(fontSize: 16)),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF2F2F2),
-                      foregroundColor: Colors.black87,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12))),
-                ),
-              ),
-              const SizedBox(height: 32),
+                const Spacer(flex: 3),
 
-              /*────────── Login link ──────────*/
-              Center(
-                child: RichText(
-                  text: TextSpan(
-                    text: 'มีบัญชีแล้ว? ',
-                    style: const TextStyle(fontSize: 14, color: Colors.black54),
+                // 4. แผงควบคุมด้านล่างสีขาว
+                Container(
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(40),
+                      topRight: Radius.circular(40),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextSpan(
-                        text: 'เข้าสู่ระบบเลย',
-                        style: const TextStyle(
-                            fontSize: 14,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.bold,
-                            decoration: TextDecoration.underline),
-                        recognizer: TapGestureRecognizer()
-                          ..onTap = () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const LoginScreen())),
+                      // ปุ่ม "เริ่มต้นใช้งาน"
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          // เมื่อกดปุ่มนี้ จะไปหน้าลงทะเบียน
+                          onPressed: () => _goToRegister(context),
+                          child: const Text(
+                            'เริ่มต้นใช้งาน',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      const Row(
+                        children: [
+                          Expanded(child: Divider()),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8.0),
+                            child: Text('Or',
+                                style: TextStyle(color: Colors.grey)),
+                          ),
+                          Expanded(child: Divider()),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      // ลิงก์ "เข้าสู่ระบบ"
+                      RichText(
+                        text: TextSpan(
+                          style: textTheme.bodyMedium
+                              ?.copyWith(color: Colors.grey[700]),
+                          children: [
+                            const TextSpan(text: 'มีบัญชีอยู่แล้ว? '),
+                            TextSpan(
+                              text: 'เข้าสู่ระบบ',
+                              style: const TextStyle(
+                                color: primaryColor,
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.underline,
+                              ),
+                              // เมื่อกด จะไปหน้าล็อกอิน
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () => _goToLogin(context),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-
-              /*────────── Guest Access ──────────*/
-              SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _signing ? null : _enterAsGuest,
-                  icon: const Icon(Icons.login),
-                  label: const Text('เข้าใช้งานโดยไม่ต้องล็อกอิน',
-                      style: TextStyle(fontSize: 16)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF2F2F2),
-                    foregroundColor: Colors.black87,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-              if (_error != null) ...[
-                Text(_error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.red)),
-                const SizedBox(height: 16),
               ],
-              const Divider(color: Color(0xFFCCCCCC), thickness: 1),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

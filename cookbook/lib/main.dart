@@ -1,8 +1,8 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ★ เพิ่ม
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'services/api_service.dart';
@@ -32,6 +32,12 @@ final RouteObserver<ModalRoute<void>> routeObserver =
 Future<void> main() async {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // ★ ล็อก orientation เป็น “แนวตั้ง” (portrait) เท่านั้น
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      // DeviceOrientation.portraitDown, // ← เอาออกถ้าไม่ต้องการกลับหัว
+    ]);
 
     await ApiService.initBaseUrl(); // ตั้งค่า base URL
     await initializeDateFormatting('th', null); // load locale TH
@@ -69,11 +75,6 @@ class CookingGuideApp extends StatelessWidget {
         useMaterial3: false,
         scaffoldBackgroundColor: Colors.white,
         colorScheme: ColorScheme.fromSeed(seedColor: _primary),
-
-        // 🔹 ไม่ใช้ GoogleFonts อีกต่อไป – Roboto (default) จะถูกใช้อัตโนมัติ
-        // ถ้าอยากปรับขนาด/น้ำหนักก็กำหนดใน TextTheme ตามปกติ
-        // textTheme: const TextTheme(...),
-
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: _primary,

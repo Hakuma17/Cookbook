@@ -1,20 +1,18 @@
+// lib/widgets/cart_recipe_card.dart
+//
+// responsive-plus  (2025-07-11)
+// – ไม่ยุ่ง logic onTapEditServings / onDelete / navigator
+// – ไม่มี overflow / analyzer warning
+// -------------------------------------------------------------
+
 import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
 import '../screens/recipe_detail_screen.dart';
 
-/// การ์ดสูตรในตะกร้า (เหมือน MyRecipeCard แก้ไขตาม mock-up)
-/// - แตะบนรูปหรือชื่อ → ไปหน้า Detail
-/// - Badge จำนวนคน (แตะได้เพื่อแก้ servings)
-/// - ปุ่ม “แก้ไขจำนวนเสิร์ฟ” ใต้ชื่อ
-/// - ปุ่มลบเมนู (มุมบนขวา)
+/// การ์ดสูตรในตะกร้า
 class CartRecipeCard extends StatelessWidget {
-  /// ข้อมูลเมนูจากตะกร้า
   final CartItem cartItem;
-
-  /// Callback เมื่อผู้ใช้แตะ badge หรือปุ่ม “แก้ไขจำนวนเสิร์ฟ”
   final VoidCallback onTapEditServings;
-
-  /// Callback เมื่อผู้ใช้กดปุ่มลบเมนู
   final VoidCallback onDelete;
 
   const CartRecipeCard({
@@ -26,62 +24,75 @@ class CartRecipeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /* ── responsive metrics ── */
+    final w = MediaQuery.of(context).size.width;
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final cardW = clamp(w * .44, 150, 240);
+    final radius = clamp(w * .04, 12, 20);
+    final imgH = cardW * (140 / 180); // ratio จาก mock-up
+    final padIn = clamp(w * .030, 10, 16);
+    final nameF = clamp(w * .045, 14, 19);
+    final badgeF = clamp(w * .035, 11, 15);
+    final badgePad = clamp(w * .018, 5, 9);
+    final delSz = clamp(w * .048, 16, 24);
+    final delPad = delSz * .35;
+    final gapName = clamp(w * .020, 6, 12);
+
     return SizedBox(
-      // บังคับความกว้างให้คงที่ เท่ากับขนาดการ์ดใน ListView
-      width: 180,
+      width: cardW,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // ─── การ์ดหลัก ─────────────────────────────────
+          /* ───────── การ์ด ───────── */
           ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(radius),
             child: Container(
               color: Theme.of(context).cardColor,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ─── รูปภาพ + Badge จำนวนคน ───────────────
-                  AspectRatio(
-                    aspectRatio: 180 / 140,
+                  /* ───── รูป + badge ───── */
+                  SizedBox(
+                    height: imgH,
+                    width: double.infinity,
                     child: Stack(
                       children: [
-                        // รูปหลัก (InkWell คลุมทั้งรูป เพื่อให้แตะรูปได้)
+                        // รูป (คลิกเปิดรายละเอียด)
                         InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => RecipeDetailScreen(
-                                  recipeId: cartItem.recipeId,
-                                ),
-                              ),
-                            );
-                          },
-                          child: FadeInImage.assetNetwork(
-                            placeholder: 'assets/images/default_recipe.png',
-                            image: cartItem.imageUrl,
-                            fit: BoxFit.cover,
+                          onTap: () => _openDetail(context),
+                          child: Image.network(
+                            cartItem.imageUrl,
                             width: double.infinity,
                             height: double.infinity,
-                            imageErrorBuilder: (_, __, ___) => Image.asset(
-                              'assets/images/default_recipe.png',
-                              fit: BoxFit.cover,
-                            ),
+                            fit: BoxFit.cover,
+                            loadingBuilder: (_, child, ev) => ev == null
+                                ? child
+                                : Image.asset(
+                                    'assets/images/default_recipe.png',
+                                    fit: BoxFit.cover),
+                            errorBuilder: (_, __, ___) => Image.asset(
+                                'assets/images/default_recipe.png',
+                                fit: BoxFit.cover),
                           ),
                         ),
 
-                        // Badge จำนวนคน (แตะเพื่อแก้ servings)
+                        // Badge จำนวนเสิร์ฟ
                         Positioned(
-                          bottom: 8,
-                          right: 8,
+                          bottom: badgePad,
+                          right: badgePad,
                           child: GestureDetector(
                             onTap: onTapEditServings,
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: badgePad * 1.6,
+                                vertical: badgePad,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius:
+                                    BorderRadius.circular(radius * .6),
                                 boxShadow: const [
                                   BoxShadow(
                                     color: Colors.black12,
@@ -92,18 +103,14 @@ class CartRecipeCard extends StatelessWidget {
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(
-                                    Icons.person,
-                                    size: 16,
-                                    color: Colors.black54,
-                                  ),
+                                  Icon(Icons.person,
+                                      size: badgeF + 3, color: Colors.black54),
                                   const SizedBox(width: 4),
                                   Text(
-                                    '${cartItem.nServings.toInt()} คน',
-                                    style: const TextStyle(
-                                      fontSize: 12,
+                                    '${cartItem.nServings} คน',
+                                    style: TextStyle(
+                                      fontSize: badgeF,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
                                     ),
                                   ),
                                 ],
@@ -115,53 +122,21 @@ class CartRecipeCard extends StatelessWidget {
                     ),
                   ),
 
-                  // ─── ชื่อเมนูใต้รูป + ปุ่ม “แก้ไขจำนวนเสิร์ฟ” ────
+                  /* ───── ชื่อเมนู ───── */
                   Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ชื่อ (InkWell คลุมให้แตะชื่อก็ไป Detail)
-                        InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => RecipeDetailScreen(
-                                  recipeId: cartItem.recipeId,
-                                ),
-                              ),
-                            );
-                          },
-                          child: Text(
-                            cartItem.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  fontFamily: 'Montserrat',
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
+                    padding: EdgeInsets.fromLTRB(padIn, gapName, padIn, padIn),
+                    child: InkWell(
+                      onTap: () => _openDetail(context),
+                      child: Text(
+                        cartItem.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'Montserrat',
+                          fontWeight: FontWeight.w600,
+                          fontSize: nameF,
                         ),
-                        const SizedBox(height: 8),
-
-                        /* ปุ่ม “แก้ไขจำนวนเสิร์ฟ”
-                        ///GestureDetector(
-                          onTap: onTapEditServings,
-                          child: Text(
-                            'แก้ไขจำนวนเสิร์ฟ',
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Theme.of(context).primaryColor,
-                                      decoration: TextDecoration.underline,
-                                    ),
-                          ),
-                        ),*/
-                      ],
+                      ),
                     ),
                   ),
                 ],
@@ -169,23 +144,19 @@ class CartRecipeCard extends StatelessWidget {
             ),
           ),
 
-          // ─── ปุ่มลบเมนู (มุมบนขวา หลุดออกนิด ๆ) ─────────────
+          /* ───────── ปุ่มลบ ───────── */
           Positioned(
-            top: -8,
-            right: -8,
+            top: -delPad,
+            right: -delPad,
             child: GestureDetector(
               onTap: onDelete,
               child: Container(
+                padding: EdgeInsets.all(delPad),
                 decoration: const BoxDecoration(
                   color: Colors.redAccent,
                   shape: BoxShape.circle,
                 ),
-                padding: const EdgeInsets.all(6),
-                child: const Icon(
-                  Icons.delete,
-                  size: 16,
-                  color: Colors.white,
-                ),
+                child: Icon(Icons.delete, size: delSz, color: Colors.white),
               ),
             ),
           ),
@@ -193,9 +164,18 @@ class CartRecipeCard extends StatelessWidget {
       ),
     );
   }
+
+  void _openDetail(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RecipeDetailScreen(recipeId: cartItem.recipeId),
+      ),
+    );
+  }
 }
 
-/// BottomSheet เลือกจำนวนเสิร์ฟ (1–10 คน)
+/*───────────────── BottomSheet picker ─────────────────*/
 class ServingsPicker extends StatelessWidget {
   final int initialServings;
   const ServingsPicker({Key? key, required this.initialServings})
@@ -203,25 +183,35 @@ class ServingsPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scr = MediaQuery.of(context).size;
+    final maxH = scr.height * .50;
+    final fz = clamp(scr.width * .044, 13, 18);
+
     return SafeArea(
-      child: ListView.builder(
-        shrinkWrap: true,
-        itemCount: 10,
-        itemBuilder: (ctx, index) {
-          final s = index + 1;
-          return ListTile(
-            title: Text(
-              '$s คน',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight:
-                    s == initialServings ? FontWeight.w700 : FontWeight.w400,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: 10,
+          itemBuilder: (_, i) {
+            final s = i + 1;
+            return ListTile(
+              title: Text(
+                '$s คน',
+                style: TextStyle(
+                  fontSize: fz,
+                  fontWeight:
+                      s == initialServings ? FontWeight.w700 : FontWeight.w400,
+                ),
               ),
-            ),
-            onTap: () => Navigator.of(context).pop(s),
-          );
-        },
+              onTap: () => Navigator.of(context).pop(s),
+            );
+          },
+        ),
       ),
     );
   }
+
+  double clamp(double v, double min, double max) =>
+      v < min ? min : (v > max ? max : v);
 }

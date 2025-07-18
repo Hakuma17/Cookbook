@@ -1,12 +1,12 @@
 // lib/widgets/comment_card.dart
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/widgets.dart';
 
 import '../models/comment.dart';
 
-/// การ์ดแสดงรีวิวพร้อมเมนูแก้ไข / ลบ
+/// การ์ดแสดงรีวิว พร้อมเมนูแก้ไข / ลบ
 class CommentCard extends StatefulWidget {
   final Comment comment;
   final ValueChanged<Comment>? onEdit;
@@ -24,14 +24,29 @@ class CommentCard extends StatefulWidget {
 }
 
 class _CommentCardState extends State<CommentCard> {
-  bool _expanded = false; // สำหรับ “ดูเพิ่มเติม”
-  int _hovered = -1; // index ดวงดาวที่ hover (เฉพาะ Desktop)
+  bool _expanded = false; // “ดูเพิ่มเติม”
+  int _hovered = -1; // index ดาวที่ hover (desktop)
 
   @override
   Widget build(BuildContext context) {
+    /* ── responsive metrics ── */
+    final w = MediaQuery.of(context).size.width;
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final avatarR = clamp(w * .045, 14, 22);
+    final starSz = clamp(w * .040, 14, 18);
+    final nameF = clamp(w * .040, 13, 16);
+    final dateF = clamp(w * .033, 11, 13);
+    final textF = clamp(w * .039, 13, 15);
+    final editF = clamp(w * .038, 12, 14);
+    final cardPad = clamp(w * .032, 10, 16);
+    final headGap = clamp(w * .022, 6, 10);
+    final marginV = clamp(w * .020, 6, 12);
+
+    /* ── data mapping ── */
     final c = widget.comment;
 
-    // ------- ข้อมูลที่ต้องแสดง -------
     final userName = (c.profileName?.trim().isNotEmpty ?? false)
         ? c.profileName!
         : 'ผู้ใช้ทั่วไป';
@@ -40,7 +55,7 @@ class _CommentCardState extends State<CommentCard> {
         ? DateFormat('d MMM y', 'th').format(c.createdAt!)
         : 'ไม่ระบุวันที่';
 
-    final avatarProvider = (c.avatarUrl?.isNotEmpty ?? false) // ← ใช้ avatarUrl
+    final avatarProvider = (c.avatarUrl?.isNotEmpty ?? false)
         ? NetworkImage(c.avatarUrl!)
         : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
 
@@ -48,57 +63,72 @@ class _CommentCardState extends State<CommentCard> {
         ? c.comment!
         : '— ไม่มีข้อความ —';
 
-    // ------- UI หลัก -------
+    /* ── UI ── */
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: marginV),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 2,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(cardPad),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ---------------- Header ----------------
+            /* ---------- Header ---------- */
             Row(
               children: [
                 CircleAvatar(
-                    radius: 18,
-                    backgroundColor: Colors.grey.shade200,
-                    backgroundImage: avatarProvider),
+                  radius: avatarR,
+                  backgroundColor: Colors.grey.shade200,
+                  backgroundImage: avatarProvider,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(userName,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  child: Text(
+                    userName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: nameF,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-                Text(dateText,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF909090))),
-                if (c.isMine && widget.onDelete != null)
+                const SizedBox(width: 4),
+                Text(
+                  dateText,
+                  style: TextStyle(
+                    fontSize: dateF,
+                    color: const Color(0xFF909090),
+                  ),
+                ),
+                if (c.isMine && widget.onDelete != null) ...[
+                  const SizedBox(width: 4),
                   PopupMenuButton<String>(
-                    iconSize: 20,
+                    iconSize: dateF + 4,
+                    padding: EdgeInsets.zero,
                     onSelected: (v) {
                       if (v == 'delete') widget.onDelete?.call(c);
                     },
                     itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'delete', child: Text('ลบ'))
+                      PopupMenuItem(value: 'delete', child: Text('ลบ')),
                     ],
                   ),
+                ],
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: headGap),
 
-            // ---------------- ดาว Rating ----------------
+            /* ---------- Rating stars ---------- */
             Row(
               children: List.generate(5, (i) {
                 final filled = i < (c.rating ?? 0);
                 final star = Icon(
                   filled ? Icons.star : Icons.star_border,
-                  size: 16,
+                  size: starSz,
                   color: const Color(0xFFFFCC00),
                 );
 
-                // “ขยายเวลาชี้” เฉพาะบน Desktop / Web
+                // hover effect on desktop / web
                 if (kIsWeb ||
                     defaultTargetPlatform == TargetPlatform.macOS ||
                     defaultTargetPlatform == TargetPlatform.windows ||
@@ -107,8 +137,8 @@ class _CommentCardState extends State<CommentCard> {
                     onEnter: (_) => setState(() => _hovered = i),
                     onExit: (_) => setState(() => _hovered = -1),
                     child: AnimatedScale(
-                      scale: _hovered == i ? 1.3 : 1.0,
-                      duration: const Duration(milliseconds: 200),
+                      scale: _hovered == i ? 1.30 : 1.00,
+                      duration: const Duration(milliseconds: 180),
                       child: star,
                     ),
                   );
@@ -118,25 +148,27 @@ class _CommentCardState extends State<CommentCard> {
             ),
             const SizedBox(height: 8),
 
-            // ---------------- ข้อความ (ย่อ/ขยาย) ----------------
-            _buildExpandableText(commentText),
+            /* ---------- Comment body (expandable) ---------- */
+            _expandable(commentText, textF),
 
-            // ---------------- ปุ่ม “แก้ไข” ----------------
+            /* ---------- Edit button ---------- */
             if (c.isMine && widget.onEdit != null)
               Align(
                 alignment: Alignment.bottomRight,
                 child: TextButton.icon(
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF666666),
+                    minimumSize: const Size(64, 28),
                     padding: EdgeInsets.zero,
-                    minimumSize: const Size(60, 28),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
+                  icon: Icon(Icons.edit, size: editF + 2),
+                  label: Text('แก้ไข',
+                      style: TextStyle(
+                        fontSize: editF,
+                        fontWeight: FontWeight.w500,
+                      )),
                   onPressed: () => widget.onEdit!.call(c),
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('แก้ไข',
-                      style:
-                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                 ),
               ),
           ],
@@ -145,24 +177,19 @@ class _CommentCardState extends State<CommentCard> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  //  ย่อ / ขยายข้อความยาว ๆ ไม่ให้การ์ดยืดเกินไป
-  // ─────────────────────────────────────────────────────────────
-  Widget _buildExpandableText(String text) {
+  /* ───────── ย่อ / ขยายข้อความ ───────── */
+  Widget _expandable(String text, double fz) {
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final span = TextSpan(
-          text: text,
-          style: const TextStyle(fontSize: 14, height: 1.4),
-        );
-
-        final painter = TextPainter(
-          text: span,
-          textDirection: Directionality.of(context), // ⭐️ จุดที่แก้
+      builder: (context, cons) {
+        // 1) สร้าง TextPainter เพื่อเช็กว่าล้นหรือไม่
+        final tp = TextPainter(
+          text:
+              TextSpan(text: text, style: TextStyle(fontSize: fz, height: 1.4)),
+          textDirection: Directionality.of(context), // ใช้บริบทจริง
           maxLines: _expanded ? null : 3,
-        )..layout(maxWidth: constraints.maxWidth);
+        )..layout(maxWidth: cons.maxWidth);
 
-        final overflow = painter.didExceedMaxLines;
+        final isOverflow = tp.didExceedMaxLines;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,25 +198,22 @@ class _CommentCardState extends State<CommentCard> {
               text,
               maxLines: _expanded ? null : 3,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14, height: 1.4),
+              style: TextStyle(fontSize: fz, height: 1.4),
             ),
-            if (overflow)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: () => setState(() => _expanded = !_expanded),
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(
-                    _expanded ? 'ย่อ' : 'ดูเพิ่มเติม',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFFFF9B05),
-                    ),
+            if (isOverflow)
+              TextButton(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  _expanded ? 'ย่อ' : 'ดูเพิ่มเติม',
+                  style: TextStyle(
+                    fontSize: fz,
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFFFF9B05),
                   ),
                 ),
               ),

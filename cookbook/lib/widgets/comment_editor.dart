@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 
-/// Modal Bottom Sheet สำหรับสร้างหรือแก้ไขคอมเมนต์
+/// Modal Bottom-Sheet สำหรับสร้างหรือแก้ไขคอมเมนต์
 class CommentEditor extends StatefulWidget {
   final int recipeId;
   final int initialRating;
@@ -21,8 +21,7 @@ class CommentEditor extends StatefulWidget {
   _CommentEditorState createState() => _CommentEditorState();
 }
 
-class _CommentEditorState extends State<CommentEditor>
-    with SingleTickerProviderStateMixin {
+class _CommentEditorState extends State<CommentEditor> {
   late int _rating;
   late TextEditingController _controller;
   bool _isLoading = false;
@@ -41,17 +40,15 @@ class _CommentEditorState extends State<CommentEditor>
     super.dispose();
   }
 
+  /* ───────── submit ───────── */
   Future<void> _submit() async {
     if (_rating <= 0) {
       setState(() => _error = 'กรุณาให้คะแนนก่อนโพสต์');
       return;
     }
-
-    //  เช็คว่าผู้ใช้ยังล็อกอินอยู่หรือไม่
-    final stillLoggedIn = await AuthService.isLoggedIn();
-    if (!stillLoggedIn) {
+    if (!await AuthService.isLoggedIn()) {
       if (mounted) {
-        Navigator.of(context).pop(); // ปิด modal
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           // แสดง SnackBar แจ้งเตือน
           const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนโพสต์')),
@@ -59,12 +56,10 @@ class _CommentEditorState extends State<CommentEditor>
       }
       return;
     }
-
     setState(() {
       _isLoading = true;
       _error = null;
     });
-
     try {
       await ApiService.postComment(
         widget.recipeId,
@@ -74,35 +69,52 @@ class _CommentEditorState extends State<CommentEditor>
       widget.onSubmitted();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  /* ───────── build ───────── */
   @override
   Widget build(BuildContext context) {
+    /* responsive metrics */
+    final w = MediaQuery.of(context).size.width;
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final radius = clamp(w * 0.04, 14, 22); // มุมโค้ง dialog
+    final handleW = clamp(w * 0.16, 40, 60); // แถบจับด้านบน
+    final handleH = clamp(w * 0.012, 3, 6);
+    final padBox = clamp(w * 0.04, 14, 20); // padding ในกล่อง
+    final titleF = clamp(w * 0.047, 16, 20); // ฟอนต์หัวเรื่อง
+    final starSz = clamp(w * 0.085, 26, 34); // ขนาดดาว
+    final textF = clamp(w * 0.04, 14, 16); // ฟอนต์ข้อความอินพุต
+    final btnF = clamp(w * 0.043, 14, 18); // ฟอนต์ปุ่มโพสต์
+    final errF = textF; // ฟอนต์ error
+    final fieldRad = radius * 0.7; // รัศมีกรอบ TextField
+
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
           left: 16,
           right: 16,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
           top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
         ),
         child: Stack(
           children: [
+            /* ───── กล่องหลัก ───── */
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(padBox),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(radius),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 6,
-                    offset: const Offset(0, 3),
-                  ),
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3)),
                 ],
               ),
               child: Column(
@@ -111,39 +123,36 @@ class _CommentEditorState extends State<CommentEditor>
                 children: [
                   Center(
                     child: Container(
-                      width: 40,
-                      height: 4,
+                      width: handleW,
+                      height: handleH,
                       decoration: BoxDecoration(
                         color: Colors.grey[400],
-                        borderRadius: BorderRadius.circular(2),
+                        borderRadius: BorderRadius.circular(handleH / 2),
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'ให้คะแนนและแสดงความคิดเห็น',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
+                  Text('ให้คะแนนและแสดงความคิดเห็น',
+                      style: TextStyle(
+                          fontSize: titleF, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 16),
+
+                  /* ───── ดาว rating ───── */
                   Center(
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: List.generate(5, (i) {
                         final filled = i < _rating;
-                        return MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: GestureDetector(
-                            onTap: () => setState(() => _rating = i + 1),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.all(4),
-                              child: Icon(
-                                filled ? Icons.star : Icons.star_border,
-                                size: 32,
-                                color: filled
-                                    ? const Color(0xFFFFCC00)
-                                    : Colors.grey,
-                              ),
+                        return GestureDetector(
+                          onTap: () => setState(() => _rating = i + 1),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              filled ? Icons.star : Icons.star_border,
+                              size: starSz,
+                              color: filled
+                                  ? const Color(0xFFFFCC00)
+                                  : Colors.grey,
                             ),
                           ),
                         );
@@ -151,6 +160,8 @@ class _CommentEditorState extends State<CommentEditor>
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  /* ───── ช่องคอมเมนต์ ───── */
                   TextField(
                     controller: _controller,
                     autofocus: true,
@@ -158,22 +169,23 @@ class _CommentEditorState extends State<CommentEditor>
                     maxLines: 4,
                     keyboardType: TextInputType.multiline,
                     textInputAction: TextInputAction.newline,
+                    style: TextStyle(fontSize: textF),
                     decoration: InputDecoration(
                       hintText: 'เขียนความคิดเห็นของคุณ (ไม่บังคับ)',
+                      hintStyle: TextStyle(fontSize: textF),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                          borderRadius: BorderRadius.circular(fieldRad)),
                       counterText: '',
                     ),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 8),
-                    Text(
-                      _error!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
+                    Text(_error!,
+                        style: TextStyle(color: Colors.red, fontSize: errF)),
                   ],
                   const SizedBox(height: 16),
+
+                  /* ───── ปุ่มโพสต์ / บันทึก ───── */
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -181,38 +193,35 @@ class _CommentEditorState extends State<CommentEditor>
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF9B05),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: EdgeInsets.symmetric(vertical: padBox * 0.6),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                            borderRadius: BorderRadius.circular(radius)),
                       ),
                       child: _isLoading
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
+                          ? SizedBox(
+                              width: starSz * 0.7,
+                              height: starSz * 0.7,
+                              child: const CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
                             )
                           : Text(
                               widget.initialText.isEmpty ? 'โพสต์' : 'บันทึก',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                              style: TextStyle(
+                                  fontSize: btnF, fontWeight: FontWeight.w600),
                             ),
                     ),
                   ),
                 ],
               ),
             ),
+
+            /* ───── ปุ่มปิด ───── */
             Positioned(
               right: 0,
               top: 0,
               child: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
+                icon: Icon(Icons.close, size: titleF + 2),
+                onPressed: () => Navigator.pop(context),
               ),
             ),
           ],

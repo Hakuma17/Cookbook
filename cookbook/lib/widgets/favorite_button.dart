@@ -1,10 +1,8 @@
 import 'package:cookbook/services/auth_service.dart';
 import 'package:flutter/material.dart';
 
-/// FavoriteButton
-/// ปุ่มกดเพิ่ม/ลบสูตรโปรด (วงกลมขนาด 43.63×43.63, ขอบ 1.0907px)
-/// - [initialIsFavorited] ค่าตั้งต้น
-/// - [onChanged] จะถูกเรียกพร้อมสถานะใหม่ (true=เพิ่ม, false=ลบ)
+/// FavoriteButton (responsive)
+/// ปุ่มเพิ่ม/ลบสูตรโปรด (วงกลม)  • แจ้ง onChanged(newState) ทุกครั้ง
 class FavoriteButton extends StatefulWidget {
   final bool initialIsFavorited;
   final Future<void> Function(bool newValue) onChanged;
@@ -33,20 +31,17 @@ class _FavoriteButtonState extends State<FavoriteButton> {
 
   Future<void> _checkUserStatus() async {
     final data = await AuthService.getLoginData();
-    setState(() {
-      _canToggle = data['userId'] != null;
-    });
+    if (!mounted) return;
+    setState(() => _canToggle = data['userId'] != null);
   }
 
   @override
   void didUpdateWidget(covariant FavoriteButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialIsFavorited != oldWidget.initialIsFavorited) {
-      setState(() {
-        _isFavorited = widget.initialIsFavorited;
-      });
+      setState(() => _isFavorited = widget.initialIsFavorited);
     }
-    _checkUserStatus(); // รีเช็ก login ทุกครั้งที่ widget rebuild
+    _checkUserStatus(); // รีเช็กทุกครั้งเพื่อกรณี logout/login
   }
 
   Future<void> _toggleFavorite() async {
@@ -56,26 +51,35 @@ class _FavoriteButtonState extends State<FavoriteButton> {
       );
       return;
     }
-
     setState(() => _loading = true);
-    final newValue = !_isFavorited;
+
+    final newState = !_isFavorited;
     try {
-      await widget.onChanged(newValue);
-      setState(() => _isFavorited = newValue);
+      await widget.onChanged(newState);
+      if (mounted) setState(() => _isFavorited = newState);
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ไม่สามารถเปลี่ยนสถานะโปรดได้')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่สามารถเปลี่ยนสถานะโปรดได้')),
+        );
+      }
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    const double size = 43.63;
-    const double borderWidth = 1.0907;
-    const double iconSize = 21.81;
+    /* ── responsive metrics ── */
+    final w = MediaQuery.of(context).size.width;
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final size = clamp(w * 0.12, 36, 56); // Ø ปุ่ม
+    final iconSize = size * 0.50; // Ø ไอคอน
+    final borderWidth = size * 0.025; // ความหนาขอบ
+    final pad = (size - iconSize) / 2; // padding ให้ไอคอนกลาง
+
     final borderColor =
         _isFavorited ? const Color(0xFFFF9B05) : const Color(0xFFD8D8D8);
     final iconColor =
@@ -87,19 +91,19 @@ class _FavoriteButtonState extends State<FavoriteButton> {
       child: Container(
         width: size,
         height: size,
-        padding: const EdgeInsets.all((43.63 - 21.81) / 2), // = 10.91
+        padding: EdgeInsets.all(pad),
         decoration: BoxDecoration(
           color: Colors.white,
           shape: BoxShape.circle,
           border: Border.all(color: borderColor, width: borderWidth),
         ),
         child: _loading
-            ? const SizedBox(
+            ? SizedBox(
                 width: iconSize,
                 height: iconSize,
                 child: CircularProgressIndicator(
                   strokeWidth: borderWidth,
-                  color: Color(0xFFFF9B05),
+                  color: const Color(0xFFFF9B05),
                 ),
               )
             : Icon(

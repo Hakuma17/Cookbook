@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// แถบเมนูล่างหลักของแอป
-/// - selectedIndex: ดัชนีแท็บที่ถูกเลือก (0=Home,1=Explore,2=My Recipes,3=Profile)
-/// - onItemSelected: callback เมื่อต้องการสลับแท็บหรือรีเฟรช
-/// - isLoggedIn: สถานะล็อกอิน (ใช้แสดง icon / สี ตามสถานะ)
+/// 0 = Home, 1 = Explore, 2 = My Recipes, 3 = Profile
 class CustomBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onItemSelected;
@@ -18,6 +16,16 @@ class CustomBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /* ── responsive metrics ── */
+    final w = MediaQuery.of(context).size.width;
+    double clamp(double v, double min, double max) =>
+        v < min ? min : (v > max ? max : v);
+
+    final barH = clamp(w * 0.18, 56, 88); // total height
+    final iconSz = clamp(w * 0.065, 22, 30); // icon size
+    final boxW = clamp(w * 0.12, 44, 64); // width/height hit box
+    final padBot = clamp(w * 0.03, 8, 16); // bottom padding
+
     const items = [
       Icons.home,
       Icons.explore,
@@ -26,8 +34,8 @@ class CustomBottomNav extends StatelessWidget {
     ];
 
     return Container(
-      height: 80,
-      padding: const EdgeInsets.only(bottom: 12),
+      height: barH,
+      padding: EdgeInsets.only(bottom: padBot),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Color(0xFFE1E1E1), width: 1)),
@@ -39,25 +47,22 @@ class CustomBottomNav extends StatelessWidget {
 
           return GestureDetector(
             onTap: () {
-              onItemSelected(i); // แจ้ง parent เสมอ
+              /* แจ้ง parent เสมอ (เช่น refresh) */
+              onItemSelected(i);
 
-              if (i == selectedIndex) return; // ถ้ากดซ้ำไม่ต้องทำ navigator ซ้ำ
+              if (i == selectedIndex) return; // กดซ้ำไม่เปลี่ยน route
 
               switch (i) {
                 case 0:
                   Navigator.pushNamedAndRemoveUntil(
-                      context, '/home', (route) => false);
+                      context, '/home', (_) => false);
                   break;
                 case 1:
                   Navigator.pushNamed(context, '/search');
                   break;
                 case 2:
-                  Navigator.pushReplacementNamed(
-                    context,
-                    '/my_recipes',
-                    arguments:
-                        0, // ← เพิ่มตรงนี้ให้ชัดเจนว่า default ต้องใช้แท็บ 0
-                  );
+                  Navigator.pushReplacementNamed(context, '/my_recipes',
+                      arguments: 0);
                   break;
                 case 3:
                   Navigator.pushReplacementNamed(context, '/profile');
@@ -65,21 +70,19 @@ class CustomBottomNav extends StatelessWidget {
               }
             },
             child: Container(
-              width: 48,
-              height: 48,
+              width: boxW,
+              height: boxW,
               decoration: selected
                   ? const BoxDecoration(
                       border: Border(
-                        bottom: BorderSide(
-                          color: Color(0xFFFF9B05),
-                          width: 2.2,
-                        ),
+                        bottom: BorderSide(color: Color(0xFFFF9B05), width: 2),
                       ),
                     )
                   : null,
+              alignment: Alignment.center,
               child: Icon(
                 items[i],
-                size: 26,
+                size: iconSz,
                 color: selected
                     ? const Color(0xFFFF9B05)
                     : const Color(0xFFC1C1C1),

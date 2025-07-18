@@ -1,3 +1,7 @@
+// lib/screens/recipe_detail_screen.dart
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -50,7 +54,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   void initState() {
     super.initState();
     if (widget.recipeId <= 0) {
-      // id ไม่ถูกต้อง → pop หลัง build
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -169,17 +172,17 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
     }
   }
 
-  Widget _buildDots(int total) => Row(
+  Widget _buildDots(int total, double dot) => Row(
         mainAxisSize: MainAxisSize.min,
         children: List.generate(total, (i) {
           final active = i == _currentPage;
           return Container(
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            width: 5.5,
-            height: 5.5,
+            margin: EdgeInsets.symmetric(horizontal: dot / 2),
+            width: dot,
+            height: dot,
             decoration: BoxDecoration(
               color: active ? const Color(0xFFFF9B05) : const Color(0xFFE3E3E3),
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(dot / 2),
             ),
           );
         }),
@@ -189,128 +192,148 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   Widget build(BuildContext context) {
     final statusBar = MediaQuery.of(context).padding.top;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
-      child: Scaffold(
-        extendBodyBehindAppBar: true,
-        body: FutureBuilder<RecipeDetail?>(
-          future: _futureRecipe,
-          builder: (ctx, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snap.data == null) {
-              return const Center(child: Text('ไม่พบสูตรอาหารนี้'));
-            }
+    return LayoutBuilder(builder: (context, constraints) {
+      /* ───── responsive numbers ───── */
+      final w = constraints.maxWidth;
 
-            final recipe = snap.data!;
+      double clamp(double v, double min, double max) =>
+          v < min ? min : (v > max ? max : v);
 
-            return RefreshIndicator(
-              onRefresh: _refreshData,
-              child: SingleChildScrollView(
-                controller: _scrollCtrl,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      height: statusBar + 272 + 16,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: CarouselWidget(
-                              imageUrls: recipe.imageUrls,
-                              height: 272,
-                              controller: _pageCtrl,
-                              onPageChanged: (i) =>
-                                  setState(() => _currentPage = i),
-                            ),
-                          ),
-                          Positioned(
-                            top: statusBar + 16,
-                            left: 16,
-                            child: GestureDetector(
-                              onTap: () => Navigator.pop(context),
-                              child: const Icon(Icons.close,
-                                  color: Colors.white, size: 24),
-                            ),
-                          ),
-                          if (recipe.imageUrls.length > 1) ...[
-                            Positioned(
-                              bottom: 20,
-                              left: 0,
-                              right: 0,
-                              child: Center(
-                                  child: _buildDots(recipe.imageUrls.length)),
-                            ),
-                            Positioned(
-                              right: 16,
-                              top: statusBar + (272 - 44) / 2,
-                              child: _NextButton(
-                                onTap: () {
-                                  final next = (_currentPage + 1) %
-                                      recipe.imageUrls.length;
-                                  _pageCtrl.animateToPage(
-                                    next,
-                                    duration: const Duration(milliseconds: 300),
-                                    curve: Curves.easeInOut,
-                                  );
-                                },
+      final carouselH = clamp(w * 0.68, 220, 340); // รูปหลัก
+      final dotSz = clamp(w * 0.014, 4.5, 7); // ดอทแถบล่าง
+      final nextBtn = clamp(w * 0.11, 40, 56); // ปุ่ม next
+      final paddingH = clamp(w * 0.04, 12, 24); // ขอบซ้าย/ขวา
+      final text16 = clamp(w * 0.04, 14, 18); // ฟอนต์ 16→ responsive
+
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light,
+        child: Scaffold(
+          extendBodyBehindAppBar: true,
+          body: FutureBuilder<RecipeDetail?>(
+            future: _futureRecipe,
+            builder: (ctx, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.data == null) {
+                return const Center(child: Text('ไม่พบสูตรอาหารนี้'));
+              }
+
+              final recipe = snap.data!;
+
+              return RefreshIndicator(
+                onRefresh: _refreshData,
+                child: SingleChildScrollView(
+                  controller: _scrollCtrl,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height: statusBar + carouselH + 16,
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: CarouselWidget(
+                                imageUrls: recipe.imageUrls,
+                                height: carouselH,
+                                controller: _pageCtrl,
+                                onPageChanged: (i) =>
+                                    setState(() => _currentPage = i),
                               ),
                             ),
+                            Positioned(
+                              top: statusBar + 16,
+                              left: 16,
+                              child: GestureDetector(
+                                onTap: () => Navigator.pop(context),
+                                child: const Icon(Icons.close,
+                                    color: Colors.white, size: 24),
+                              ),
+                            ),
+                            if (recipe.imageUrls.length > 1) ...[
+                              Positioned(
+                                bottom: 20,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                    child: _buildDots(
+                                        recipe.imageUrls.length, dotSz)),
+                              ),
+                              Positioned(
+                                right: 16,
+                                top: statusBar + (carouselH - nextBtn) / 2,
+                                child: _NextButton(
+                                  size: nextBtn,
+                                  iconSize: nextBtn * 0.55,
+                                  onTap: () {
+                                    final next = (_currentPage + 1) %
+                                        recipe.imageUrls.length;
+                                    _pageCtrl.animateToPage(
+                                      next,
+                                      duration:
+                                          const Duration(milliseconds: 300),
+                                      curve: Curves.easeInOut,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _MainContent(
-                        recipe: recipe,
-                        currentServings: _currentServings,
-                        onServingsChange: (v) =>
-                            setState(() => _currentServings = v),
-                        isFavorited: _isFavorited,
-                        onToggleFavorite: _toggleFavorite,
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: paddingH),
+                        child: _MainContent(
+                          recipe: recipe,
+                          currentServings: _currentServings,
+                          onServingsChange: (v) =>
+                              setState(() => _currentServings = v),
+                          isFavorited: _isFavorited,
+                          onToggleFavorite: _toggleFavorite,
+                          baseFont: text16,
+                        ),
                       ),
-                    ),
-                    CommentSection(
-                      key: _commentKey,
-                      comments: _comments,
-                      currentRating: _userRating,
-                      isLoggedIn: _isLoggedIn,
-                      onRatingSelected: (r) async {
-                        if (!await AuthService.checkAndRedirectIfLoggedOut(
-                            context)) return;
-                        _openEditor(initRating: r);
-                      },
-                      onCommentPressed: () {
-                        if (!_isLoggedIn) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const LoginScreen()),
-                          ).then((_) => _refreshData());
-                          return;
-                        }
-                        _openEditor(initRating: _userRating);
-                      },
-                      onEdit: (c) => _openEditor(
-                          initRating: c.rating ?? 0, initText: c.comment ?? ''),
-                      onDelete: (_) => _deleteComment(),
-                    ),
-                    const SizedBox(height: 32),
-                  ],
+                      CommentSection(
+                        key: _commentKey,
+                        comments: _comments,
+                        currentRating: _userRating,
+                        isLoggedIn: _isLoggedIn,
+                        onRatingSelected: (r) async {
+                          if (!await AuthService.checkAndRedirectIfLoggedOut(
+                              context)) return;
+                          _openEditor(initRating: r);
+                        },
+                        onCommentPressed: () {
+                          if (!_isLoggedIn) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const LoginScreen()),
+                            ).then((_) => _refreshData());
+                            return;
+                          }
+                          _openEditor(initRating: _userRating);
+                        },
+                        onEdit: (c) => _openEditor(
+                            initRating: c.rating ?? 0,
+                            initText: c.comment ?? ''),
+                        onDelete: (_) => _deleteComment(),
+                      ),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
+          bottomNavigationBar: CustomBottomNav(
+            selectedIndex: _selectedIndex,
+            isLoggedIn: _isLoggedIn,
+            onItemSelected: _onBottomNav,
+          ),
         ),
-        bottomNavigationBar: CustomBottomNav(
-          selectedIndex: _selectedIndex,
-          isLoggedIn: _isLoggedIn,
-          onItemSelected: _onBottomNav,
-        ),
-      ),
-    );
+      );
+    });
   }
 
   Future<void> _onBottomNav(int idx) async {
@@ -343,24 +366,27 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
 }
 
 class _NextButton extends StatelessWidget {
+  final double size;
+  final double iconSize;
   final VoidCallback onTap;
-  const _NextButton({required this.onTap});
+  const _NextButton(
+      {required this.size, required this.iconSize, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(size / 2),
       child: Container(
-        width: 44,
-        height: 44,
-        padding: const EdgeInsets.all(11),
+        width: size,
+        height: size,
+        padding: EdgeInsets.all(size * 0.25),
         decoration: const BoxDecoration(
           color: Colors.white70,
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.arrow_forward_ios,
-            size: 22, color: Color(0xFF666666)),
+        child: Icon(Icons.arrow_forward_ios,
+            size: iconSize, color: const Color(0xFF666666)),
       ),
     );
   }
@@ -372,6 +398,7 @@ class _MainContent extends StatelessWidget {
   final ValueChanged<int> onServingsChange;
   final bool isFavorited;
   final ValueChanged<bool> onToggleFavorite;
+  final double baseFont; // responsive font base
 
   const _MainContent({
     required this.recipe,
@@ -379,11 +406,14 @@ class _MainContent extends StatelessWidget {
     required this.onServingsChange,
     required this.isFavorited,
     required this.onToggleFavorite,
+    required this.baseFont,
   });
 
   @override
   Widget build(BuildContext context) {
     final baseServ = recipe.nServings;
+    final titleF = baseFont + 2;
+    final smallF = baseFont - 2;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,12 +432,12 @@ class _MainContent extends StatelessWidget {
         ],
         const SizedBox(height: 24),
 
-        // ── ingredients ──
+        /* ───────── ingredients ───────── */
         Row(
           children: [
-            const Text(
+            Text(
               'วัตถุดิบ',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
             ),
             const Spacer(),
             CartButton(
@@ -438,10 +468,10 @@ class _MainContent extends StatelessWidget {
         ),
         const SizedBox(height: 24),
 
-        // ── nutrition ──
-        const Text(
+        /* ───────── nutrition ───────── */
+        Text(
           'โภชนาการ',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         NutritionSummary(
@@ -451,10 +481,10 @@ class _MainContent extends StatelessWidget {
         ),
         const SizedBox(height: 24),
 
-        // ── steps ──
-        const Text(
+        /* ───────── steps ───────── */
+        Text(
           'วิธีทำ',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         StepWidget(
@@ -473,7 +503,7 @@ class _MainContent extends StatelessWidget {
         ),
         const SizedBox(height: 24),
 
-        // ── favorite button ──
+        /* ───────── favorite button ───────── */
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -485,7 +515,7 @@ class _MainContent extends StatelessWidget {
             ),
             label: Text(
               isFavorited ? 'อยู่ในสูตรโปรดแล้ว' : 'เพิ่มเป็นสูตรโปรดของฉัน',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF9B05),
@@ -497,7 +527,7 @@ class _MainContent extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
-        // ── voice step button ──
+        /* ───────── voice step button ───────── */
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -523,9 +553,9 @@ class _MainContent extends StatelessWidget {
               );
             },
             icon: const Icon(Icons.play_arrow, size: 24, color: Colors.black),
-            label: const Text(
+            label: Text(
               'ขั้นตอนที่อธิบายด้วยเสียง',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: smallF, fontWeight: FontWeight.w600),
             ),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: Color(0xFF828282), width: 1.5),

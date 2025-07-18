@@ -1,14 +1,7 @@
 // lib/screens/ingredient_prediction_result_screen.dart
-// ©2025  – ปรับ UI เพิ่มปุ่มช่วยเหลือและคำแนะนำแบบ Bottom Sheet
 
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
-import 'package:tflite_flutter/tflite_flutter.dart' as tfl;
-
-import 'ingredient_photo_screen.dart';
 
 /// ─── แผนที่ Label → ชื่อภาษาไทย ─────────────────────────────────────
 const Map<String, String> _kLabelMap = {
@@ -26,19 +19,18 @@ const Map<String, String> _kLabelMap = {
 
 const double _kAutoFillThreshold = 0.80;
 const double contentWidth = 312.0; // ความกว้างเนื้อหา
-const double imgHeight = 205.0; // ความสูงรูป
+const double imgHeight = contentWidth; // ให้รูปเป็นสี่เหลี่ยมจัตุรัส
 const double listBoxHeight = 140.0; // ความสูงกล่องรายการ
 
 class IngredientPredictionResultScreen extends StatefulWidget {
   final File imageFile;
-  final String? predictedName;
-  final double? confidence;
+  //  รับผลการทำนายทั้งหมดมา
+  final List<Map<String, dynamic>> allPredictions;
 
   const IngredientPredictionResultScreen({
     Key? key,
     required this.imageFile,
-    this.predictedName,
-    this.confidence,
+    required this.allPredictions,
   }) : super(key: key);
 
   @override
@@ -48,92 +40,31 @@ class IngredientPredictionResultScreen extends StatefulWidget {
 
 class _IngredientPredictionResultScreenState
     extends State<IngredientPredictionResultScreen> {
-  late tfl.Interpreter _itp; // ตัวรันโมเดล TFLite
-  late List<String> _labels; // รายชื่อ label
-  bool _modelReady = false; // เช็คโหลดโมเดลเสร็จหรือยัง
-  bool _running = false; // ป้องกันรันซ้ำ
-
   final _inputCtrl = TextEditingController(); // ควบคุม TextField
   final _selected = <String>{}; // รายการที่ผู้ใช้เลือก
-
-  List<_Pred> _preds = []; // เก็บผลทำนายอันดับต้นๆ
-  bool _showPreds = false; // toggle แสดง/ซ่อนผล
+  List<Map<String, dynamic>> _preds = [];
+  bool _showPreds = false;
 
   @override
   void initState() {
     super.initState();
-    _loadModel();
+    //ไม่มีการโหลดโมเดล ใช้ข้อมูลที่ส่งมาได้เลย
+    _preds = widget.allPredictions.take(3).toList();
+
     // auto‐fill ถ้า confidence สูงพอ
-    if ((widget.confidence ?? 0) >= _kAutoFillThreshold &&
-        widget.predictedName != null) {
-      _inputCtrl.text = _map(widget.predictedName!);
+    if (widget.allPredictions.isNotEmpty) {
+      final topPrediction = widget.allPredictions.first;
+      if ((topPrediction['confidence'] as double) >= _kAutoFillThreshold) {
+        _inputCtrl.text = _map(topPrediction['label'] as String);
+      }
     }
   }
 
   @override
   void dispose() {
     _inputCtrl.dispose();
-    _itp.close();
+
     super.dispose();
-  }
-
-  /// โหลดโมเดลและ labels
-  Future<void> _loadModel() async {
-    _itp = await tfl.Interpreter.fromAsset(
-      'assets/converted_tflite_quantized/model_unquant.tflite',
-    )
-      ..allocateTensors();
-
-    _labels = (await rootBundle
-            .loadString('assets/converted_tflite_quantized/labels.txt'))
-        .split('\n')
-        .where((e) => e.trim().isNotEmpty)
-        .toList();
-
-    setState(() => _modelReady = true);
-    _runInference();
-  }
-
-  /// ประมวลผลภาพเพื่อดึงผลทำนาย
-  Future<void> _runInference() async {
-    if (!_modelReady || _running) return;
-    _running = true;
-    try {
-      final bytes = await widget.imageFile.readAsBytes();
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) return;
-
-      final resized = img.copyResize(decoded, width: 224, height: 224);
-      final rgb = resized.getBytes();
-
-      final input = Float32List(rgb.length);
-      for (var i = 0; i < rgb.length; i++) {
-        input[i] = rgb[i] / 255.0;
-      }
-
-      final output =
-          List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
-      _itp.run(input.reshape([1, 224, 224, 3]), output);
-
-      final all = <_Pred>[];
-      for (var i = 0; i < _labels.length; i++) {
-        final sc = output[0][i] as double;
-        if (sc > 0) all.add(_Pred(_map(_labels[i]), sc));
-      }
-      all.sort((a, b) => b.score.compareTo(a.score));
-
-      setState(() {
-        _preds = all.take(3).toList(); // แสดงแค่ 3 อันดับแรก
-      });
-
-      if (_preds.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่รู้จักวัตถุดิบ')),
-        );
-      }
-    } finally {
-      _running = false;
-    }
   }
 
   /// แปลง label อังกฤษ → ไทย
@@ -142,14 +73,17 @@ class _IngredientPredictionResultScreenState
   /// เพิ่มใน list
   void _addToList() {
     final v = _inputCtrl.text.trim();
-    if (v.isNotEmpty) setState(() => _selected.add(v));
-    _inputCtrl.clear();
+    if (v.isNotEmpty) {
+      setState(() => _selected.add(v));
+      _inputCtrl.clear();
+      FocusScope.of(context).unfocus(); // ซ่อนคีย์บอร์ด
+    }
   }
 
   /// ลบรายการ
   void _remove(String n) => setState(() => _selected.remove(n));
 
-  /// ★ แสดง Bottom Sheet ช่วยแนะนำวิธีใช้
+  ///  แสดง Bottom Sheet ช่วยแนะนำวิธีใช้
   void _showHelpSheet() {
     showModalBottomSheet(
       context: context,
@@ -164,10 +98,10 @@ class _IngredientPredictionResultScreenState
             const Text('📝 วิธีใช้หน้านี้',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
             const SizedBox(height: 12),
-            _bullet('กดปุ่ม “+” เพื่อเพิ่มชื่อในรายการ'),
-            _bullet('พิมพ์ชื่อเองหรือเลือกจาก Prediction'),
-            _bullet('แตะชื่อในรายการเพื่อลบออก'),
-            _bullet('กด “ดูสูตรอาหาร” เพื่อค้นสูตรด้วยวัตถุดิบนี้'),
+            _bullet('กดที่ชื่อวัตถุดิบที่ทายผล เพื่อกรอกอัตโนมัติ'),
+            _bullet('หรือพิมพ์ชื่อเอง แล้วกดปุ่ม “+” เพื่อเพิ่ม'),
+            _bullet('แตะที่รูปวัตถุดิบในรายการเพื่อลบออก'),
+            _bullet('กด “ดูสูตรอาหาร” เมื่อเลือกวัตถุดิบครบแล้ว'),
             const SizedBox(height: 12),
             const Text('สนุกกับการทำอาหารนะ! 🎉',
                 style: TextStyle(fontSize: 16)),
@@ -245,11 +179,12 @@ class _IngredientPredictionResultScreenState
             // ─── เนื้อหา ─────────────────────────────────────
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
                 child: Center(
                   child: Column(
                     children: [
-                      // รูปที่ถ่าย
+                      // รูปที่ถ่าย (สี่เหลี่ยมจัตุรัส)
                       Material(
                         elevation: 6,
                         borderRadius: BorderRadius.circular(16),
@@ -351,6 +286,7 @@ class _IngredientPredictionResultScreenState
                                             const EdgeInsets.only(right: 12),
                                         child: Stack(
                                           clipBehavior: Clip.none,
+                                          alignment: Alignment.center,
                                           children: [
                                             Column(
                                               mainAxisSize: MainAxisSize.min,
@@ -359,18 +295,10 @@ class _IngredientPredictionResultScreenState
                                                   borderRadius:
                                                       BorderRadius.circular(12),
                                                   child: Image.asset(
-                                                    'assets/ingredients/${name.toLowerCase()}.png',
+                                                    'assets/images/default_ingredients.png', // ใช้ภาพ placeholder
                                                     width: 78,
                                                     height: 78,
                                                     fit: BoxFit.cover,
-                                                    errorBuilder:
-                                                        (_, __, ___) =>
-                                                            Image.asset(
-                                                      'assets/images/default_ingredients.png',
-                                                      width: 78,
-                                                      height: 78,
-                                                      fit: BoxFit.cover,
-                                                    ),
                                                   ),
                                                 ),
                                                 const SizedBox(height: 6),
@@ -438,72 +366,72 @@ class _IngredientPredictionResultScreenState
     );
   }
 
-  /// แสดง SnackBar
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  /// สร้าง Prediction bar
-  Widget _buildPredictionBar(_Pred p, int index) {
+  // สร้าง Prediction bar จาก Map
+  Widget _buildPredictionBar(Map<String, dynamic> p, int index) {
     final colors = [
-      const Color(0xFFFF9B05), // อันดับ 1
-      const Color(0xFFFF4081), // อันดับ 2
-      const Color(0xFF7C4DFF), // อันดับ 3
+      const Color(0xFFFF9B05),
+      const Color(0xFFFF4081),
+      const Color(0xFF7C4DFF),
     ];
-    final fillColor = colors[index];
+    final fillColor = colors[index % colors.length];
     final bgColor = fillColor.withOpacity(0.2);
 
+    final label = _map(p['label'] as String);
+    final score = p['confidence'] as double;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Container(
-        width: contentWidth,
-        height: 32,
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Stack(
-          children: [
-            FractionallySizedBox(
-              widthFactor: p.score.clamp(0.0, 1.0),
-              alignment: Alignment.centerLeft,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: fillColor,
-                  borderRadius: BorderRadius.circular(16),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: GestureDetector(
+        onTap: () {
+          _inputCtrl.text = label;
+        },
+        child: Container(
+          width: contentWidth,
+          height: 36, // เพิ่มความสูงเล็กน้อย
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Stack(
+            children: [
+              FractionallySizedBox(
+                widthFactor: score.clamp(0.0, 1.0),
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: fillColor,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
                 ),
               ),
-            ),
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(p.label,
-                        style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold)),
-                    Text('${(p.score * 100).toInt()}%',
-                        style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold)),
-                  ],
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(label,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                      Text('${(score * 100).toInt()}%',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// คลาสเก็บผลทำนาย
-class _Pred {
-  final String label;
-  final double score;
-  _Pred(this.label, this.score);
-}
+// ★ REMOVED: คลาสนี้ไม่จำเป็นต้องใช้อีกต่อไป
+// class _Pred { ... }
 
 /// ปุ่มหลัก “ดูสูตรอาหาร”
 class _PrimaryButton extends StatelessWidget {
@@ -517,9 +445,10 @@ class _PrimaryButton extends StatelessWidget {
       child: Container(
         height: 56,
         decoration: BoxDecoration(
-          color: const Color(0xFFFF00F7),
+          // ★ CHANGED: เปลี่ยนสีปุ่มให้เข้ากับ Theme
+          color: const Color(0xFFFF9B05),
           borderRadius: BorderRadius.circular(28),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
                 color: Colors.black26, blurRadius: 6, offset: Offset(0, 3))
           ],
@@ -563,7 +492,7 @@ class _ManualInput extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3))
         ],
       ),
@@ -581,6 +510,7 @@ class _ManualInput extends StatelessWidget {
                 hintText: 'พิมพ์ชื่อวัตถุดิบ',
                 border: InputBorder.none,
               ),
+              onSubmitted: (_) => onAdd(),
             ),
           ),
           GestureDetector(

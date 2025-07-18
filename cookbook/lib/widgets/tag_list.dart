@@ -8,9 +8,13 @@ class TagList extends StatelessWidget {
   /// รายการชื่อป้าย
   final List<String>? tags;
 
+  /// ปรับ font-size ภายนอก (เช่น ในหน้า RecipeDetail)
+  final double? fontSize;
+
   const TagList({
     Key? key,
     this.tags,
+    this.fontSize,
   }) : super(key: key);
 
   @override
@@ -18,33 +22,46 @@ class TagList extends StatelessWidget {
     final list = tags ?? [];
     if (list.isEmpty) return const SizedBox.shrink();
 
+    /* ───── responsive helpers ───── */
+    final w = MediaQuery.of(context).size.width;
+    double scale = (w / 360).clamp(0.78, 1.30); // safe-range กว้างขึ้น
+
+    // ป้องกันค่าเล็ก/ใหญ่เกินด้วย clamp ภายใน
+    double px(double v, {double min = 2, double max = 999}) =>
+        (v * scale).clamp(min, max).toDouble();
+
+    final gapH = px(10.9);
+    final gapV = px(4.36);
+    final padH = px(10.9);
+    final padV = px(4.36);
+    final br = px(13.1, min: 6); // มุมโค้งอย่างน้อย 6px
+    final stroke = px(1.09, min: .6); // เส้นบางสุด .6px
+    final fz = fontSize ?? px(14, min: 11, max: 18); // font 11-18
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(horizontal: px(16)),
       child: Wrap(
-        spacing: 10.9067, // ตาม CSS gap:10.91px
-        runSpacing: 4.36267, // vertical gap:4.36px
+        spacing: gapH,
+        runSpacing: gapV,
         children: list.map((tag) {
           return Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10.9067, // ตาม CSS
-              vertical: 4.36267, // ตาม CSS
-            ),
+            padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
             decoration: BoxDecoration(
               color: Colors.white,
               border: Border.all(
                 color: const Color(0xFFFF9B05),
-                width: 1.09067, // ตาม CSS
+                width: stroke,
               ),
-              borderRadius: BorderRadius.circular(13.088), // ตาม CSS
+              borderRadius: BorderRadius.circular(br),
             ),
             child: Text(
               tag,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Roboto',
                 fontWeight: FontWeight.w600,
-                fontSize: 14,
-                height: 16 / 14, // line-height ≈16px
-                color: Color(0xFFFF9B05),
+                fontSize: fz,
+                height: 1.25, // line-height คงที่-สวย
+                color: const Color(0xFFFF9B05),
               ),
             ),
           );

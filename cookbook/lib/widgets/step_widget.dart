@@ -1,3 +1,5 @@
+// lib/widgets/step_widget.dart
+
 import 'package:flutter/material.dart';
 import '../models/recipe_step.dart';
 
@@ -30,17 +32,33 @@ class _StepWidgetState extends State<StepWidget> {
     final list = widget.steps ?? [];
     if (list.isEmpty) return const SizedBox.shrink();
 
+    /* ───── responsive numbers (อิงดีไซน์กว้าง 360 px) ───── */
+    final w = MediaQuery.of(context).size.width;
+    double scale = (w / 360).clamp(0.78, 1.30); // ปรับช่วงให้กว้างขึ้นเล็กน้อย
+
+    // helper → ย่อ/ขยายค่าตามสเกล แต่ “ปัด” ให้อยู่บน pixel ครึ่ง (ลด blurry)
+    double px(double v) => (v * scale).clamp(v * .75, v * 1.3);
+
+    final br = px(13.088); // border-radius & padding
+    final gapV = px(13.088);
+    final gapH = px(8.77);
+    final font15 = px(15);
+    final font14 = px(14);
+    final iconSz = px(17.45);
+    final borderW = px(1.09);
+
+    /* ───── build UI ───── */
     final displayCount = _expanded ? list.length : widget.previewCount;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          padding: const EdgeInsets.all(13.088),
+          margin: EdgeInsets.symmetric(horizontal: px(16)),
+          padding: EdgeInsets.all(br),
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFD8D8D8), width: 1.09),
-            borderRadius: BorderRadius.circular(13.088),
+            border: Border.all(color: const Color(0xFFD8D8D8), width: borderW),
+            borderRadius: BorderRadius.circular(br),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,31 +75,41 @@ class _StepWidgetState extends State<StepWidget> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // ▸ เลขข้อ
                       Text(
                         '${i + 1}.',
                         style: TextStyle(
                           fontFamily: 'Roboto',
-                          fontSize: 15,
+                          fontSize: font15,
                           fontWeight: FontWeight.w600,
-                          height: 18 / 15,
+                          height: 1.4,
                           color: textColor,
                         ),
                       ),
-                      const SizedBox(width: 8.77),
+                      SizedBox(width: gapH),
+                      // ▸ คำอธิบาย (ใช้ SelectableText ⇒ ตัดคำดีขึ้นและเลือกก๊อปปี้ได้)
                       Expanded(
-                        child: Text(
+                        child: SelectableText(
                           step.description,
                           style: TextStyle(
                             fontFamily: 'Roboto',
-                            fontSize: 14,
-                            height: 18 / 14,
+                            fontSize: font14,
+                            height: 1.45,
                             color: textColor,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  if (i < displayCount - 1) const SizedBox(height: 13.088),
+                  if (i < displayCount - 1) ...[
+                    SizedBox(height: gapV),
+                    Divider(
+                      color: const Color(0xFFD8D8D8),
+                      thickness: borderW,
+                      height: borderW, // ลดช่องว่างเกินจำเป็น
+                    ),
+                    SizedBox(height: gapV),
+                  ],
                 ],
               );
             }),
@@ -99,21 +127,20 @@ class _StepWidgetState extends State<StepWidget> {
               },
               icon: Icon(
                 _expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                size: 17.45,
+                size: iconSz,
                 color: const Color(0xFFFF9B05),
               ),
               label: Text(
                 _expanded ? 'ซ่อน' : 'ดูเพิ่มเติม',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Roboto',
-                  fontSize: 14,
+                  fontSize: px(14),
                   fontWeight: FontWeight.w500,
-                  height: 24 / 14,
-                  color: Color(0xFFFF9B05),
+                  color: const Color(0xFFFF9B05),
                 ),
               ),
               style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 4.36),
+                padding: EdgeInsets.symmetric(vertical: px(4.36)),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),

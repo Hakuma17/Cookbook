@@ -1,3 +1,5 @@
+// lib/widgets/nutrition_summary.dart
+
 import 'package:flutter/material.dart';
 import '../models/nutrition.dart';
 
@@ -8,96 +10,121 @@ class NutritionSummary extends StatelessWidget {
   final int currentServings;
 
   const NutritionSummary({
-    Key? key,
+    super.key,
     this.nutrition,
     required this.baseServings,
     required this.currentServings,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     if (nutrition == null || baseServings <= 0) return const SizedBox.shrink();
 
+    // ------------------------------------------------------------------
+    // 1) เตรียมข้อมูลหลังปรับ servings
+    // ------------------------------------------------------------------
     final portionRatio = currentServings / baseServings;
-
     final items = <_NutItem>[
-      _NutItem(label: 'แคลอรี่', value: nutrition!.calories * portionRatio),
-      _NutItem(label: 'ไขมัน', value: nutrition!.fat * portionRatio),
-      _NutItem(label: 'โปรตีน', value: nutrition!.protein * portionRatio),
-      _NutItem(label: 'คาร์โบไฮเดรต', value: nutrition!.carbs * portionRatio),
+      _NutItem('แคลอรี่', nutrition!.calories * portionRatio),
+      _NutItem('ไขมัน', nutrition!.fat * portionRatio),
+      _NutItem('โปรตีน', nutrition!.protein * portionRatio),
+      _NutItem('คาร์โบไฮเดรต', nutrition!.carbs * portionRatio),
     ];
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.builder(
-        itemCount: items.length,
-        physics: const NeverScrollableScrollPhysics(),
-        shrinkWrap: true,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 8,
-          childAspectRatio: 1.0, // ปรับให้เป็นสี่เหลี่ยมจัตุรัส
-        ),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          final v = item.value;
-          final s = v >= 10000
-              ? '${(v / 1000).toStringAsFixed(1)}K'
-              : v % 1 == 0
-                  ? v.toStringAsFixed(0)
-                  : v.toStringAsFixed(1);
+    // ------------------------------------------------------------------
+    // 2) UI – ใช้ LayoutBuilder >>> responsive scale ตามพื้นที่จริง
+    // ------------------------------------------------------------------
+    return LayoutBuilder(
+      builder: (context, box) {
+        final w = box.maxWidth; // กว้างของวิดเจ็ต
+        final scale = (w / 360).clamp(0.80, 1.30); // safe-range
 
-          return IntrinsicHeight(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: const Color(0xFFFF9B05), width: 1.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    item.label == 'คาร์โบไฮเดรต'
-                        ? 'คาร์โบ\nไฮเดรต'
-                        : item.label,
-                    textAlign: TextAlign.center,
-                    softWrap: true,
-                    maxLines: 2,
-                    style: const TextStyle(
-                      fontFamily: 'Montserrat',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                      color: Color(0xFFFF9B05),
-                    ),
+        double px(double v) => v * scale;
+
+        final gap = px(10); // ช่องว่างกริด
+        final radius = px(14); // มุมโค้ง
+        final stroke = px(1.3); // เส้นขอบ
+        final labelF = px(13);
+        final valueF = labelF + 1;
+
+        return Padding(
+          padding: EdgeInsets.symmetric(horizontal: px(16)),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              crossAxisSpacing: gap,
+              mainAxisSpacing: gap,
+              // square-ish cell แต่ยืดตาม scale
+              childAspectRatio: 1.03,
+            ),
+            itemBuilder: (_, i) {
+              final it = items[i];
+              final v = it.value;
+              final s = v >= 10000
+                  ? '${(v / 1000).toStringAsFixed(1)}K'
+                  : v % 1 == 0
+                      ? v.toStringAsFixed(0)
+                      : v.toStringAsFixed(1);
+
+              return Container(
+                padding: EdgeInsets.all(px(8)),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(radius),
+                  border: Border.all(
+                    color: const Color(0xFFFF9B05),
+                    width: stroke,
                   ),
-                  const SizedBox(height: 4),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      '$s g',
-                      style: const TextStyle(
-                        fontFamily: 'Montserrat',
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13.0,
-                        color: Color(0xFF000000),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // ── LABEL ────────────────────────────────────────
+                    FittedBox(
+                      child: Text(
+                        it.label == 'คาร์โบไฮเดรต'
+                            ? 'คาร์โบ\nไฮเดรต'
+                            : it.label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Montserrat',
+                          fontWeight: FontWeight.w600,
+                          fontSize: labelF,
+                          color: const Color(0xFFFF9B05),
+                          height: 1.25,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+                    SizedBox(height: px(6)),
+                    // ── VALUE ───────────────────────────────────────
+                    FittedBox(
+                      child: Text(
+                        '$s g',
+                        style: TextStyle(
+                          fontFamily: 'Montserrat',
+                          fontWeight: FontWeight.w700,
+                          fontSize: valueF,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
 
+/*──────────────────────────────────────────────────────────────*/
 class _NutItem {
   final String label;
   final double value;
-  const _NutItem({required this.label, required this.value});
+  const _NutItem(this.label, this.value);
 }

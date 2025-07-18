@@ -157,35 +157,56 @@ class _LoginScreenState extends State<LoginScreen> {
   /* ── build ────────────────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
+    // คำนวณสัดส่วนหน้าจอเพื่อ responsive
     final w = MediaQuery.of(context).size.width;
+    final h = MediaQuery.of(context).size.height;
+
+    final padH = w * 0.064; // ~24px
+    final padV = h * 0.04; // ~32px
+    final spaceXS = h * 0.01; // ~8px
+    final spaceMid = h * 0.015; // ~12px
+    final spaceS = h * 0.02; // ~16px
+    final spaceM = h * 0.03; // ~24px
+    final spaceL = h * 0.04; // ~32px
+    final spaceXL = h * 0.05; // ~40px
+    final btnHeight = h * 0.065; // ~52px
+    final logoSize = w * 0.3; // 30% of width
+    final iconSize = btnHeight * 0.45;
+    final titleFont = w * 0.075; // ~28px
+    final btnFont = w * 0.048; // ~18px
+    final bodyFont = w * 0.04; // ~16px
+    final smallFont = w * 0.037; // ~14px
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
           child: Form(
             key: _formKey,
             autovalidateMode: AutovalidateMode.disabled,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 40),
+                SizedBox(height: spaceXL),
                 Center(
                   child: Image.asset(
                     'assets/images/logo.png',
-                    width: w * .3,
-                    height: w * .3,
+                    width: logoSize,
+                    height: logoSize,
                   ),
                 ),
-                const SizedBox(height: 16),
-                const Center(
+                SizedBox(height: spaceS),
+                Center(
                   child: Text(
                     'Cooking Guide',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: titleFont,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 40),
+                SizedBox(height: spaceXL),
 
                 // ── อีเมล ─────────────────────────────────
                 TextFormField(
@@ -200,7 +221,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: spaceS),
 
                 // ── รหัสผ่าน ────────────────────────────────
                 TextFormField(
@@ -226,15 +247,18 @@ class _LoginScreenState extends State<LoginScreen> {
                               MaterialPageRoute(
                                   builder: (_) => const ResetPasswordScreen()),
                             ),
-                    child: const Text('ลืมรหัสผ่าน'),
+                    child: Text(
+                      'ลืมรหัสผ่าน',
+                      style: TextStyle(fontSize: bodyFont),
+                    ),
                   ),
                 ),
 
-                const SizedBox(height: 8),
+                SizedBox(height: spaceXS),
 
                 // ── ปุ่มลงชื่อเข้าใช้ ─────────────────────────
                 SizedBox(
-                  height: 52,
+                  height: btnHeight,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _loginWithEmail,
                     style: ElevatedButton.styleFrom(
@@ -244,15 +268,25 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     child: _isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text('ลงชื่อเข้าใช้',
-                            style:
-                                TextStyle(fontSize: 18, color: Colors.white)),
+                        ? SizedBox(
+                            width: iconSize,
+                            height: iconSize,
+                            child: const CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            'ลงชื่อเข้าใช้',
+                            style: TextStyle(
+                              fontSize: btnFont,
+                              color: Colors.white,
+                            ),
+                          ),
                   ),
                 ),
 
                 if (_errorMsg != null) ...[
-                  const SizedBox(height: 12),
+                  SizedBox(height: spaceMid),
                   Text(
                     _errorMsg!,
                     textAlign: TextAlign.center,
@@ -260,7 +294,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ],
 
-                const SizedBox(height: 24),
+                SizedBox(height: spaceM),
 
                 // ── สมัครสมาชิก ─────────────────────────────
                 Center(
@@ -268,12 +302,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     text: TextSpan(
                       text: 'ยังไม่มีบัญชีใช่ไหม? ',
                       style:
-                          const TextStyle(fontSize: 14, color: Colors.black54),
+                          TextStyle(fontSize: smallFont, color: Colors.black54),
                       children: [
                         TextSpan(
                           text: 'สมัครสมาชิกเลย!',
-                          style: const TextStyle(
-                            fontSize: 14,
+                          style: TextStyle(
+                            fontSize: smallFont,
                             fontWeight: FontWeight.bold,
                             decoration: TextDecoration.underline,
                             color: Colors.black87,
@@ -290,11 +324,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 32),
+                SizedBox(height: spaceL),
 
                 // ── Google Sign-in ───────────────────────────
                 SizedBox(
-                  height: 52,
+                  height: btnHeight,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _loginWithGoogle,
                     style: ElevatedButton.styleFrom(
@@ -304,35 +338,44 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(12)),
                     ),
                     child: _isLoading
-                        ? const CircularProgressIndicator()
+                        ? SizedBox(
+                            width: iconSize,
+                            height: iconSize,
+                            child: const CircularProgressIndicator(),
+                          )
                         : Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               SvgPicture.asset(
                                 'assets/icons/google.svg',
-                                width: 24,
-                                height: 24,
+                                width: iconSize,
+                                height: iconSize,
                               ),
-                              const SizedBox(width: 12),
-                              const Text(
+                              SizedBox(width: w * 0.03),
+                              Text(
                                 'ดำเนินการต่อด้วย Google',
                                 style: TextStyle(
-                                    fontSize: 16, color: Color(0xFF1D1D1F)),
+                                  fontSize: bodyFont,
+                                  color: const Color(0xFF1D1D1F),
+                                ),
                               ),
                             ],
                           ),
                   ),
                 ),
-                const SizedBox(height: 16),
+
+                SizedBox(height: spaceS),
 
                 // ── Guest access ─────────────────────────────
                 SizedBox(
-                  height: 52,
+                  height: btnHeight,
                   child: ElevatedButton.icon(
                     onPressed: _isLoading ? null : _enterAsGuest,
-                    icon: const Icon(Icons.login),
-                    label: const Text('เข้าใช้งานโดยไม่ต้องล็อกอิน',
-                        style: TextStyle(fontSize: 16)),
+                    icon: Icon(Icons.login, size: iconSize),
+                    label: Text(
+                      'เข้าใช้งานโดยไม่ต้องล็อกอิน',
+                      style: TextStyle(fontSize: bodyFont),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFF2F2F2),
                       foregroundColor: Colors.black87,
