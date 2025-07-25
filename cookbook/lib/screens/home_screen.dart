@@ -1,15 +1,14 @@
 // lib/screens/home_screen.dart
 // ---------------------------------------------------------------------------
-// Responsive-tuned 2025-07-xx  ♦ bottom-overflow fix ②
-// 2025-07-13 ★ harden session / refactor clamp
-// 2025-07-14 ★ safe-future init • fix double setState on dispose
-// 2025-07-15 ★ remove pingSession() → compatible with new AuthService
-// 2025-07-16 ★ fix use_build_context_synchronously (capture messenger first)
+// ★ 2025‑07‑21 – UI‑polish & gesture safe
+//   • ลด Ingredient section สูง 180 → 150         (★A)
+//   • ลด Recipe card list สูง 280 → 260            (★B)
+//   • bottomNavigationBar ห่อ SafeArea(bottom)     (★C)
+//   • เก็บ _allergyIngredientIds สำหรับ warning    (★D)
 // ---------------------------------------------------------------------------
 
 import 'dart:async';
 import 'dart:developer';
-
 import 'package:flutter/material.dart';
 
 import '../main.dart';
@@ -22,157 +21,53 @@ import '../widgets/ingredient_card.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/allergy_warning_dialog.dart';
 
-import 'login_screen.dart';
-import 'all_ingredients_screen.dart';
-import 'my_recipes_screen.dart';
-import 'profile_screen.dart';
-import 'search_screen.dart';
-
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> with RouteAware {
-  /* ───────────── async data ───────────── */
-  late Future<List<Ingredient>> _futureIngredients =
-      Future.value(<Ingredient>[]);
-  late Future<List<Recipe>> _futurePopular = Future.value(<Recipe>[]);
-  late Future<List<Recipe>> _futureNew = Future.value(<Recipe>[]);
+  /* ───────────── State ───────────── */
+  late Future<void> _initFuture;
 
-  /* ───────────── ui / user state ───────────── */
+  List<Ingredient> _ingredients = [];
+  List<Recipe> _popularRecipes = [];
+  List<Recipe> _newRecipes = [];
+  List<Ingredient> _allergyList = [];
+  List<int> _allergyIngredientIds = []; // ★D
+
   bool _isLoggedIn = false;
   String? _profileName;
   String? _profileImage;
   int _selectedIndex = 0;
+  String? _errorMessage;
 
-  List<int> _allergyIngredientIds = [];
-  List<Ingredient> _allergyList = [];
-
-  bool _isLoadingInit = true;
-  DateTime _lastFetch = DateTime.fromMillisecondsSinceEpoch(0);
-  int _refreshToken = 0; // force AnimatedSwitcher reload
-  bool _loggingOut = false;
-
-  /* ═════════════════════════ INIT ═════════════════════════ */
+  /* ═════════════ INIT ═════════════ */
   @override
   void initState() {
     super.initState();
-    _init();
+    _initFuture = _initialize();
   }
 
-  Future<void> _init() async {
-    await _loadLoginStatus();
-    await _fetchAllData(force: true);
-    if (mounted) setState(() => _isLoadingInit = false);
-  }
-
-  /* ═══════════════════ DATA LOADERS ════════════════════ */
-  Future<void> _fetchAllData({bool force = false}) async {
-    if (!force &&
-        DateTime.now().difference(_lastFetch) < const Duration(minutes: 3)) {
-      return;
-    }
-
-    _lastFetch = DateTime.now();
+  Future<void> _initialize({bool forceRefresh = false}) async {
+    if (mounted) setState(() => _errorMessage = null);
     try {
-      final results = await Future.wait([
-        ApiService.fetchIngredients().timeout(const Duration(seconds: 8),
-            onTimeout: () => <Ingredient>[]),
-        ApiService.fetchPopularRecipes()
-            .timeout(const Duration(seconds: 8), onTimeout: () => <Recipe>[]),
-        ApiService.fetchNewRecipes()
-            .timeout(const Duration(seconds: 8), onTimeout: () => <Recipe>[]),
+      await Future.wait([
+        _loadLoginStatus(),
+        _fetchAllData(force: forceRefresh),
       ]);
-
-      if (!mounted) return;
-      setState(() {
-        _futureIngredients = Future.value(results[0] as List<Ingredient>);
-        _futurePopular = Future.value(results[1] as List<Recipe>);
-        _futureNew = Future.value(results[2] as List<Recipe>);
-        _refreshToken++;
-      });
+    } on UnauthorizedException {
+      await _handleLogout(silent: true);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _errorMessage = e.message);
     } catch (e, st) {
-      log('Fetch all data error: $e', stackTrace: st);
+      log('init error: $e', stackTrace: st);
+      if (mounted) setState(() => _errorMessage = 'เกิดข้อผิดพลาดไม่คาดคิด');
     }
   }
 
-  Future<void> _reloadLoginAndData() async {
-    await _loadLoginStatus();
-    await _fetchAllData(force: true);
-  }
-
-  Future<void> _loadLoginStatus() async {
-    try {
-      final alive = await AuthService.isLoggedIn();
-      final loginData = await AuthService.getLoginData();
-      if (!mounted) return;
-
-      setState(() {
-        _isLoggedIn = alive;
-        _profileName = loginData['profileName'];
-        _profileImage = loginData['profileImage'];
-      });
-
-      if (_isLoggedIn) {
-        final allergy = await ApiService.fetchAllergyIngredients().timeout(
-            const Duration(seconds: 8),
-            onTimeout: () => <Ingredient>[]);
-        if (!mounted) return;
-        setState(() {
-          _allergyList = allergy;
-          _allergyIngredientIds = allergy.map((e) => e.id).toList();
-        });
-      } else {
-        setState(() {
-          _allergyList = [];
-          _allergyIngredientIds = [];
-        });
-      }
-    } catch (e, st) {
-      log('loadLoginStatus error: $e', stackTrace: st);
-    }
-  }
-
-  /* ════════════════ NAVIGATION HANDLERS ═══════════════ */
-  Future<void> _onNavTap(int idx) async {
-    switch (idx) {
-      case 2:
-        if (!await _ensureLoggedIn()) return;
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const MyRecipesScreen()),
-        );
-        await _reloadLoginAndData();
-        break;
-      case 3:
-        if (!await _ensureLoggedIn()) return;
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-        );
-        await _reloadLoginAndData();
-        break;
-      default:
-        if (mounted) setState(() => _selectedIndex = idx);
-    }
-  }
-
-  Future<bool> _ensureLoggedIn() async {
-    if (await AuthService.isLoggedIn()) return true;
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
-    final ok = await AuthService.isLoggedIn();
-    if (ok) await _reloadLoginAndData();
-    return ok;
-  }
-
-  /* ═══════════════ ROUTE AWARE ═══════════════ */
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -186,9 +81,309 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }
 
   @override
-  void didPopNext() => _reloadLoginAndData();
+  void didPopNext() {
+    setState(() {
+      _initFuture = _initialize(forceRefresh: true);
+    });
+  }
 
-  /* ═══════════════ ALLERGY CHECK ═══════════════ */
+  /* ═════════════ DATA ═════════════ */
+  Future<void> _fetchAllData({bool force = false}) async {
+    final results = await Future.wait([
+      ApiService.fetchIngredients(),
+      ApiService.fetchPopularRecipes(),
+      ApiService.fetchNewRecipes(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _ingredients = results[0] as List<Ingredient>;
+      _popularRecipes = results[1] as List<Recipe>;
+      _newRecipes = results[2] as List<Recipe>;
+    });
+  }
+
+  Future<void> _loadLoginStatus() async {
+    if (await AuthService.isLoggedIn()) {
+      final login = await AuthService.getLoginData();
+      final allergy = await ApiService.fetchAllergyIngredients();
+      if (!mounted) return;
+      setState(() {
+        _isLoggedIn = true;
+        _profileName = login['profileName'];
+        _profileImage = login['profileImage'];
+        _allergyList = allergy;
+        _allergyIngredientIds = allergy.map((e) => e.id).toList(); // ★D
+      });
+    } else if (mounted) {
+      setState(() {
+        _isLoggedIn = false;
+        _profileName = null;
+        _profileImage = null;
+        _allergyList = [];
+        _allergyIngredientIds = [];
+      });
+    }
+  }
+
+  /* ═════════════ LOGOUT ═════════════ */
+  Future<void> _handleLogout({bool silent = false}) async {
+    await AuthService.logout();
+    if (mounted && !silent) {
+      setState(() {
+        _isLoggedIn = false;
+        _profileName = null;
+        _profileImage = null;
+        _allergyList = [];
+        _allergyIngredientIds = [];
+        _initFuture = _initialize(forceRefresh: true);
+      });
+    }
+  }
+
+  /* ═════════════ NAV ═════════════ */
+  Future<void> _onNavTap(int idx) async {
+    // ── ❶ ถ้ากด “ค้นหา” ──────────────────
+    if (idx == 1) {
+      // เปิดหน้า Search แบบ route (สร้าง‑ทำลายทุกครั้ง)
+      await Navigator.pushNamed(context, '/search');
+      // หลัง back กลับมา เซ็ต tab กลับเป็น Home
+      if (mounted) setState(() => _selectedIndex = 0);
+      return;
+    }
+
+    // ── ❷ My Recipes / Profile (ต้องล็อกอิน) ──────────────────
+    const routes = [null, null, '/my_recipes', '/profile'];
+    if (routes[idx] != null) {
+      if (!_isLoggedIn) {
+        final ok = await Navigator.pushNamed(context, '/login');
+        if (ok == true) didPopNext();
+        return;
+      }
+      await Navigator.pushNamed(context, routes[idx]!);
+      return;
+    }
+
+    // ── ❸ กรณี idx == 0 (Home) ──────────────────
+    setState(() => _selectedIndex = idx);
+  }
+
+  /* ═════════════ BUILD ═════════════ */
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder(
+      future: _initFuture,
+      builder: (_, snap) {
+        if (_ingredients.isEmpty &&
+            snap.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+        if (_errorMessage != null) {
+          return Scaffold(body: Center(child: Text(_errorMessage!)));
+        }
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFFDF7F2),
+          body: SafeArea(
+            bottom: false,
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: [
+                _buildMainHomeView(),
+                // index 1 ไม่ต้องใส่อะไร (หรือใส่ Container())
+                // เพราะเราจะเปิด Search ด้วย Navigator ต่างหาก
+                const SizedBox.shrink(),
+              ],
+            ),
+          ),
+          bottomNavigationBar: SafeArea(
+            // ★C
+            top: false,
+            child: CustomBottomNav(
+              selectedIndex: _selectedIndex,
+              onItemSelected: _onNavTap,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /* ═════════════ MAIN VIEW ═════════════ */
+  Widget _buildMainHomeView() => Column(
+        children: [
+          _buildCustomAppBar(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () => _initialize(forceRefresh: true),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(top: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildIngredientSection(),
+                    const SizedBox(height: 24),
+                    _buildRecipeSection(
+                      title: 'สูตรอาหารยอดนิยม',
+                      recipes: _popularRecipes,
+                      onAction: () => Navigator.pushNamed(
+                        context,
+                        '/search',
+                        arguments: {'initialSortIndex': 0},
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildRecipeSection(
+                      title: 'สูตรอาหารอัปเดตใหม่',
+                      recipes: _newRecipes,
+                      onAction: () => Navigator.pushNamed(
+                        context,
+                        '/search',
+                        arguments: {'initialSortIndex': 2},
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+
+  /* ═════════════ INGREDIENT SECTION ═════════════ */
+  Widget _buildIngredientSection() => Container(
+        color: const Color(0xFFFFE3D9),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          children: [
+            _buildSectionHeader(
+              title: 'วัตถุดิบ',
+              actionText: 'ดูทั้งหมด',
+              onAction: () => Navigator.pushNamed(context, '/all_ingredients'),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 150, // ★A
+              child: _ingredients.isEmpty
+                  ? const Center(child: Text('ไม่พบวัตถุดิบ'))
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _ingredients.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 16),
+                      itemBuilder: (_, i) => IngredientCard(
+                        ingredient: _ingredients[i],
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/search',
+                          arguments: {
+                            'ingredients': [_ingredients[i].name]
+                          },
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      );
+
+  /* ═════════════ RECIPE SECTION ═════════════ */
+  Widget _buildRecipeSection({
+    required String title,
+    required List<Recipe> recipes,
+    required VoidCallback onAction,
+  }) =>
+      Column(
+        children: [
+          _buildSectionHeader(
+              title: title, actionText: 'ดูเพิ่มเติม', onAction: onAction),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 250, // ★B
+            child: recipes.isEmpty
+                ? const Center(child: Text('ยังไม่มีสูตรอาหาร'))
+                : ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: recipes.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 16),
+                    itemBuilder: (_, i) => RecipeCard(
+                      recipe: recipes[i],
+                      onTap: () => _handleRecipeTap(recipes[i]),
+                    ),
+                  ),
+          ),
+        ],
+      );
+
+  /* ═════════════ COMMON HEADER ═════════════ */
+  Widget _buildSectionHeader({
+    required String title,
+    required String actionText,
+    required VoidCallback onAction,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(title,
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold)),
+          InkWell(
+            onTap: onAction,
+            child: Text(
+              actionText,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /* ═════════════ CUSTOM APP BAR ═════════════ */
+  Widget _buildCustomAppBar() {
+    final theme = Theme.of(context);
+    ImageProvider avatar = const AssetImage('assets/images/default_avatar.png');
+    if (_isLoggedIn && _profileImage?.isNotEmpty == true) {
+      avatar = NetworkImage(_profileImage!);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(radius: 24, backgroundImage: avatar),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _isLoggedIn ? 'สวัสดี ${_profileName ?? ''}' : 'ผู้เยี่ยมชม',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+                _isLoggedIn ? Icons.logout_outlined : Icons.login_outlined),
+            onPressed: _isLoggedIn ? _handleLogout : () => _onNavTap(3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /* ═════════════ ALLERGY LOGIC ═════════════ */
   void _handleRecipeTap(Recipe recipe) {
     final hasAllergy = _isLoggedIn &&
         _allergyIngredientIds.isNotEmpty &&
@@ -204,7 +399,6 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   void _showAllergyWarning(Recipe recipe) {
     final badIds =
         recipe.ingredientIds.where(_allergyIngredientIds.contains).toSet();
-
     final badNames = _allergyList
         .where((ing) => badIds.contains(ing.id))
         .map((ing) => ing.displayName ?? ing.name)
@@ -221,374 +415,4 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       ),
     );
   }
-
-  /* ═══════════════ BUILD ═══════════════ */
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoadingInit) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFFDF7F2),
-      body: SafeArea(
-        top: true,
-        bottom: false,
-        child: LayoutBuilder(
-          builder: (context, box) {
-            final m = _metricsFor(box.biggest);
-            return IndexedStack(
-              index: _selectedIndex,
-              children: [
-                _buildMainHomeView(m),
-                const Center(child: Text('Explore ยังไม่เปิด')),
-              ],
-            );
-          },
-        ),
-      ),
-      bottomNavigationBar: CustomBottomNav(
-        selectedIndex: _selectedIndex,
-        isLoggedIn: _isLoggedIn,
-        onItemSelected: _onNavTap,
-      ),
-    );
-  }
-
-  /* ═══════════════ RESPONSIVE METRIC ═══════════════ */
-  double _rsClamp(double v, double min, double max) =>
-      v < min ? min : (v > max ? max : v);
-
-  _Metrics _metricsFor(Size s) {
-    final w = s.width, h = s.height;
-    return _Metrics(
-      padH: w * 0.064,
-      padTop: h * 0.02,
-      appBarH: _rsClamp(h * 0.10, 56, 100),
-      avatarR: w * 0.059,
-      iconSz: w * 0.08,
-      txtLg: w * 0.047,
-      txtMd: w * 0.042,
-      spaceS: h * 0.03,
-      spaceM: h * 0.04,
-      listH1: _rsClamp(h * 0.24, 160, 340),
-      listH2: _rsClamp(h * 0.35, 220, 500),
-      sepW: w * 0.032,
-    );
-  }
-
-  /* ═══════════════ UI SECTIONS ═══════════════ */
-  Widget _buildMainHomeView(_Metrics m) => Column(
-        children: [
-          _buildCustomAppBar(m),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => _fetchAllData(force: true),
-              child: SingleChildScrollView(
-                padding: EdgeInsets.only(top: m.padTop),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildIngredientSection(m),
-                    SizedBox(height: m.spaceM),
-                    _buildRecipeSection(
-                      'สูตรอาหารยอดนิยม',
-                      _futurePopular,
-                      onAction: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => SearchScreen(initialSortIndex: 0),
-                        ),
-                      ),
-                      m: m,
-                    ),
-                    SizedBox(height: m.spaceM),
-                    _buildRecipeSection(
-                      'สูตรอาหารอัปเดตใหม่',
-                      _futureNew,
-                      onAction: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => SearchScreen(initialSortIndex: 2),
-                        ),
-                      ),
-                      m: m,
-                    ),
-                    SizedBox(height: m.spaceS),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      );
-
-  /* ───────────────────────────────────────── */
-  PreferredSizeWidget _buildCustomAppBar(_Metrics m) {
-    final provider = (_isLoggedIn && _profileImage?.startsWith('http') == true)
-        ? NetworkImage(_profileImage!)
-        : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
-
-    return PreferredSize(
-      preferredSize: Size.fromHeight(m.appBarH),
-      child: Container(
-        height: m.appBarH,
-        padding: EdgeInsets.symmetric(horizontal: m.padH),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(bottom: BorderSide(color: Color(0xFFE1E1E1))),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: m.avatarR,
-              backgroundColor: Colors.grey[300],
-              backgroundImage: provider,
-              onBackgroundImageError: (_, __) {},
-            ),
-            SizedBox(width: m.sepW),
-            Expanded(
-              child: Text(
-                _isLoggedIn ? 'สวัสดี ${_profileName ?? ''}' : 'ผู้เยี่ยมชม',
-                style: TextStyle(
-                  fontFamily: 'Mitr',
-                  fontSize: m.txtLg,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF0A2533),
-                ),
-              ),
-            ),
-            IconButton(
-              icon: Icon(_isLoggedIn ? Icons.logout : Icons.login_rounded),
-              iconSize: m.iconSz,
-              color: const Color(0xFF666666),
-              onPressed: _loggingOut
-                  ? null
-                  : () async {
-                      if (_isLoggedIn) {
-                        // ← จับ messenger/l10n ก่อน await ใด ๆ
-                        final messenger = ScaffoldMessenger.of(context);
-
-                        setState(() => _loggingOut = true);
-
-                        final ok = await AuthService.tryLogout()
-                            .catchError((_) => false);
-                        ApiService.clearSession();
-
-                        if (!mounted) return;
-
-                        setState(() {
-                          _isLoggedIn = false;
-                          _profileName = null;
-                          _profileImage = null;
-                          _loggingOut = false;
-                        });
-
-                        _lastFetch = DateTime.fromMillisecondsSinceEpoch(0);
-                        await _fetchAllData(force: true);
-
-                        if (!mounted) return;
-                        if (!ok) {
-                          messenger.showSnackBar(
-                            const SnackBar(
-                              content:
-                                  Text('ออกจากระบบฝ่ายเซิร์ฟเวอร์ไม่สำเร็จ'),
-                            ),
-                          );
-                        }
-                      } else {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const LoginScreen()),
-                        );
-                        await _loadLoginStatus();
-                      }
-                    },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /* --- Ingredient list -------------------------------------------------- */
-  Widget _buildIngredientSection(_Metrics m) => Container(
-        color: const Color(0xFFFFE3D9),
-        padding: EdgeInsets.symmetric(vertical: m.padH * .4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionHeader(
-              title: 'วัตถุดิบ',
-              actionText: 'ดูทั้งหมด',
-              actionStyle: TextStyle(
-                fontFamily: 'Roboto',
-                fontSize: m.txtMd,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF0A2533),
-              ),
-              onAction: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AllIngredientsScreen()),
-              ),
-              padH: m.padH,
-            ),
-            SizedBox(height: m.padH * .5),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
-              child: SizedBox(
-                key: ValueKey(_refreshToken),
-                height: m.listH1,
-                child: FutureBuilder<List<Ingredient>>(
-                  future: _futureIngredients,
-                  builder: (_, snap) {
-                    if (snap.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final list = snap.data ?? [];
-                    if (list.isEmpty) {
-                      return const Center(child: Text('ยังไม่มีวัตถุดิบ'));
-                    }
-                    return ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: EdgeInsets.symmetric(horizontal: m.padH),
-                      itemCount: list.length,
-                      separatorBuilder: (_, __) => SizedBox(width: m.sepW),
-                      itemBuilder: (_, i) => IngredientCard(
-                        ingredient: list[i],
-                        height: m.listH1,
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                SearchScreen(ingredients: [list[i].name]),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-
-  /* --- Recipe lists ----------------------------------------------------- */
-  Widget _buildRecipeSection(
-    String title,
-    Future<List<Recipe>> future, {
-    required VoidCallback onAction,
-    required _Metrics m,
-  }) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader(
-            title: title,
-            actionText: 'ดูเพิ่มเติม',
-            actionStyle: TextStyle(
-              fontFamily: 'Roboto',
-              fontSize: m.txtMd,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFFFF9B05),
-            ),
-            onAction: onAction,
-            padH: m.padH,
-          ),
-          SizedBox(height: m.padH * .5),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 400),
-            child: SizedBox(
-              key: ValueKey(future),
-              height: m.listH2,
-              child: FutureBuilder<List<Recipe>>(
-                future: future,
-                builder: (_, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final list = snap.data ?? [];
-                  if (list.isEmpty) {
-                    return const Center(child: Text('ยังไม่มีสูตร'));
-                  }
-                  return ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: EdgeInsets.symmetric(horizontal: m.padH),
-                    itemCount: list.length,
-                    separatorBuilder: (_, __) => SizedBox(width: m.sepW),
-                    itemBuilder: (_, i) => RecipeCard(
-                      recipe: list[i],
-                      onTap: () => _handleRecipeTap(list[i]),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      );
-
-  /* --- small header helper --------------------------------------------- */
-  Widget _buildSectionHeader({
-    required String title,
-    required String actionText,
-    required TextStyle actionStyle,
-    required VoidCallback onAction,
-    required double padH,
-  }) =>
-      Padding(
-        padding: EdgeInsets.symmetric(horizontal: padH),
-        child: Row(
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontFamily: 'Roboto',
-                fontSize: padH * .75,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF0A2533),
-              ),
-            ),
-            const Spacer(),
-            GestureDetector(
-                onTap: onAction, child: Text(actionText, style: actionStyle)),
-          ],
-        ),
-      );
-}
-
-/* ───────────── responsive metric struct ───────────── */
-class _Metrics {
-  final double padH,
-      padTop,
-      appBarH,
-      avatarR,
-      iconSz,
-      txtLg,
-      txtMd,
-      spaceS,
-      spaceM,
-      listH1,
-      listH2,
-      sepW;
-
-  _Metrics({
-    required this.padH,
-    required this.padTop,
-    required this.appBarH,
-    required this.avatarR,
-    required this.iconSz,
-    required this.txtLg,
-    required this.txtMd,
-    required this.spaceS,
-    required this.spaceM,
-    required this.listH1,
-    required this.listH2,
-    required this.sepW,
-  });
 }

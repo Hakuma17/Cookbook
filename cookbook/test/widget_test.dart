@@ -1,32 +1,32 @@
-// This is a basic Flutter widget test.
-//
-
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-// /test/widget_test.dart
+// test/widget_test.dart
+import 'package:cookbook/screens/home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cookbook/main.dart';
+import 'package:cookbook/screens/splash_screen.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const CookingGuideApp());
+  // ✅ 1. ตั้งค่าที่จำเป็นก่อนการทดสอบ
+  setUpAll(() async {
+    // Test จำเป็นต้องมีการ mock หรือ setup service ที่เรียกใน main() ก่อน
+    // ในที่นี้เราจะข้ามไปก่อนเพื่อให้ Test รันผ่านได้
+    // แต่ในอนาคตควรเรียนรู้เรื่องการ Mocking เพิ่มเติม
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  testWidgets('App starts with SplashScreen smoke test',
+      (WidgetTester tester) async {
+    // 2. สร้าง MyApp ของเราขึ้นมา
+    await tester.pumpWidget(const MyApp());
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // 3. รอให้ animation หรือ Future ทำงานเสร็จ (เช่น Timer ใน SplashScreen)
+    // pumpAndSettle จะรอจนกว่าจะไม่มี frame ใหม่ๆ เกิดขึ้น
+    await tester.pumpAndSettle();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // 4. ตรวจสอบว่าเจอ SplashScreen 1 ตัวในหน้าจอ
+    expect(find.byType(SplashScreen), findsOneWidget);
+
+    // 5. ตรวจสอบว่าไม่เจอ Widget ของหน้าอื่น เช่น HomeScreen
+    expect(find.byType(HomeScreen), findsNothing);
   });
 }

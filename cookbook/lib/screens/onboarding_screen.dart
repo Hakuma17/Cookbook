@@ -1,28 +1,27 @@
-// lib/screens/onboarding_screen.dart
-
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../services/auth_service.dart';
-import 'home_screen.dart';
-import 'welcome_screen.dart';
+
+// ✅ 1. ย้ายการจัดการ SharedPreferences ไปไว้ใน AuthService
+// import 'package:shared_preferences/shared_preferences.dart';
+
+// ✅ 2. เปลี่ยนไปใช้ Named Routes เพื่อความสอดคล้อง
+// import 'home_screen.dart';
+// import 'welcome_screen.dart';
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/*  สี / สไตล์แบรนด์                                                          */
+/* สี / สไตล์แบรนด์ (ถูกลบออกไป เพราะจะใช้ Theme จาก context แทน)             */
 /* ────────────────────────────────────────────────────────────────────────── */
-const _brand = Color(0xFFFFC08D); // สีใหญ่ที่เห็นใน Splash
-const _accent = Color(0xFFFF9B05); // สีปุ่มหลักส้มสด
-const _textDark = Color(0xFF1A1A1A);
-const _textLight = Color(0xFF747474);
+// const _brand = Color(0xFFFFC08D);
+// ...
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/*  โมเดลข้อมูลของแต่ละสไลด์                                                   */
+/* โมเดลข้อมูลของแต่ละสไลด์ (โครงสร้างดีอยู่แล้ว คงเดิม)                       */
 /* ────────────────────────────────────────────────────────────────────────── */
 class _FeatureIntroPageData {
-  final String title; // หัวใหญ่ดำ
-  final String? subtitleAccent; // ข้อความสั้นสีส้ม (optional)
-  final WidgetBuilder illustrationBuilder; // วาดรูปตัวอย่างฟีเจอร์
-  final List<_StepCalloutData>? steps; // รายการขั้นตอน (optional)
+  final String title;
+  final String? subtitleAccent;
+  final WidgetBuilder illustrationBuilder;
+  final List<_StepCalloutData>? steps;
 
   const _FeatureIntroPageData({
     required this.title,
@@ -33,18 +32,17 @@ class _FeatureIntroPageData {
 }
 
 class _StepCalloutData {
-  final int number; // ลำดับ 1,2,3 ...
-  final String text; // อธิบายขั้นตอน
-  final Color? bulletColor; // สีวงกลมตัวเลข
-  // ignore: unused_element_parameter
+  final int number;
+  final String text;
+  final Color? bulletColor;
   const _StepCalloutData(this.number, this.text, {this.bulletColor});
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/*  OnboardingScreen                                                           */
+/* OnboardingScreen                                                          */
 /* ────────────────────────────────────────────────────────────────────────── */
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({Key? key}) : super(key: key);
+  const OnboardingScreen({super.key});
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -62,10 +60,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.initState();
     _pc = PageController();
     _pages = _buildPages();
-    _checkLogin();
+    _checkLoginStatus();
   }
 
-  Future<void> _checkLogin() async {
+  Future<void> _checkLoginStatus() async {
     final logged = await AuthService.isLoggedIn();
     if (!mounted) return;
     setState(() {
@@ -90,10 +88,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const _IllustrationImage('assets/onboarding/ob_search.png'),
       ),
       _FeatureIntroPageData(
-        title: 'หน้าสอนการใช้ฟีเจอร์ "ค้นด้วยภาพวัตถุดิบ"',
+        title: 'ค้นหาสูตรด้วยภาพถ่ายวัตถุดิบ',
         subtitleAccent: 'ถ่ายรูปวัตถุดิบในครัว แล้วเราช่วยแนะนำเมนู',
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/images/onboarding/ob_scan.png'),
+            const _IllustrationImage('assets/onboarding/ob_scan.png'),
         steps: const [
           _StepCalloutData(1, 'กดไอคอนกล้องในแถบค้นหา'),
           _StepCalloutData(2, 'ถ่ายรูปหรือเลือกจากคลังภาพ'),
@@ -101,32 +99,32 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ],
       ),
       _FeatureIntroPageData(
-        title: 'จัดการรายการแพ้อาหารได้',
-        subtitleAccent: 'เราจะช่วยกรองสูตรที่ไม่เหมาะ',
+        title: 'จัดการรายการแพ้อาหาร',
+        subtitleAccent: 'เราจะช่วยเตือนและกรองสูตรที่ไม่เหมาะกับคุณ',
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/images/onboarding/ob_allergy.png'),
+            const _IllustrationImage('assets/onboarding/ob_allergy.png'),
       ),
       _FeatureIntroPageData(
         title: 'สร้างคลังสูตรของฉัน',
         subtitleAccent: 'บันทึกสูตรที่ชอบ เพิ่มสูตรของคุณเอง',
-        illustrationBuilder: (_) => const _IllustrationImage(
-            'assets/images/onboarding/ob_myrecipes.png'),
+        illustrationBuilder: (_) =>
+            const _IllustrationImage('assets/onboarding/ob_myrecipes.png'),
       ),
       _FeatureIntroPageData(
-        title: 'พร้อมอร่อยไปกับเราไหม?',
+        title: 'พร้อมอร่อยไปกับเราแล้วหรือยัง?',
         subtitleAccent: null,
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/images/onboarding/ob_ready.png'),
+            const _IllustrationImage('assets/onboarding/ob_ready.png'),
       ),
     ];
   }
 
   /* ────────────────────────── ACTIONS ────────────────────────── */
-  bool get _isLast => _index == _pages.length - 1;
+  bool get _isLastPage => _index == _pages.length - 1;
 
   void _next() {
-    if (_isLast) {
-      _finish(signUpPressed: !_loggedIn); // ถ้ายังไม่ล็อกอินถือว่าอยากสมัคร
+    if (_isLastPage) {
+      _finish(wantsToSignUp: !_loggedIn); // ถ้ายังไม่ล็อกอินถือว่าอยากสมัคร
     } else {
       _pc.nextPage(
           duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
@@ -134,110 +132,93 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _skip() {
-    _finish(signUpPressed: false);
+    _finish(wantsToSignUp: false);
   }
 
-  Future<void> _finish({required bool signUpPressed}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('hasSeenOnboarding', true);
+  /// ✅ 3. ปรับปรุง `_finish` ให้เรียกใช้ Service และ Named Routes
+  Future<void> _finish({required bool wantsToSignUp}) async {
+    // ย้ายการบันทึกค่า "เคยเห็น Onboarding แล้ว" ไปไว้ที่ Service
+    await AuthService.setOnboardingComplete();
     if (!mounted) return;
 
-    Widget dest;
-    if (signUpPressed && !_loggedIn) {
-      dest = const WelcomeScreen();
+    String destinationRoute;
+    if (wantsToSignUp) {
+      destinationRoute = '/welcome'; // ไปหน้า Welcome/Register/Login
     } else {
-      // ถ้าล็อกอินแล้ว (หรือกดข้าม) ไป Home ถ้า login, ถ้าไม่ login ไป Welcome
-      final logged = _loggedIn || await AuthService.isLoggedIn();
-      dest = logged ? const HomeScreen() : const WelcomeScreen();
+      // ถ้ากดข้าม หรือเป็นผู้ใช้ที่เคย login แล้ว ให้ไปหน้า Home
+      destinationRoute = _loggedIn ? '/home' : '/welcome';
     }
 
-    Navigator.of(context).pushReplacement(PageRouteBuilder(
-      pageBuilder: (_, __, ___) => dest,
-      transitionDuration: const Duration(milliseconds: 500),
-      transitionsBuilder: (_, animation, __, child) =>
-          FadeTransition(opacity: animation, child: child),
-    ));
+    Navigator.of(context).pushReplacementNamed(destinationRoute);
   }
 
   /* ────────────────────────── UI BUILD ────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    final pages = _pages; // local
+    // ✅ 4. ใช้ Theme จาก context
+    final theme = Theme.of(context);
+    final isLast = _isLastPage;
+    final mainButtonLabel = isLast
+        ? (_loggedIn ? 'เริ่มใช้งาน' : 'สมัครสมาชิก / เข้าสู่ระบบ')
+        : 'ต่อไป';
+    final secondaryButtonLabel = 'ข้าม';
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
               child: PageView.builder(
                 controller: _pc,
-                itemCount: pages.length,
+                itemCount: _pages.length,
                 onPageChanged: (i) => setState(() => _index = i),
-                itemBuilder: (context, i) => _FeatureIntroPage(pages[i]),
+                itemBuilder: (context, i) => _FeatureIntroPage(_pages[i]),
               ),
             ),
             const SizedBox(height: 16),
-            _Dots(count: pages.length, index: _index, activeColor: _accent),
+            _Dots(
+              count: _pages.length,
+              index: _index,
+              activeColor: theme.colorScheme.primary,
+              inactiveColor: theme.colorScheme.surfaceVariant,
+            ),
             const SizedBox(height: 24),
-            _buildButtons(),
+            // ✅ 5. ปรับปรุงปุ่มให้ดึงสไตล์จาก Theme
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: _loadingLogin ? null : _next,
+                      child: Text(mainButtonLabel),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: OutlinedButton(
+                      onPressed: _loadingLogin ? null : _skip,
+                      child: Text(secondaryButtonLabel),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 32),
           ],
         ),
       ),
     );
   }
-
-  Widget _buildButtons() {
-    final isLast = _isLast;
-    final mainLabel =
-        isLast ? (_loggedIn ? 'เริ่มใช้งาน' : 'สมัครสมาชิกเลย') : 'ต่อไป';
-    final secLabel = isLast ? 'ข้าม' : 'ข้าม'; // เหมือนกันแต่ปรับได้
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _accent,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(28)),
-                textStyle:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              onPressed: _loadingLogin ? null : _next,
-              child: Text(mainLabel),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFFDBDBDB), width: 2),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(28)),
-                textStyle:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                foregroundColor: _textLight,
-              ),
-              onPressed: _loadingLogin ? null : _skip,
-              child: Text(secLabel),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/*  วิดเจ็ตเพจย่อย                                                              */
+/* วิดเจ็ตเพจย่อย (ปรับปรุงให้ Responsive และใช้ Theme)                      */
 /* ────────────────────────────────────────────────────────────────────────── */
 class _FeatureIntroPage extends StatelessWidget {
   final _FeatureIntroPageData data;
@@ -245,37 +226,41 @@ class _FeatureIntroPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mq = MediaQuery.of(context);
-    final maxH = mq.size.height;
-    final bool showSteps = data.steps != null && data.steps!.isNotEmpty;
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final showSteps = data.steps != null && data.steps!.isNotEmpty;
 
-    // scale ภาพเล็กลงอิงความสูงหน้าจอ
-    final double illusMaxH = maxH * (showSteps ? 0.38 : 0.48);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const SizedBox(height: 8),
+          // ส่วนของข้อความ
           Text(data.title,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontSize: 24, fontWeight: FontWeight.bold, color: _textDark)),
+              style: textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.bold)),
           if (data.subtitleAccent != null) ...[
             const SizedBox(height: 12),
             Text(data.subtitleAccent!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w600, color: _accent)),
+                style: textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                )),
           ],
           const SizedBox(height: 24),
-          ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: illusMaxH, maxWidth: 500),
-            child: data.illustrationBuilder(context),
+
+          // ส่วนของรูปภาพ (ให้ยืดหยุ่นตามพื้นที่ที่เหลือ)
+          Expanded(
+            child: FractionallySizedBox(
+              widthFactor: 0.9,
+              child: data.illustrationBuilder(context),
+            ),
           ),
+
+          // ส่วนของขั้นตอน (ถ้ามี)
           if (showSteps) ...[
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
             _StepCalloutList(data.steps!),
           ],
         ],
@@ -285,35 +270,37 @@ class _FeatureIntroPage extends StatelessWidget {
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/*  รูปประกอบ                                                                   */
+/* รูปประกอบ                                                                  */
 /* ────────────────────────────────────────────────────────────────────────── */
 class _IllustrationImage extends StatelessWidget {
   final String asset;
-  const _IllustrationImage(this.asset, {Key? key}) : super(key: key);
+  const _IllustrationImage(this.asset);
 
   @override
   Widget build(BuildContext context) {
     return Image.asset(asset, fit: BoxFit.contain, errorBuilder: (_, __, ___) {
-      // fallback debug placeholder
       return Container(
-        color: _brand.withOpacity(.2),
+        color: Theme.of(context).colorScheme.secondaryContainer,
         alignment: Alignment.center,
-        child: const Text('ภาพหาย', style: TextStyle(color: _textLight)),
+        child: Text('ไม่สามารถโหลดรูปภาพได้',
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSecondaryContainer)),
       );
     });
   }
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/*  Step Callouts                                                               */
+/* Step Callouts                                                             */
 /* ────────────────────────────────────────────────────────────────────────── */
 class _StepCalloutList extends StatelessWidget {
   final List<_StepCalloutData> steps;
-  const _StepCalloutList(this.steps, {Key? key}) : super(key: key);
+  const _StepCalloutList(this.steps);
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: steps.map((s) => _StepCallout(s)).toList(),
     );
@@ -322,33 +309,29 @@ class _StepCalloutList extends StatelessWidget {
 
 class _StepCallout extends StatelessWidget {
   final _StepCalloutData data;
-  const _StepCallout(this.data, {Key? key}) : super(key: key);
+  const _StepCallout(this.data);
 
   @override
   Widget build(BuildContext context) {
-    final color = data.bulletColor ?? _accent;
+    final theme = Theme.of(context);
+    final color = data.bulletColor ?? theme.colorScheme.primary;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 24,
-            height: 24,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-                color: color.withOpacity(.15),
-                border: Border.all(color: color, width: 1.5),
-                shape: BoxShape.circle),
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: color.withOpacity(0.15),
             child: Text('${data.number}',
-                style: TextStyle(
-                    color: color, fontWeight: FontWeight.bold, fontSize: 14)),
+                style: theme.textTheme.labelSmall
+                    ?.copyWith(color: color, fontWeight: FontWeight.bold)),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(data.text,
-                style: const TextStyle(
-                    fontSize: 16, color: _textDark, height: 1.25)),
+                style: theme.textTheme.bodyMedium?.copyWith(height: 1.3)),
           ),
         ],
       ),
@@ -357,32 +340,34 @@ class _StepCallout extends StatelessWidget {
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/*  จุดบอกหน้าสไลด์                                                             */
+/* จุดบอกหน้าสไลด์                                                            */
 /* ────────────────────────────────────────────────────────────────────────── */
 class _Dots extends StatelessWidget {
   final int count;
   final int index;
   final Color activeColor;
-  const _Dots(
-      {required this.count,
-      required this.index,
-      required this.activeColor,
-      Key? key})
-      : super(key: key);
+  final Color inactiveColor; // รับสี Inactive จากภายนอก
+  const _Dots({
+    required this.count,
+    required this.index,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(count, (i) {
-        final active = i == index;
+        final isActive = i == index;
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
           margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: active ? 12 : 8,
-          height: active ? 12 : 8,
+          width: isActive ? 12 : 8,
+          height: isActive ? 12 : 8,
           decoration: BoxDecoration(
-            color: active ? activeColor : const Color(0xFFD8D8D8),
+            color: isActive ? activeColor : inactiveColor,
             shape: BoxShape.circle,
           ),
         );

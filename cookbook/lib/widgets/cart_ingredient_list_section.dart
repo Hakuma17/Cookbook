@@ -1,11 +1,3 @@
-// lib/widgets/cart_ingredient_list_section.dart
-//
-// responsive-plus (2025-07-11)
-// – logic เหมือนเดิม 100 %
-// – ใช้ clamp(w * factor , min , max) ปรับฟอนต์-ระยะห่าง
-// – when list.isEmpty → ข้อความอยู่กึ่งกลาง, padding สวยขึ้นทุกจอ
-// ---------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 import '../models/cart_ingredient.dart';
 import 'cart_ingredient_tile.dart';
@@ -13,75 +5,81 @@ import 'cart_ingredient_tile.dart';
 class CartIngredientListSection extends StatelessWidget {
   final List<CartIngredient> ingredients;
 
-  const CartIngredientListSection({Key? key, required this.ingredients})
-      : super(key: key);
+  const CartIngredientListSection({super.key, required this.ingredients});
 
   @override
   Widget build(BuildContext context) {
-    /* ── responsive helpers ── */
-    final w = MediaQuery.of(context).size.width;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
+    //  1. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
 
-    final headF = clamp(w * .044, 14, 20); // หัวข้อ “วัตถุดิบ”
-    final subF = clamp(w * .040, 13, 17); // “xx ชิ้น” & empty msg
-    final padH = clamp(w * .040, 12, 24); // padding แนวนอน
-    final padTop = clamp(w * .036, 10, 22); // padding ด้านบน
-    final padBtm = clamp(w * .050, 16, 28); // padding ด้านล่าง
-
-    /* ── ไม่มีวัตถุดิบ ── */
+    // --- กรณีไม่มีวัตถุดิบ ---
     if (ingredients.isEmpty) {
-      return Padding(
-        padding: EdgeInsets.symmetric(vertical: padBtm * .8),
-        child: Center(
-          child: Text('ยังไม่มีวัตถุดิบในตะกร้า',
-              style: TextStyle(fontSize: subF, color: Colors.grey.shade600)),
-        ),
-      );
+      return _buildEmptyState(textTheme, theme);
     }
 
     final count = ingredients.length;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(height: padTop),
-        /* ── หัวข้อ ── */
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: padH),
-          child: Text(
-            'วัตถุดิบ',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontFamily: 'Montserrat',
-                  fontWeight: FontWeight.w600,
-                  fontSize: headF,
-                  color: const Color(0xFF0A2533),
-                ),
+    // --- กรณีมีวัตถุดิบ ---
+    return Padding(
+      //  2. ใช้ Padding แบบคงที่ ทำให้ Layout คาดเดาได้ง่าย
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          // --- หัวข้อ ---
+          Text(
+            'วัตถุดิบทั้งหมด',
+            //  3. ใช้สไตล์จาก Theme ส่วนกลาง
+            style: textTheme.titleLarge,
           ),
-        ),
-        /* ── จำนวนชิ้น ── */
-        Padding(
-          padding: EdgeInsets.fromLTRB(padH, 4, padH, padTop * .75),
-          child: Text(
-            '$count ชิ้น',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontFamily: 'Roboto',
-                  fontWeight: FontWeight.w400,
-                  fontSize: subF,
-                  color: const Color(0xFFABABAB),
-                ),
+          // --- จำนวนชิ้น ---
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 8),
+            child: Text(
+              '$count รายการ',
+              style: textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
-        ),
-        /* ── รายการวัตถุดิบ ── */
-        ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.symmetric(horizontal: padH),
-          itemCount: ingredients.length,
-          itemBuilder: (_, i) => CartIngredientTile(ingredient: ingredients[i]),
-        ),
-        SizedBox(height: padBtm),
-      ],
+          // --- รายการวัตถุดิบ ---
+          // ListView.builder ถูกต้องแล้วสำหรับการแสดงรายการ
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: ingredients.length,
+            itemBuilder: (_, i) =>
+                CartIngredientTile(ingredient: ingredients[i]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ✅ 4. แยก Widget ของ Empty State ออกมาเพื่อความสะอาด
+  Widget _buildEmptyState(TextTheme textTheme, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 48.0),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.shopping_basket_outlined,
+            size: 48,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'ยังไม่มีวัตถุดิบในตะกร้า',
+            style: textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

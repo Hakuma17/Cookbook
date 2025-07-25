@@ -1,10 +1,9 @@
-// lib/screens/reset_password_screen.dart
 import 'dart:async';
-import 'dart:io';
+// import 'dart:io'; // 🗑️ ลบออก ไม่ได้ใช้แล้ว
 
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
-import 'otp_verification_screen.dart';
+// import 'otp_verification_screen.dart'; // 🗑️ ลบออก เพราะจะใช้ Named Routes
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -14,6 +13,8 @@ class ResetPasswordScreen extends StatefulWidget {
 }
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
+  // ✅ 1. เพิ่ม GlobalKey<FormState> เพื่อจัดการ Validation
+  final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _emailReg = RegExp(r'^[\w\.\-]+@[\w\-]+\.[a-zA-Z]+$');
 
@@ -26,16 +27,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     super.dispose();
   }
 
-  /* ─────────────────────────  helpers  ───────────────────────── */
+  /* ─────────────────────────  helpers  ───────────────────────── */
 
+  /// ✅ 2. ปรับปรุง Error Handling และ Navigation
   Future<void> _sendOtp() async {
-    final email = _emailCtrl.text.trim();
-
-    // 1) validate
-    if (!_emailReg.hasMatch(email)) {
-      if (mounted) setState(() => _errorMsg = 'กรุณากรอกอีเมลให้ถูกต้อง');
-      return;
-    }
+    // 1. Validate Form ก่อน
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     FocusScope.of(context).unfocus();
     if (mounted) {
@@ -46,147 +43,114 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
 
     try {
-      final result =
-          await ApiService.sendOtp(email).timeout(const Duration(seconds: 10));
-
+      final email = _emailCtrl.text.trim();
+      final result = await ApiService.sendOtp(email);
       if (!mounted) return;
 
-      final ok = result['success'] == true;
-      final msg = result['message'] ?? '';
+      final isSuccess = result['success'] == true;
+      final message = result['message'] ?? '';
 
-      if (ok || msg.startsWith('กรุณารออีก')) {
+      // Backend อาจตอบกลับมาว่า success: false แต่มี message ว่าให้รอ cooldown
+      // ซึ่งฝั่ง UI ถือว่าเป็น "การส่งสำเร็จ" ในแง่ของ UX
+      if (isSuccess || message.startsWith('กรุณารออีก')) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('ส่งรหัส OTP ไปยังอีเมลแล้ว')),
         );
         if (!mounted) return;
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) => OtpVerificationScreen(email: email)),
-        );
+        // 2. ใช้ Named Route ในการไปหน้าถัดไป
+        Navigator.pushNamed(context, '/verify_otp', arguments: email);
       } else {
-        setState(() => _errorMsg = msg.isEmpty ? 'เกิดข้อผิดพลาด' : msg);
+        setState(
+            () => _errorMsg = message.isEmpty ? 'เกิดข้อผิดพลาด' : message);
       }
-    } on TimeoutException {
-      if (mounted)
-        setState(() => _errorMsg = 'เซิร์ฟเวอร์ตอบช้า ลองใหม่ภายหลัง');
-    } on SocketException {
-      if (mounted)
-        setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _errorMsg = e.message);
     } catch (e) {
-      if (mounted) setState(() => _errorMsg = 'เกิดข้อผิดพลาด: $e');
+      if (mounted) setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /* ─────────────────────────  UI  ───────────────────────── */
+  /* ─────────────────────────  UI  ───────────────────────── */
 
   @override
   Widget build(BuildContext context) {
-    // คำนวณสัดส่วนจากหน้าจอจริง
-    final w = MediaQuery.of(context).size.width;
-    final h = MediaQuery.of(context).size.height;
-
-    // dynamic sizing
-    final padH = w * 0.064; // ~24px
-    final padV = h * 0.04; // ~32px
-    final titleFont = w * 0.053; // ~20px
-    final textFont = w * 0.037; // ~14px
-    final labelFont = w * 0.042; // ~16px
-    final errFont = w * 0.035; // ~13px
-    final spacingL = h * 0.03; // ~24px
-    final spacingS = h * 0.02; // ~16px
-    final spacingXs = h * 0.01; // ~8px
-    final fieldPadH = w * 0.043; // ~16px
-    final fieldPadV = h * 0.02; // ~16px
-    final btnHeight = h * 0.07; // ~56px
-    final btnRadius = BorderRadius.circular(w * 0.075); // ~28px
+    // ✅ 3. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
-        foregroundColor: Colors.black87,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: Text(
-          'รีเซ็ตรหัสผ่าน',
-          style: TextStyle(
-            fontSize: titleFont,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: const Text('ลืมรหัสผ่าน'),
       ),
       body: SingleChildScrollView(
-        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'กรอกอีเมลที่ใช้สมัครเพื่อรับรหัส OTP \nสำหรับรีเซ็ตรหัสผ่านของคุณ',
-              style: TextStyle(
-                fontSize: textFont,
-                height: 1.6,
-                color: Colors.black54,
+        padding: const EdgeInsets.all(24.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(
+                Icons.lock_reset,
+                size: 80,
+                color: theme.colorScheme.primary,
               ),
-            ),
-            SizedBox(height: spacingL),
-            if (_errorMsg != null) ...[
+              const SizedBox(height: 24),
               Text(
-                _errorMsg!,
-                style: TextStyle(color: Colors.red, fontSize: errFont),
-              ),
-              SizedBox(height: spacingXs),
-            ],
-            Text(
-              'อีเมลของคุณ',
-              style: TextStyle(
-                fontSize: labelFont,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: spacingXs),
-            TextField(
-              controller: _emailCtrl,
-              keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(
-                hintText: 'อีเมล@example.com',
-                filled: true,
-                fillColor: const Color(0xFFF5F3F3),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: fieldPadH,
-                  vertical: fieldPadV,
+                'กรอกอีเมลที่ใช้สมัครเพื่อรับรหัส OTP สำหรับตั้งรหัสผ่านใหม่ของคุณ',
+                textAlign: TextAlign.center,
+                style: textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.6,
                 ),
               ),
-              onSubmitted: (_) => _sendOtp(),
-            ),
-            SizedBox(height: spacingL),
-            SizedBox(
-              width: double.infinity,
-              height: btnHeight,
-              child: ElevatedButton(
+              const SizedBox(height: 32),
+              Text(
+                'อีเมลของคุณ',
+                style:
+                    textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  hintText: 'email@example.com',
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'กรุณากรอกอีเมล';
+                  if (!_emailReg.hasMatch(v.trim()))
+                    return 'รูปแบบอีเมลไม่ถูกต้อง';
+                  return null;
+                },
+                onFieldSubmitted: (_) => _sendOtp(),
+              ),
+              const SizedBox(height: 16),
+              if (_errorMsg != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Text(
+                    _errorMsg!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                ),
+              ElevatedButton(
                 onPressed: _isLoading ? null : _sendOtp,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF8A65),
-                  shape: RoundedRectangleBorder(borderRadius: btnRadius),
-                ),
                 child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : Text(
-                        'ส่งรหัส OTP',
-                        style: TextStyle(
-                          fontSize: labelFont,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
+                    ? const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 3),
+                      )
+                    : const Text('ส่งรหัส OTP'),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

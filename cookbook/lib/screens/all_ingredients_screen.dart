@@ -1,33 +1,30 @@
 // lib/screens/all_ingredients_screen.dart
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
-import 'dart:io';
-
+// import 'dart:io'; // 🗑️ ลบออก ไม่ได้ใช้แล้ว
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+// import 'package:shared_preferences/shared_preferences.dart'; // 🗑️ ลบออก เพราะจะเรียกผ่าน AuthService
 
 import '../models/ingredient.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart'; // ✅ 1. เพิ่ม AuthService
 import '../widgets/ingredient_card.dart';
 import '../widgets/custom_bottom_nav.dart';
-import 'home_screen.dart';
-import 'my_recipes_screen.dart';
-import 'profile_screen.dart';
 import 'search_screen.dart';
 
 class AllIngredientsScreen extends StatefulWidget {
   /// ★ ถ้า true จะเป็นโหมดเลือก (Selection),
-  ///    ไม่กระโดดไป Search แต่เรียก `onSelected`
+  ///     ไม่กระโดดไป Search แต่เรียก `onSelected`
   final bool selectionMode;
 
   /// ★ Callback เมื่อเลือก Ingredient (ใช้ในโหมดเลือก)
   final void Function(Ingredient)? onSelected;
 
   const AllIngredientsScreen({
-    Key? key,
+    super.key,
     this.selectionMode = false,
     this.onSelected,
-  }) : super(key: key);
+  });
 
   @override
   State<AllIngredientsScreen> createState() => _AllIngredientsScreenState();
@@ -35,21 +32,19 @@ class AllIngredientsScreen extends StatefulWidget {
 
 class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   /* ─── state ───────────────────────────────────────────── */
-  late Future<List<Ingredient>> _futureIngredients;
+  late Future<void> _initFuture; // ✅ 2. ใช้ Future เดียวในการโหลดข้อมูลเริ่มต้น
   List<Ingredient> _all = [];
   List<Ingredient> _filtered = [];
 
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _debounce;
 
-  int _selectedIndex = 1; // Explore tab
   String? _username, _profileImg;
 
   @override
   void initState() {
     super.initState();
-    _loadUserInfo();
-    _loadIngredients();
+    _initFuture = _initialize(); // เรียก Future เดียวจาก initState
     _searchCtrl.addListener(_onSearchChanged);
   }
 
@@ -61,34 +56,38 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   }
 
   /* ─── data loaders ───────────────────────────────────── */
+  /// ✅ 3. รวมการโหลดข้อมูลเริ่มต้นไว้ในที่เดียว
+  Future<void> _initialize() async {
+    // โหลดข้อมูล User และ วัตถุดิบพร้อมกันเพื่อความรวดเร็ว
+    await Future.wait([
+      _loadUserInfo(),
+      _loadIngredients(),
+    ]);
+  }
+
   Future<void> _loadUserInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _username = prefs.getString('profileName') ?? 'ผู้ใช้';
-      _profileImg = prefs.getString('profileImage');
-    });
+    // ดึงข้อมูลจาก AuthService แทนการใช้ SharedPreferences โดยตรง
+    _username = await AuthService.getProfileName();
+    _profileImg = await AuthService.getProfileImage();
+    if (mounted) setState(() {});
   }
 
-  void _loadIngredients() {
-    _futureIngredients = _fetchIngredientsSafe();
-  }
-
-  Future<List<Ingredient>> _fetchIngredientsSafe() async {
+  Future<void> _loadIngredients() async {
     try {
-      final list = await ApiService.fetchIngredients()
-          .timeout(const Duration(seconds: 10));
-      _all = list;
-      _filtered = _applyFilter(list, _searchCtrl.text);
-      return list;
-    } on TimeoutException {
-      _showSnack('เซิร์ฟเวอร์ไม่ตอบสนอง');
-    } on SocketException {
-      _showSnack('ไม่มีการเชื่อมต่ออินเทอร์เน็ต');
+      final list = await ApiService.fetchIngredients();
+      if (!mounted) return;
+
+      setState(() {
+        _all = list;
+        _filtered = _applyFilter(list, _searchCtrl.text);
+      });
+    } on UnauthorizedException {
+      _logout(); // ถ้า Session หมดอายุ ให้ logout ทันที
+    } on ApiException catch (e) {
+      _showSnack(e.message);
     } catch (e) {
-      _showSnack('เกิดข้อผิดพลาด: $e');
+      _showSnack('เกิดข้อผิดพลาดที่ไม่รู้จัก: $e');
     }
-    return [];
   }
 
   /* ─── search ─────────────────────────────────────────── */
@@ -107,33 +106,21 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     return clean.where((i) => i.name.toLowerCase().contains(lower)).toList();
   }
 
-  /* ─── bottom-nav ─────────────────────────────────────── */
-  void _onTabSelected(int idx) {
-    if (idx == _selectedIndex) return;
-    setState(() => _selectedIndex = idx);
-
-    switch (idx) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-        break;
-      case 1:
-        break;
-      case 2:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MyRecipesScreen()),
-        );
-        break;
-      case 3:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-        );
-        break;
+  /* ─── bottom-nav & actions ───────────────────────────── */
+  /// ✅ 4. สร้างฟังก์ชันสำหรับ Logout โดยเฉพาะ
+  Future<void> _logout() async {
+    await AuthService.logout();
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
     }
+  }
+
+  void _onTabSelected(int idx) {
+    // การใช้ named routes จะทำให้จัดการง่ายกว่าในระยะยาว
+    const routes = ['/home', null, '/my_recipes', '/profile'];
+    if (idx == 1 || routes[idx] == null) return; // index 1 คือหน้าปัจจุบัน
+
+    Navigator.pushReplacementNamed(context, routes[idx]!);
   }
 
   /* ─── helpers ────────────────────────────────────────── */
@@ -145,65 +132,47 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   /* ─── build ──────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    // responsive helpers
-    final size = MediaQuery.of(context).size;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
-
-    // dynamic paddings / font
-    final padH = clamp(size.width * .045, 14, 24);
-    final padTop = clamp(size.height * .016, 12, 20);
-    final searchV = clamp(size.height * .012, 10, 18);
-    final avatarR = clamp(size.width * .06, 20, 28);
-    final fontH = clamp(size.width * .048, 16, 22);
-    final iconSz = avatarR; // ให้ไอคอน ~ เท่า avatar เสมอ
+    // ✅ 5. ลบการคำนวณขนาดเองทั้งหมด และใช้ Theme จาก context แทน
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.colorScheme.surface,
       bottomNavigationBar: widget.selectionMode
           ? null
           : CustomBottomNav(
-              selectedIndex: _selectedIndex,
+              selectedIndex: 1, // Explore tab
               onItemSelected: _onTabSelected,
-              isLoggedIn: true,
             ),
       body: SafeArea(
         child: Column(
           children: [
             /* ─── header bar ─── */
             _HeaderBar(
-              avatarR: avatarR,
-              iconSz: iconSz,
-              padH: padH,
-              padV: padTop,
-              fontSz: fontH,
               username: _username,
               profileImg: _profileImg,
               selectionMode: widget.selectionMode,
+              onActionPressed: widget.selectionMode
+                  ? () => Navigator.pop(context)
+                  : _logout, // ส่งฟังก์ชัน logout ไปแทน
             ),
-
             /* ─── search box ─── */
             Padding(
-              padding: EdgeInsets.fromLTRB(padH, searchV, padH, 0),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: TextField(
                 controller: _searchCtrl,
-                decoration: InputDecoration(
+                // ใช้ InputDecoration จาก Theme ที่กำหนดไว้ใน main.dart
+                decoration: const InputDecoration(
                   hintText: 'คุณอยากหาวัตถุดิบอะไร?',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  prefixIcon: Icon(Icons.search),
                   isDense: true,
                 ),
               ),
             ),
-            SizedBox(height: clamp(size.height * .012, 8, 14)),
-
             /* ─── grid list ─── */
             Expanded(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: padH),
-                child: _buildGrid(clamp),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildGrid(),
               ),
             ),
           ],
@@ -213,38 +182,43 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   }
 
   /* ─── grid builder ───────────────────────────────────── */
-  Widget _buildGrid(double Function(double, double, double) clamp) {
-    return FutureBuilder<List<Ingredient>>(
-      future: _futureIngredients,
+  Widget _buildGrid() {
+    return FutureBuilder(
+      future: _initFuture,
       builder: (_, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (_filtered.isEmpty) {
-          return const Center(child: Text('ไม่พบวัตถุดิบ'));
+        if (snap.hasError) {
+          return Center(child: Text('เกิดข้อผิดพลาดในการโหลด: ${snap.error}'));
+        }
+        if (_all.isEmpty) {
+          // เช็คข้อมูลจาก _all แทน _filtered ตอนเริ่มต้น
+          return const Center(child: Text('ไม่พบข้อมูลวัตถุดิบ'));
         }
 
-        // คำนวณจำนวนคอลัมน์ตามขนาดหน้าจอ
+        // แสดงผลว่าไม่พบจากการค้นหา
+        if (_searchCtrl.text.isNotEmpty && _filtered.isEmpty) {
+          return const Center(child: Text('ไม่พบวัตถุดิบที่ค้นหา'));
+        }
+
         return LayoutBuilder(builder: (_, cs) {
           const minW = 95.0;
           final cols = (cs.maxWidth / minW).floor().clamp(2, 6);
-          final itemW = cs.maxWidth / cols;
-          final itemH = itemW * 1.35;
 
           return GridView.builder(
+            padding: const EdgeInsets.only(bottom: 16),
             itemCount: _filtered.length,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,
-              mainAxisSpacing: clamp(itemH * .12, 12, 20),
-              crossAxisSpacing: clamp(itemW * .08, 8, 16),
-              childAspectRatio: itemW / itemH,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              childAspectRatio: 0.75, // ปรับอัตราส่วนให้เหมาะสม
             ),
             itemBuilder: (_, i) {
               final ing = _filtered[i];
               return IngredientCard(
                 ingredient: ing,
-                width: itemW,
-                height: itemH,
                 onTap: () {
                   if (widget.selectionMode) {
                     widget.onSelected?.call(ing);
@@ -267,65 +241,56 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   }
 }
 
-/*──────────────────── header bar (extract) ───────────────────*/
+/*──────────────────── header bar (refactored) ───────────────────*/
+/// ✅ 6. ปรับปรุง HeaderBar ให้รับ Callback และใช้ Theme
 class _HeaderBar extends StatelessWidget {
-  final double padH, padV, avatarR, iconSz, fontSz;
   final String? username, profileImg;
   final bool selectionMode;
+  final VoidCallback onActionPressed;
 
   const _HeaderBar({
-    required this.padH,
-    required this.padV,
-    required this.avatarR,
-    required this.iconSz,
-    required this.fontSz,
     required this.username,
     required this.profileImg,
     required this.selectionMode,
+    required this.onActionPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    final provider = (profileImg?.isNotEmpty ?? false)
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+
+    final provider = (profileImg != null && profileImg!.isNotEmpty)
         ? NetworkImage(profileImg!)
         : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFE1E1E1))),
-        color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+        color: theme.colorScheme.surface,
       ),
       child: Row(
         children: [
           CircleAvatar(
-            radius: avatarR,
-            backgroundColor: Colors.grey[300],
+            radius: 24,
+            backgroundColor: theme.colorScheme.surfaceVariant,
             backgroundImage: provider,
           ),
-          SizedBox(width: padH * .7),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'สวัสดี ${username ?? ''}',
-              style: TextStyle(fontSize: fontSz, fontWeight: FontWeight.w600),
+              'สวัสดี ${username ?? 'คุณ'}',
+              // ใช้ TextStyle จาก Theme
+              style:
+                  textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           IconButton(
-            icon: Icon(
-              selectionMode ? Icons.close : Icons.logout,
-              color: const Color(0xFF666666),
-            ),
-            iconSize: iconSz,
-            onPressed: selectionMode
-                ? () => Navigator.pop(context)
-                : () async {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.clear();
-                    if (context.mounted) {
-                      Navigator.pushNamedAndRemoveUntil(
-                          context, '/login', (_) => false);
-                    }
-                  },
+            icon: Icon(selectionMode ? Icons.close : Icons.logout_outlined),
+            color: theme.colorScheme.onSurfaceVariant,
+            onPressed: onActionPressed, // เรียกใช้ Callback ที่ส่งมา
           ),
         ],
       ),

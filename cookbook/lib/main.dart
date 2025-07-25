@@ -1,214 +1,337 @@
-// ignore_for_file: use_build_context_synchronously
+// ------------------------------------------------------------
+// 2025‑07‑21  – stable build: theme polish + safer routing
+// ------------------------------------------------------------
 import 'dart:async';
+import 'dart:developer';
 
+import 'package:cookbook/screens/ingredient_filter_screen.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ★ เพิ่ม
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'screens/change_password_screen.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 
 import 'screens/splash_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
+import 'screens/verify_otp_screen.dart';
+import 'screens/reset_password_screen.dart';
+import 'screens/new_password_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/recipe_detail_screen.dart';
 import 'screens/my_recipes_screen.dart';
-import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/edit_profile_screen.dart';
 import 'screens/all_ingredients_screen.dart';
-import 'screens/change_password_screen.dart';
 import 'screens/allergy_screen.dart';
+import 'screens/step_detail_screen.dart';
+import 'screens/references_screen.dart';
 
 import 'models/recipe.dart';
+import 'models/recipe_step.dart';
+import 'widgets/auth_guard.dart';
+import 'widgets/error_page.dart';
 
-/* ───────────── globals ───────────── */
+/* ───────────── GLOBALS ───────────── */
 final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 final RouteObserver<ModalRoute<void>> routeObserver =
     RouteObserver<ModalRoute<void>>();
 
-/* ───────────── main ───────────── */
+/* ───────────── MAIN ───────────── */
 Future<void> main() async {
-  runZonedGuarded(() async {
-    WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  await initializeDateFormatting('th_TH', null);
+  await ApiService.init();
 
-    // ★ ล็อก orientation เป็น “แนวตั้ง” (portrait) เท่านั้น
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      // DeviceOrientation.portraitDown, // ← เอาออกถ้าไม่ต้องการกลับหัว
-    ]);
-
-    await ApiService.initBaseUrl(); // ตั้งค่า base URL
-    await initializeDateFormatting('th', null); // load locale TH
-
+  runZonedGuarded(() {
     FlutterError.onError = (details) {
-      FlutterError.presentError(details);
-      debugPrint('Flutter framework error: ${details.exception}');
+      log('Flutter framework error:',
+          error: details.exception, stackTrace: details.stack);
     };
+    runApp(const MyApp());
+  }, (error, stack) {
+    log('Uncaught zoned error:', error: error, stackTrace: stack);
 
-    runApp(const CookingGuideApp());
-  }, (error, stack) async {
-    debugPrint('Uncaught zone error → $error\n$stack');
-
-    if ('$error'.contains('401') || '$error'.contains('Unauthenticated')) {
-      await AuthService.logout(silent: true);
-      navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
+    if (error is UnauthorizedException) {
+      AuthService.logout().then((_) {
+        navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
+      });
       return;
     }
 
-    final ctx = navKey.currentContext;
-    if (ctx != null && ctx.mounted) {
-      ScaffoldMessenger.of(ctx).showSnackBar(
+    final context = navKey.currentContext;
+    if (context != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('เกิดข้อผิดพลาดไม่คาดคิด: $error')),
       );
     }
   });
 }
 
-/* ───────────── app ───────────── */
-class CookingGuideApp extends StatelessWidget {
-  const CookingGuideApp({super.key});
-  static const _primary = Color(0xFFFF9B05);
-
-  ThemeData _theme() => ThemeData(
-        useMaterial3: false,
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: ColorScheme.fromSeed(seedColor: _primary),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _primary,
-            foregroundColor: Colors.white,
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: _primary,
-            side: const BorderSide(color: _primary, width: 1.5),
-          ),
-        ),
-      );
+/* ───────────── APP ───────────── */
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'Cooking Guide',
-        debugShowCheckedModeBanner: false,
-        navigatorKey: navKey,
-        navigatorObservers: [routeObserver],
-        theme: _theme(),
-        home: const SplashScreen(),
-        onGenerateRoute: _onGenerateRoute,
-        onUnknownRoute: (_) => _errorRoute('ไม่พบหน้าที่คุณเรียก'),
-      );
+  Widget build(BuildContext context) {
+    // — 1  brand palette
+    const primaryColor = Color(0xFFFF9B05);
+    const primaryContainerColor = Color(0xFFFCC09C);
+    const onSurfaceColor = Color(0xFF0A2533);
+    const onSurfaceVariantColor = Color(0xFF666666);
 
-  /* ───────────── route factory ───────────── */
-  Route<dynamic>? _onGenerateRoute(RouteSettings s) {
-    switch (s.name) {
+    // — 2  base theme
+    final baseTheme = ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: primaryColor,
+        primary: primaryColor,
+        brightness: Brightness.light,
+        surface: Colors.white,
+        onSurface: onSurfaceColor,
+        onSurfaceVariant: onSurfaceVariantColor,
+      ),
+      scaffoldBackgroundColor: const Color(0xFFFEF9F5),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        },
+      ),
+    );
+
+    // — 3  component overrides
+    final appTheme = baseTheme.copyWith(
+      textTheme: GoogleFonts.itimTextTheme(baseTheme.textTheme).apply(
+        bodyColor: onSurfaceColor,
+        displayColor: onSurfaceColor,
+      ),
+      appBarTheme: baseTheme.appBarTheme.copyWith(
+        elevation: 1,
+        centerTitle: true,
+        backgroundColor: baseTheme.colorScheme.surface,
+        foregroundColor: onSurfaceColor,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black26,
+        titleTextStyle: GoogleFonts.itim(
+          textStyle: baseTheme.textTheme.titleLarge,
+          color: onSurfaceColor,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          foregroundColor: Colors.white,
+          backgroundColor: primaryColor,
+          minimumSize: const Size(0, 56), // ✔ safe‑width
+          shape: const StadiumBorder(),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          textStyle:
+              GoogleFonts.itim(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: onSurfaceColor,
+          minimumSize: const Size(0, 56), // ✔ safe‑width
+          shape: const StadiumBorder(),
+          side: BorderSide(color: onSurfaceColor, width: 1.5),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          textStyle:
+              GoogleFonts.itim(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: const Color.fromARGB(181, 116, 108, 95),
+          textStyle: GoogleFonts.itim(fontWeight: FontWeight.bold),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.grey.shade100,
+        hintStyle: TextStyle(color: onSurfaceVariantColor.withOpacity(0.7)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade300, width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: primaryColor, width: 2),
+        ),
+      ),
+      cardTheme: CardTheme(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        color: Colors.white,
+        shadowColor: Colors.black.withOpacity(0.08),
+      ),
+      chipTheme: baseTheme.chipTheme.copyWith(
+        shape: const StadiumBorder(),
+        side: BorderSide(color: primaryColor.withOpacity(0.5)),
+        backgroundColor: primaryContainerColor.withOpacity(0.2),
+        labelStyle:
+            GoogleFonts.itim(color: primaryColor, fontWeight: FontWeight.bold),
+      ),
+      bottomNavigationBarTheme: baseTheme.bottomNavigationBarTheme.copyWith(
+        selectedItemColor: primaryColor,
+        unselectedItemColor: onSurfaceVariantColor,
+        backgroundColor: Colors.white,
+        elevation: 8,
+        showUnselectedLabels: true,
+        type: BottomNavigationBarType.fixed,
+        selectedLabelStyle: GoogleFonts.itim(fontWeight: FontWeight.bold),
+        unselectedLabelStyle: GoogleFonts.itim(),
+      ),
+      dialogTheme: DialogTheme(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
+
+    return MaterialApp(
+      title: 'Cooking Guide',
+      debugShowCheckedModeBanner: false,
+      navigatorKey: navKey,
+      navigatorObservers: [routeObserver],
+      theme: appTheme,
+      initialRoute: '/splash',
+      onGenerateRoute: _onGenerateRoute,
+      onUnknownRoute: (_) => MaterialPageRoute(
+          builder: (_) => const ErrorPage(message: 'ไม่พบหน้าที่คุณเรียก')),
+    );
+  }
+
+  /* ───────────── ROUTING ───────────── */
+  Route<dynamic>? _onGenerateRoute(RouteSettings settings) {
+    final args = settings.arguments;
+
+    switch (settings.name) {
+      /* public */
+      case '/splash':
+        return _fade(const SplashScreen(), settings);
+      case '/onboarding':
+        return _fade(const OnboardingScreen(), settings);
+      case '/welcome':
+        return _fade(const WelcomeScreen(), settings);
       case '/login':
-        return _fade((_) => const LoginScreen(), s);
-
-      case '/home':
-        return _fade((_) => const HomeScreen(), s);
-
-      case '/search':
-        return _material((_) => const SearchScreen(), s);
-
-      case '/recipe_detail':
-        if (s.arguments case final Recipe r) {
-          return _material((_) => RecipeDetailScreen(recipeId: r.id), s);
+        return _material(const LoginScreen(), settings);
+      case '/register':
+        return _material(const RegisterScreen(), settings);
+      case '/reset_password':
+        return _material(const ResetPasswordScreen(), settings);
+      case '/verify_otp':
+        if (args is String) {
+          return _material(VerifyOtpScreen(email: args), settings);
         }
-        return _errorRoute('ข้อมูล recipe ไม่ถูกต้อง');
+        return _errorRoute('ข้อมูลอีเมลไม่ถูกต้อง');
+      case '/new_password':
+        if (args is Map<String, String>) {
+          return _material(
+            NewPasswordScreen(email: args['email']!, otp: args['otp']!),
+            settings,
+          );
+        }
+        return _errorRoute('ข้อมูล OTP ไม่ถูกต้อง');
 
-      case '/my_recipes':
-        final tab = (s.arguments is int && (s.arguments as int) <= 1)
-            ? s.arguments as int
-            : 0;
+      /* main */
+      case '/home':
+        return _fade(const HomeScreen(), settings);
+      case '/search':
+        final p = (args is Map) ? args : null;
         return _material(
-          (_) => AuthGuard(child: MyRecipesScreen(initialTab: tab)),
-          s,
+          SearchScreen(
+            initialSortIndex: p?['initialSortIndex'],
+            ingredients: p?['ingredients'],
+          ),
+          settings,
         );
+      case '/recipe_detail':
+        if (args is int) {
+          return _material(RecipeDetailScreen(recipeId: args), settings);
+        }
+        if (args is Recipe) {
+          return _material(RecipeDetailScreen(recipeId: args.id), settings);
+        }
+        return _errorRoute('ข้อมูลสูตรอาหารไม่ถูกต้อง');
+      case '/step_detail':
+        if (args is Map) {
+          return _material(
+            StepDetailScreen(
+              steps: args['steps'] as List<RecipeStep>,
+              imageUrls: args['imageUrls'] as List<String>,
+              initialIndex: args['initialIndex'] as int,
+            ),
+            settings,
+          );
+        }
+        return _errorRoute('ข้อมูลขั้นตอนไม่ถูกต้อง');
 
+      /* protected */
+      case '/my_recipes':
+        return _material(
+          AuthGuard(
+            child: MyRecipesScreen(initialTab: (args is int) ? args : 0),
+          ),
+          settings,
+        );
       case '/profile':
-        return _material((_) => const AuthGuard(child: ProfileScreen()), s);
-
+        return _material(const AuthGuard(child: ProfileScreen()), settings);
       case '/settings':
-        return _material((_) => const AuthGuard(child: SettingsScreen()), s);
-
+        return _material(const AuthGuard(child: SettingsScreen()), settings);
       case '/edit_profile':
-        return _material((_) => const AuthGuard(child: EditProfileScreen()), s);
-
-      case '/all_ingredients':
-        return _material((_) => const AllIngredientsScreen(), s);
-
+        return _material(const AuthGuard(child: EditProfileScreen()), settings);
       case '/change_password':
         return _material(
-            (_) => const AuthGuard(child: ChangePasswordScreen()), s);
-
+          const AuthGuard(child: ChangePasswordScreen()),
+          settings,
+        );
       case '/allergy':
-        return _material((_) => const AuthGuard(child: AllergyScreen()), s);
+        return _material(const AuthGuard(child: AllergyScreen()), settings);
+      case '/references':
+        return _material(const ReferencesScreen(), settings);
+      case '/all_ingredients':
+        return _material(const AllIngredientsScreen(), settings);
+      case '/ingredient_filter':
+        final p = (args is Map) ? args : null;
+        return _material(
+          IngredientFilterScreen(
+            initialInclude: p?['initialInclude'],
+            initialExclude: p?['initialExclude'],
+          ),
+          settings,
+        );
 
       default:
         return null;
     }
   }
 
-  /* ───────────── helpers ───────────── */
+  /* ───────────── HELPERS ───────────── */
   Route<dynamic> _errorRoute(String msg) =>
-      _material((_) => _ErrorPage(message: msg), const RouteSettings());
+      MaterialPageRoute(builder: (_) => ErrorPage(message: msg));
 
-  MaterialPageRoute _material(WidgetBuilder b, RouteSettings s) =>
-      MaterialPageRoute(builder: b, settings: s);
+  MaterialPageRoute _material(Widget child, RouteSettings s) =>
+      MaterialPageRoute(builder: (_) => child, settings: s);
 
-  PageRouteBuilder _fade(WidgetBuilder b, RouteSettings s) => PageRouteBuilder(
+  PageRouteBuilder _fade(Widget child, RouteSettings s) => PageRouteBuilder(
         settings: s,
-        transitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (c, _, __) => b(c),
+        pageBuilder: (_, __, ___) => child,
+        transitionDuration: const Duration(milliseconds: 400),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
-      );
-}
-
-/* ───────────── auth guard ───────────── */
-class AuthGuard extends StatelessWidget {
-  const AuthGuard({required this.child, super.key});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => FutureBuilder<bool>(
-        future: AuthService.isLoggedIn(),
-        builder: (ctx, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (snap.data == true) return child;
-
-          ApiService.clearSession();
-          return const LoginScreen();
-        },
-      );
-}
-
-/* ───────────── fallback page ───────────── */
-class _ErrorPage extends StatelessWidget {
-  const _ErrorPage({required this.message});
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: Center(
-          child: AlertDialog(
-            title: const Text('เกิดข้อผิดพลาด'),
-            content: Text(message),
-            actions: [
-              TextButton(
-                onPressed: () =>
-                    Navigator.pushReplacementNamed(context, '/home'),
-                child: const Text('กลับหน้าหลัก'),
-              ),
-            ],
-          ),
-        ),
       );
 }

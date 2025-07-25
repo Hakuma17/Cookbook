@@ -1,117 +1,92 @@
-// lib/widgets/cart_ingredient_tile.dart
-//
-// responsive-plus (2025-07-11)
-//
-// – logic onTap / model ไม่เปลี่ยน
-// – ใช้ clamp(screenW * factor, min, max) ตลอด
-// – เปลี่ยน FadeInImage → Image.network + loading/error builder
-//   เพื่อลด popping ของ placeholder
-// – ไม่มี overflow บนจอเล็ก รวมถึงภาษาไทยยาว ๆ 1 บรรทัด
-// -----------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 import '../models/cart_ingredient.dart';
 
 class CartIngredientTile extends StatelessWidget {
   final CartIngredient ingredient;
 
-  const CartIngredientTile({Key? key, required this.ingredient})
-      : super(key: key);
+  const CartIngredientTile({super.key, required this.ingredient});
+
+  // Helper สำหรับจัดรูปแบบตัวเลขทศนิยม
+  String _formatQuantity(double quantity) {
+    if (quantity == quantity.roundToDouble()) {
+      return quantity.toInt().toString();
+    }
+    return quantity.toStringAsFixed(2);
+  }
 
   @override
   Widget build(BuildContext context) {
-    /* ── responsive metrics ── */
-    final w = MediaQuery.of(context).size.width;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
+    // 1. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final colorScheme = theme.colorScheme;
 
-    final imgSz = clamp(w * .17, 48, 80); // ด้านยาวรูป
-    final padCard = clamp(w * .030, 10, 18); // padding card
-    final radius = clamp(w * .040, 12, 20); // border radius
-    final gapH = clamp(w * .040, 12, 24); // ช่องว่างระหว่างรูป-ข้อความ
-    final nameF = clamp(w * .050, 15, 22); // ฟอนต์ชื่อ
-    final qtyF = clamp(w * .042, 13, 18); // ฟอนต์ปริมาณ
-    final marginV = clamp(w * .020, 6, 14); // margin vertical
+    final quantityText = _formatQuantity(ingredient.quantity);
+    final unitText = ingredient.unit;
 
-    final qty = _fmt(ingredient.quantity);
-    final unit = ingredient.unit;
-
+    // 2. เปลี่ยนมาใช้ Card -> ListTile ซึ่งเป็นโครงสร้างที่เหมาะสมและจัดการง่าย
     return Card(
-      elevation: 3,
-      margin: EdgeInsets.symmetric(vertical: marginV),
-      shadowColor: Colors.black12,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(padCard),
-        child: Row(
-          children: [
-            /* ── ภาพวัตถุดิบ ── */
-            ClipRRect(
-              borderRadius: BorderRadius.circular(radius * .6),
-              child: Image.network(
-                ingredient.imageUrl,
-                width: imgSz,
-                height: imgSz,
-                fit: BoxFit.cover,
-                loadingBuilder: (_, child, ev) => ev == null
-                    ? child
-                    : Image.asset('assets/images/default_ingredients.png',
-                        width: imgSz, height: imgSz, fit: BoxFit.cover),
-                errorBuilder: (_, __, ___) => Image.asset(
-                    'assets/images/default_ingredients.png',
-                    width: imgSz,
-                    height: imgSz,
-                    fit: BoxFit.cover),
-              ),
-            ),
-            SizedBox(width: gapH),
-            /* ── ชื่อวัตถุดิบ ── */
-            Expanded(
-              child: Text(
-                ingredient.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontFamily: 'Roboto',
-                  fontSize: nameF,
-                  fontWeight: FontWeight.w500,
-                  color: const Color(0xFF0A2533),
-                ),
-              ),
-            ),
-            SizedBox(width: gapH * .8),
-            /* ── ปริมาณ + หน่วย ── */
-            RichText(
-              text: TextSpan(
-                style: const TextStyle(fontFamily: 'Montserrat'),
-                children: [
-                  TextSpan(
-                    text: qty,
-                    style: TextStyle(
-                      fontSize: qtyF,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF0A2533),
-                    ),
-                  ),
-                  TextSpan(
-                    text: ' $unit',
-                    style: TextStyle(
-                      fontSize: qtyF,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF908F8F),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+      margin: const EdgeInsets.symmetric(vertical: 6.0),
+      // Card จะใช้สไตล์จาก CardTheme ใน main.dart โดยอัตโนมัติ
+      child: ListTile(
+        // --- ส่วนรูปภาพ ---
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8.0),
+          child: Image.network(
+            ingredient.imageUrl,
+            width: 56,
+            height: 56,
+            fit: BoxFit.cover,
+            // แสดง Placeholder ขณะโหลดรูป
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return Container(
+                width: 56,
+                height: 56,
+                color: colorScheme.surfaceVariant,
+                child: const Center(
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+              );
+            },
+            // แสดง Placeholder เมื่อโหลดรูปไม่สำเร็จ
+            errorBuilder: (_, __, ___) {
+              return Container(
+                width: 56,
+                height: 56,
+                color: colorScheme.surfaceVariant,
+                child: Icon(Icons.image_not_supported_outlined,
+                    color: colorScheme.onSurfaceVariant),
+              );
+            },
+          ),
         ),
+        // --- ชื่อวัตถุดิบ ---
+        title: Text(
+          ingredient.name,
+          style: textTheme.titleMedium,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        // --- ปริมาณ + หน่วย ---
+        trailing: RichText(
+          text: TextSpan(
+            //  3. ใช้สไตล์จาก Theme ส่วนกลาง
+            style: textTheme.bodyMedium,
+            children: [
+              TextSpan(
+                text: quantityText,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              TextSpan(
+                text: ' $unitText',
+                style: TextStyle(color: colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
       ),
     );
   }
-
-  String _fmt(double q) =>
-      q % 1 == 0 ? q.toInt().toString() : q.toStringAsFixed(2);
 }

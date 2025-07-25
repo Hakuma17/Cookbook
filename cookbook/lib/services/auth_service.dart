@@ -1,54 +1,47 @@
 // lib/services/auth_service.dart
+//
+// Service จัดการสถานะการล็อกอิน + คุกกี้ + SharedPreferences
+//
+import 'dart:async';
 
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-
-import 'package:cookbook/main.dart' show navKey;
-import 'package:cookbook/models/ingredient.dart';
 import 'api_service.dart';
 
 class AuthService {
   /* ───── prefs keys ───── */
+  static const _kAuthToken = 'authToken';
   static const _kIsLoggedIn = 'isLoggedIn';
   static const _kUserId = 'userId';
   static const _kProfileName = 'profileName';
   static const _kProfileImage = 'profileImage';
   static const _kEmail = 'email';
+  static const _kHasSeenOnboarding = 'hasSeenOnboarding';
 
   /* ───── prefs cache ───── */
   static final Future<SharedPreferences> _prefs =
       SharedPreferences.getInstance();
 
-  /* ───── session ping cache (TTL 90s) ───── */
-  static bool? _cachedValid;
-  static DateTime _lastPing = DateTime.fromMillisecondsSinceEpoch(0);
-  static const _pingTTL = Duration(seconds: 90);
+  /* ───── in‑memory cache (sync read) ───── */
+  static bool _cachedLoggedIn = false; // ค่าเริ่มจะ false จนกว่าจะ init
+  static bool _cacheInitialized = false;
+
+  /// เรียกครั้งแรกตอนเปิดแอปเพื่อ sync cache (ไม่จำเป็นต้องรอ Future ทุกครั้ง)
+  static Future<void> init() async {
+    if (_cacheInitialized) return;
+    final p = await _prefs;
+    _cachedLoggedIn = p.getBool(_kIsLoggedIn) ?? false;
+    _cacheInitialized = true;
+  }
 
   /* ───────────── auth helpers ───────────── */
+  /// Async – ตรวจ SharedPreferences ตรง ๆ
   static Future<bool> isLoggedIn() async {
     final p = await _prefs;
-    if (!(p.getBool(_kIsLoggedIn) ?? false)) return false;
-
-    if (DateTime.now().difference(_lastPing) < _pingTTL &&
-        _cachedValid != null) {
-      return _cachedValid!;
-    }
-
-    try {
-      final ok = await ApiService.pingSession();
-      _cachedValid = ok;
-      _lastPing = DateTime.now();
-      if (!ok) await logout(silent: true);
-      return ok;
-    } catch (_) {
-      await logout(silent: true);
-      return false;
-    }
+    return p.getBool(_kIsLoggedIn) ?? false;
   }
+
+  /// Sync – คืนค่าจากแคชในหน่วยความจำ (ต้องเรียก init() สักครั้งก่อน)
+  static bool isLoggedInSync() => _cachedLoggedIn;
 
   static Future<int?> getUserId() async => (await _prefs).getInt(_kUserId);
   static Future<String?> getProfileName() async =>
@@ -56,6 +49,24 @@ class AuthService {
   static Future<String?> getProfileImage() async =>
       (await _prefs).getString(_kProfileImage);
   static Future<String?> getEmail() async => (await _prefs).getString(_kEmail);
+
+  /* ───────────── Token Helpers ───────────── */
+  static Future<void> saveToken(String token) async {
+    final p = await _prefs;
+    await p.setString(_kAuthToken, token);
+  }
+
+  static Future<String?> getToken() async =>
+      (await _prefs).getString(_kAuthToken);
+
+  static Future<void> clearToken() async => (await _prefs).remove(_kAuthToken);
+
+  /* ───────── Onboarding Helpers ───────── */
+  static Future<void> setOnboardingComplete() async =>
+      (await _prefs).setBool(_kHasSeenOnboarding, true);
+
+  static Future<bool> hasSeenOnboarding() async =>
+      (await _prefs).getBool(_kHasSeenOnboarding) ?? false;
 
   /* ───────────── save / clear ───────────── */
   static Future<void> saveLogin({
@@ -65,15 +76,14 @@ class AuthService {
     required String email,
   }) async {
     final p = await _prefs;
-    await Future.wait([
-      p.setBool(_kIsLoggedIn, true),
-      p.setInt(_kUserId, userId),
-      p.setString(_kProfileName, profileName),
-      p.setString(_kProfileImage, profileImage),
-      p.setString(_kEmail, email.trim()),
-    ]);
-    _cachedValid = true;
-    _lastPing = DateTime.now();
+    await p.setBool(_kIsLoggedIn, true);
+    await p.setInt(_kUserId, userId);
+    await p.setString(_kProfileName, profileName);
+    await p.setString(_kProfileImage, profileImage);
+    await p.setString(_kEmail, email.trim());
+
+    // ↳ อัปเดตแคช sync
+    _cachedLoggedIn = true;
   }
 
   static Future<void> saveLoginData(Map<String, dynamic> d) => saveLogin(
@@ -83,32 +93,29 @@ class AuthService {
         email: d['email'] ?? '',
       );
 
-  static Future<void> logout({bool silent = false}) async {
+  static Future<void> logout() async {
     final p = await _prefs;
-    await p.clear();
-    ApiService.clearSession();
-    _cachedValid = false;
-    if (!silent) {
-      navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
-    }
+    await p.remove(_kAuthToken);
+    await p.remove(_kIsLoggedIn);
+    await p.remove(_kUserId);
+    await p.remove(_kProfileName);
+    await p.remove(_kProfileImage);
+    await p.remove(_kEmail);
+
+    // ↳ เคลียร์แคช sync
+    _cachedLoggedIn = false;
   }
 
   /* ───────────── misc helpers ───────────── */
   static Future<Map<String, dynamic>> getLoginData() async {
     final p = await _prefs;
     return {
-      'isLoggedIn': p.getBool(_kIsLoggedIn) ?? false,
+      'isLoggedIn': await isLoggedIn(),
       'userId': p.getInt(_kUserId),
       'profileName': p.getString(_kProfileName),
       'profileImage': p.getString(_kProfileImage),
       'email': p.getString(_kEmail),
     };
-  }
-
-  static Future<bool> checkAndRedirectIfLoggedOut(BuildContext ctx) async {
-    if (await isLoggedIn()) return true;
-    Navigator.of(ctx).pushReplacementNamed('/login');
-    return false;
   }
 
   static Future<List<String>> getUserAllergies() async {
@@ -120,46 +127,18 @@ class AuthService {
   static Future<bool> tryLogout() async {
     try {
       await ApiService.logout();
-      await logout(silent: true);
+      await logout();
       return true;
     } catch (_) {
-      await logout(silent: true);
+      await logout();
       return false;
     }
   }
 
   /* ═════════════ OTP SECTION ═════════════ */
+  static Future<Map<String, dynamic>> verifyOtp(String email, String otp) =>
+      ApiService.verifyOtp(email, otp);
 
-  /// ✅ ยืนยัน OTP (ใช้ทั้งสมัครใหม่และลืมรหัสผ่าน)
-  static Future<Map<String, dynamic>> verifyOtp(
-      String email, String otp) async {
-    try {
-      return await ApiService.verifyOtp(email, otp);
-    } on SocketException {
-      return {'success': false, 'message': 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์'};
-    } catch (e) {
-      return {'success': false, 'message': e.toString()};
-    }
-  }
-
-  /// ✅ ขอ OTP ใหม่ (เฉพาะ flow สมัครสมาชิก)
-  static Future<Map<String, dynamic>> resendOtp(String email) async {
-    try {
-      final uri = Uri.parse('${ApiService.baseUrl}resend_otp.php');
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-        },
-        body: {'email': email.trim()},
-      ).timeout(const Duration(seconds: 30));
-
-      return jsonDecode(response.body) as Map<String, dynamic>;
-    } on SocketException {
-      return {'success': false, 'message': 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์'};
-    } catch (e) {
-      return {'success': false, 'message': e.toString()};
-    }
-  }
+  static Future<Map<String, dynamic>> resendOtp(String email) =>
+      ApiService.resendOtp(email);
 }

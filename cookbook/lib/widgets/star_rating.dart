@@ -1,10 +1,3 @@
-// lib/widgets/star_rating.dart
-//
-// Responsive Star-Rating 2025-07-10
-// – ปรับ ‘size’ & ‘spacing’ อัตโนมัติเพื่อป้องกัน overflow
-// – ไม่กระทบ logic & signature เดิม
-// --------------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 
 /// Signature for when the user taps a star.
@@ -13,82 +6,56 @@ typedef RatingChangeCallback = void Function(double rating);
 
 /// StarRating
 /// แสดงดาว (เต็ม/ว่าง) ตามค่าที่กำหนด
-/// - [rating]           : คะแนนปัจจุบัน (0.0 – starCount)
-/// - [starCount]        : จำนวนดาว (default 5)
-/// - [size]             : *ขนาดไอคอนดาวเริ่มต้น* (default 32 ตาม mock-up)
-/// - [filledColor]      : สีดาวเต็ม (default #FFCC00)
-/// - [emptyColor]       : สีดาวว่าง (default #BFBFBF ตาม mock-up)
-/// - [spacing]          : *ระยะห่างเริ่มต้น* (default 8 ตาม mock-up)
-/// - [onRatingChanged]  : ถ้าไม่ null จะรองรับการแตะเพื่อเปลี่ยนเรตติ้ง
 class StarRating extends StatelessWidget {
   final double rating;
   final int starCount;
   final double size;
-  final Color filledColor;
-  final Color emptyColor;
+  final Color? filledColor;
+  final Color? emptyColor;
   final double spacing;
   final RatingChangeCallback? onRatingChanged;
 
   const StarRating({
-    Key? key,
+    super.key,
     this.rating = 0.0,
     this.starCount = 5,
-    this.size = 32.0,
-    this.filledColor = const Color(0xFFFFCC00),
-    this.emptyColor = const Color(0xFFBFBFBF),
-    this.spacing = 8.0,
+    this.size = 24.0, // ✅ 1. ปรับขนาดเริ่มต้นให้เหมาะสม
+    this.filledColor,
+    this.emptyColor,
+    this.spacing = 4.0, // ✅ 2. ปรับระยะห่างเริ่มต้นให้เหมาะสม
     this.onRatingChanged,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, constraints) {
-      // ────────── Responsive block ──────────
-      // 1) คำนวณ “พื้นที่จริง” ที่แสดง Row นี้ได้
-      final maxW = constraints.maxWidth.isFinite
-          ? constraints.maxWidth
-          : MediaQuery.of(ctx).size.width;
+    // ✅ 3. ลบ LayoutBuilder และการคำนวณทั้งหมด
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-      final maxH = constraints.maxHeight.isFinite
-          ? constraints.maxHeight
-          : double.infinity;
+    // กำหนดสีเริ่มต้นโดยอิงจาก Theme หากไม่ได้ระบุมา
+    final finalFilledColor = filledColor ?? Colors.amber.shade700;
+    final finalEmptyColor =
+        emptyColor ?? colorScheme.onSurface.withOpacity(0.3);
 
-      // 2) พื้นที่ที่ต้องการโดยใช้ค่าตั้งต้น
-      final needW = starCount * size + (starCount - 1) * spacing;
-      final needH = size;
-
-      // 3) scale = min(scaleW , scaleH , 1.0)
-      final scaleW = needW > maxW && maxW > 0 ? maxW / needW : 1.0;
-      final scaleH = needH > maxH && maxH > 0 ? maxH / needH : 1.0;
-      final scale = [scaleW, scaleH, 1.0].reduce((a, b) => a < b ? a : b);
-
-      // 4) ขนาดจริงหลังปรับ (ยังคงสัดส่วน)
-      final starSz = size * scale;
-      final starSp = spacing * scale;
-      // ──────────────────────────────────────
-
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: List.generate(starCount * 2 - 1, (index) {
-          if (index.isOdd) {
-            // ช่องว่างระหว่างดาว
-            return SizedBox(width: starSp);
-          }
-          final starIndex = index ~/ 2;
-          final filled = starIndex < rating;
-
-          return GestureDetector(
+    // ✅ 4. ใช้ for loop ใน Row children เพื่อสร้าง UI ที่สะอาดและอ่านง่าย
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < starCount; i++) ...[
+          GestureDetector(
             onTap: onRatingChanged == null
                 ? null
-                : () => onRatingChanged!((starIndex + 1).toDouble()),
+                : () => onRatingChanged!((i + 1).toDouble()),
             child: Icon(
-              filled ? Icons.star : Icons.star_outline,
-              size: starSz,
-              color: filled ? filledColor : emptyColor,
+              i < rating ? Icons.star_rounded : Icons.star_border_rounded,
+              size: size,
+              color: i < rating ? finalFilledColor : finalEmptyColor,
             ),
-          );
-        }),
-      );
-    });
+          ),
+          // เพิ่มช่องว่างถ้ายังไม่ใช่ดาวดวงสุดท้าย
+          if (i < starCount - 1) SizedBox(width: spacing),
+        ]
+      ],
+    );
   }
 }

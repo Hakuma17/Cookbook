@@ -1,11 +1,3 @@
-// lib/widgets/cart_button.dart
-//
-// responsive-plus 2025-07-11
-// – sizing / padding / font ปรับตามความกว้างจอด้วย clamp()
-// – ป้องกัน overflow ทุกขนาดจอ
-// – logic ใส่ตะกร้า & picker จำนวนเสิร์ฟ เหมือนเดิม 100 %
-// -------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 
 /// CartButton
@@ -17,87 +9,67 @@ class CartButton extends StatelessWidget {
   final VoidCallback? onAddToCart;
 
   const CartButton({
-    Key? key,
+    super.key,
     required this.recipeId,
     this.currentServings = 1,
     this.onServingsChanged,
     this.onAddToCart,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
-    const borderColor = Color(0xFFFCC09C);
-    const accentColor = Color(0xFFFF9B05);
-
-    /* ───────── responsive metrics ───────── */
-    final w = MediaQuery.of(context).size.width;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
-
-    final radius = clamp(w * .035, 10, 20); // มุมโค้ง
-    final iconSize = clamp(w * .060, 18, 28); // ไอคอน
-    final padCart = clamp(w * .022, 6, 12); // padding ปุ่มตะกร้า
-    final padServH = clamp(w * .038, 10, 18); // padding pill-H
-    final padServV = clamp(w * .020, 4, 10); // padding pill-V
-    final textF = clamp(w * .038, 13, 17); // ฟอนต์ตัวเลข
-    final gap = clamp(w * .030, 8, 16); // ช่องว่างระหว่างปุ่ม
+    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final colorScheme = theme.colorScheme;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        /* ── ปุ่มตะกร้า ── */
-        InkWell(
-          onTap: onAddToCart,
-          borderRadius: BorderRadius.circular(radius),
-          child: Container(
-            padding: EdgeInsets.all(padCart),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: borderColor, width: 1.5),
-              borderRadius: BorderRadius.circular(radius),
+        // ✅ 2. เปลี่ยนมาใช้ IconButton มาตรฐาน
+        // IconButton สามารถกำหนดสไตล์ได้หลากหลายและจัดการ state ได้ดีกว่า
+        IconButton(
+          onPressed: onAddToCart,
+          icon: const Icon(Icons.shopping_cart_outlined),
+          tooltip: 'เพิ่มลงตะกร้า',
+          style: IconButton.styleFrom(
+            backgroundColor: colorScheme.surface,
+            foregroundColor: colorScheme.primary,
+            side: BorderSide(color: colorScheme.outline.withOpacity(0.5)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(Icons.shopping_cart_outlined,
-                size: iconSize, color: borderColor),
           ),
         ),
-        SizedBox(width: gap),
+        const SizedBox(width: 8),
 
-        /* ── ปุ่มเลือกจำนวนเสิร์ฟ ── */
-        InkWell(
-          onTap: () async {
+        // ✅ 3. เปลี่ยนมาใช้ OutlinedButton มาตรฐาน
+        // OutlinedButton เหมาะสำหรับปุ่มที่มีลักษณะเป็นกรอบ
+        OutlinedButton(
+          onPressed: () async {
             final selected = await showModalBottomSheet<int>(
               context: context,
-              isScrollControlled: true,
               builder: (_) => _ServingsPicker(initialServings: currentServings),
             );
             if (selected != null) onServingsChanged?.call(selected);
           },
-          borderRadius: BorderRadius.circular(radius),
-          child: Container(
-            padding:
-                EdgeInsets.symmetric(horizontal: padServH, vertical: padServV),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: borderColor, width: 1.5),
-              borderRadius: BorderRadius.circular(radius),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.person_outline, size: iconSize * .8),
-                const SizedBox(width: 4),
-                Text(
-                  '$currentServings',
-                  style: TextStyle(
-                      fontFamily: 'Montserrat',
-                      fontSize: textF,
-                      fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 2),
-                Icon(Icons.keyboard_arrow_down,
-                    size: iconSize * .8, color: accentColor),
-              ],
-            ),
+          style: OutlinedButton.styleFrom(
+            side: BorderSide(color: colorScheme.outline.withOpacity(0.5)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.person_outline,
+                  size: 20, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                '$currentServings',
+                style: textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 2),
+              Icon(Icons.keyboard_arrow_down, color: colorScheme.primary),
+            ],
           ),
         ),
       ],
@@ -106,39 +78,43 @@ class CartButton extends StatelessWidget {
 }
 
 /*──────────────── picker จำนวนเสิร์ฟ (1–10) ────────────────*/
+/// ✅ 4. ปรับปรุง Picker ให้ใช้ Theme ด้วย
 class _ServingsPicker extends StatelessWidget {
   final int initialServings;
 
-  const _ServingsPicker({Key? key, required this.initialServings})
-      : super(key: key);
+  const _ServingsPicker({required this.initialServings});
 
   @override
   Widget build(BuildContext context) {
-    final scrW = MediaQuery.of(context).size.width;
-    final maxH = MediaQuery.of(context).size.height * .55;
-    final fSize = (scrW * .044).clamp(14, 18).toDouble();
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final maxHeight = MediaQuery.of(context).size.height * 0.55;
 
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.only(top: 16),
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxH),
+          constraints: BoxConstraints(maxHeight: maxHeight),
           child: ListView.builder(
             itemCount: 10,
             shrinkWrap: true,
             itemBuilder: (_, i) {
-              final s = i + 1;
+              final servings = i + 1;
+              final isSelected = servings == initialServings;
+
               return ListTile(
                 title: Text(
-                  '$s คน',
-                  style: TextStyle(
-                    fontSize: fSize,
-                    fontWeight: s == initialServings
-                        ? FontWeight.w700
-                        : FontWeight.w400,
+                  '$servings คน',
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? theme.colorScheme.primary : null,
                   ),
                 ),
-                onTap: () => Navigator.of(context).pop(s),
+                trailing: isSelected
+                    ? Icon(Icons.check, color: theme.colorScheme.primary)
+                    : null,
+                onTap: () => Navigator.of(context).pop(servings),
               );
             },
           ),

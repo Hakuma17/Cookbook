@@ -1,7 +1,12 @@
-// lib/screens/recipe_detail_screen.dart
-import 'dart:async';
-import 'dart:io';
+// ------------------------------------------------------------
+// 2025‑07‑23  – fix: empty‑steps handling, bottom overflow,
+//                infinite‑width button, clean‑ups
+// ------------------------------------------------------------
 
+import 'dart:async';
+import 'dart:developer';
+
+import 'package:cookbook/widgets/voice_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -19,12 +24,6 @@ import '../widgets/step_widget.dart';
 import '../widgets/cart_button.dart';
 import '../widgets/comment_section.dart';
 import '../widgets/comment_editor.dart';
-import '../widgets/custom_bottom_nav.dart';
-
-import 'login_screen.dart';
-import 'step_detail_screen.dart';
-import 'my_recipes_screen.dart';
-import 'profile_screen.dart';
 
 class RecipeDetailScreen extends StatefulWidget {
   final int recipeId;
@@ -35,43 +34,34 @@ class RecipeDetailScreen extends StatefulWidget {
 }
 
 class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
+  /* ───── controllers ───── */
   final _pageCtrl = PageController();
-  final _scrollCtrl = ScrollController();
   final _commentKey = GlobalKey();
+  final _scrollCtrl = ScrollController();
 
-  late Future<RecipeDetail?> _futureRecipe; // ← nullable (404 = null)
+  /* ───── futures ───── */
+  late Future<RecipeDetail> _initFuture;
 
+  /* ───── UI state ───── */
   int _currentPage = 0;
-  int _selectedIndex = 2;
   bool _isLoggedIn = false;
   bool _isFavorited = false;
   int _currentServings = 1;
-
   List<Comment> _comments = [];
   int _userRating = 0;
 
+  /* ───── life‑cycle ───── */
   @override
   void initState() {
     super.initState();
     if (widget.recipeId <= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่พบสูตรอาหารที่ต้องการ')),
-        );
+        if (mounted) Navigator.pop(context);
       });
+      _initFuture = Future.error('Invalid Recipe ID');
       return;
     }
-    _futureRecipe = _safeFetchDetail();
-    _refreshData();
-  }
-
-  Future<RecipeDetail?> _safeFetchDetail() async {
-    try {
-      return await ApiService.fetchRecipeDetail(widget.recipeId);
-    } catch (_) {
-      return null; // network error / 404
-    }
+    _initFuture = _loadAllData();
   }
 
   @override
@@ -81,492 +71,444 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
     super.dispose();
   }
 
+  /* ───── data load ───── */
+  Future<RecipeDetail> _loadAllData() async {
+    try {
+      final results = await Future.wait([
+        AuthService.isLoggedIn(),
+        ApiService.fetchRecipeDetail(widget.recipeId),
+        ApiService.getComments(widget.recipeId),
+        AuthService.getLoginData(),
+      ]);
+
+      final isLoggedIn = results[0] as bool;
+      final recipe = results[1] as RecipeDetail;
+      final rawComments = results[2] as List<Comment>;
+      final loginData = results[3] as Map<String, dynamic>;
+
+      final mapped = rawComments
+          .map((c) => c.isMine
+              ? c.copyWith(
+                  profileName: () => loginData['profileName'] ?? c.profileName,
+                  avatarUrl: () => loginData['profileImage'] ?? c.avatarUrl,
+                )
+              : c)
+          .toList();
+
+      final myComment =
+          mapped.firstWhere((c) => c.isMine, orElse: () => Comment.empty());
+
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = isLoggedIn;
+          _isFavorited = recipe.isFavorited;
+          _currentServings = recipe.currentServings;
+          _comments = mapped;
+          _userRating = myComment.rating ?? 0;
+        });
+      }
+      return recipe;
+    } on UnauthorizedException {
+      await AuthService.logout();
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
+      }
+      throw Exception('Session หมดอายุ');
+    } on ApiException catch (e) {
+      throw Exception(e.message);
+    } catch (e, st) {
+      log('loadAllData error', error: e, stackTrace: st);
+      throw Exception('ไม่สามารถโหลดข้อมูลสูตรอาหารได้');
+    }
+  }
+
+  /* ───── build ───── */
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: FutureBuilder<RecipeDetail>(
+        future: _initFuture,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError || !snap.hasData) {
+            return _buildErrorState(snap.error?.toString() ?? 'ไม่พบข้อมูล');
+          }
+
+          final recipe = snap.data!;
+          final hasSteps = recipe.steps.isNotEmpty;
+
+          return RefreshIndicator(
+            onRefresh: () async => setState(() => _initFuture = _loadAllData()),
+            child: CustomScrollView(
+              controller: _scrollCtrl,
+              slivers: [
+                _buildSliverAppBar(recipe),
+                _buildSliverContent(recipe, hasSteps),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /* ───── Sliver app‑bar ───── */
+  Widget _buildSliverAppBar(RecipeDetail recipe) {
+    final theme = Theme.of(context);
+    return SliverAppBar(
+      expandedHeight: 300,
+      pinned: true,
+      stretch: true,
+      systemOverlayStyle: SystemUiOverlayStyle.light,
+      backgroundColor: theme.colorScheme.surface,
+      foregroundColor: theme.colorScheme.onSurface,
+      flexibleSpace: FlexibleSpaceBar(
+        stretchModes: const [StretchMode.zoomBackground],
+        background: Stack(
+          fit: StackFit.expand,
+          children: [
+            CarouselWidget(
+              imageUrls: recipe.imageUrls,
+              controller: _pageCtrl,
+              onPageChanged: (i) => setState(() => _currentPage = i),
+            ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black54, Colors.transparent],
+                  stops: [0, .5],
+                ),
+              ),
+            ),
+            if (recipe.imageUrls.length > 1)
+              Positioned(
+                bottom: 16,
+                left: 0,
+                right: 0,
+                child: _buildDotsIndicator(recipe.imageUrls.length, theme),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /* ───── Sliver content ───── */
+  Widget _buildSliverContent(RecipeDetail recipe, bool hasSteps) {
+    final theme = Theme.of(context);
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+
+    return SliverList(
+      delegate: SliverChildListDelegate(
+        [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RecipeMetaWidget(
+                  name: recipe.name,
+                  averageRating: recipe.averageRating,
+                  reviewCount: recipe.reviewCount,
+                  createdAt: recipe.createdAt,
+                  prepTimeMinutes: recipe.prepTime,
+                ),
+                if (recipe.categories.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  TagList(tags: recipe.categories),
+                ],
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('วัตถุดิบ', style: theme.textTheme.titleLarge),
+                    CartButton(
+                      recipeId: recipe.id,
+                      currentServings: _currentServings,
+                      onServingsChanged: (v) =>
+                          setState(() => _currentServings = v),
+                      onAddToCart: _addToCart,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                IngredientTable(
+                  items: recipe.ingredients,
+                  baseServings: recipe.nServings,
+                  currentServings: _currentServings,
+                ),
+                const SizedBox(height: 24),
+
+                // Nutrition
+                if (recipe.nutrition != null) ...[
+                  Text('โภชนาการ', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  NutritionSummary(
+                    nutrition: recipe.nutrition!,
+                    baseServings: recipe.nServings,
+                    currentServings: _currentServings,
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
+                // Steps
+                Text('วิธีทำ', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 8),
+                if (hasSteps)
+                  StepWidget(
+                    steps: recipe.steps,
+                    onStepTap: (i) => Navigator.pushNamed(
+                      context,
+                      '/step_detail',
+                      arguments: {
+                        'steps': recipe.steps,
+                        'imageUrls': recipe.imageUrls,
+                        'initialIndex': i,
+                      },
+                    ),
+                  )
+                else
+                  Text('เมนูนี้ยังไม่มีขั้นตอนวิธีทำ',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant)),
+                const SizedBox(height: 24),
+
+                // Favorite
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _toggleFavorite(!_isFavorited),
+                    icon: Icon(
+                      _isFavorited ? Icons.bookmark : Icons.bookmark_border,
+                      color: Colors.white,
+                    ),
+                    label: const Text('เพิ่มเป็นสูตรโปรด',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(0, 56),
+                      shape: const StadiumBorder(),
+                      backgroundColor: _isFavorited
+                          ? theme.colorScheme.primary
+                          : Colors.grey.shade500,
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Voice button
+                VoiceButton(
+                  enabled: hasSteps,
+                  onPressed: hasSteps
+                      ? () => Navigator.pushNamed(
+                            context,
+                            '/step_detail',
+                            arguments: {
+                              'steps': recipe.steps,
+                              'imageUrls': recipe.imageUrls,
+                              'initialIndex': 0,
+                            },
+                          )
+                      : null,
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+
+          // Comments
+          CommentSection(
+            key: _commentKey,
+            myComment: _comments.firstWhere((c) => c.isMine,
+                orElse: () => Comment.empty()),
+            otherComments: _comments.where((c) => !c.isMine).toList(),
+            currentRating: _userRating,
+            isLoggedIn: _isLoggedIn,
+            onRatingSelected: (r) => _openEditor(initRating: r),
+            onCommentPressed: () => _openEditor(initRating: _userRating),
+            onEdit: (c) => _openEditor(
+                initRating: c.rating ?? 0, initText: c.comment ?? ''),
+            onDelete: (_) => _deleteComment(),
+          ),
+
+          // bottom padding to avoid overflow
+          SizedBox(height: 32 + bottomPad),
+        ],
+      ),
+    );
+  }
+
+  /* ───── dots indicator ───── */
+  Widget _buildDotsIndicator(int count, ThemeData theme) => Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(
+          count,
+          (i) {
+            final active = i == _currentPage;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              width: active ? 10 : 8,
+              height: active ? 10 : 8,
+              decoration: BoxDecoration(
+                color: active ? theme.colorScheme.primary : Colors.white70,
+                shape: BoxShape.circle,
+              ),
+            );
+          },
+        ),
+      );
+
+  /* ───── error ui ───── */
+  Widget _buildErrorState(String msg) => Scaffold(
+        appBar: AppBar(),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 60),
+                const SizedBox(height: 16),
+                Text(msg,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => setState(() => _initFuture = _loadAllData()),
+                  child: const Text('ลองอีกครั้ง'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  /* ───── helpers ───── */
+  void _showSnack(String m, {bool err = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(m),
+      backgroundColor:
+          err ? Theme.of(context).colorScheme.error : Colors.green[600],
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
   void _scrollToComments() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _commentKey.currentContext;
       if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeInOut,
-        );
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeInOut);
       }
     });
   }
 
-  Future<void> _openEditor({int initRating = 0, String initText = ''}) async {
-    final offset = _scrollCtrl.offset;
+  /* ───── actions ───── */
+  Future<void> _toggleFavorite(bool fav) async {
+    if (!_isLoggedIn) {
+      final ok = await Navigator.pushNamed(context, '/login');
+      if (ok != true) return;
+      setState(() => _initFuture = _loadAllData());
+      return;
+    }
 
-    final ok = await showModalBottomSheet<bool>(
+    setState(() => _isFavorited = fav);
+    try {
+      await ApiService.toggleFavorite(widget.recipeId, fav);
+    } on ApiException catch (e) {
+      _showSnack(e.message);
+      setState(() => _isFavorited = !fav);
+    }
+  }
+
+  Future<void> _addToCart() async {
+    if (!_isLoggedIn) {
+      final ok = await Navigator.pushNamed(context, '/login');
+      if (ok != true) return;
+      setState(() => _initFuture = _loadAllData());
+      return;
+    }
+
+    try {
+      await ApiService.updateCart(widget.recipeId, _currentServings.toDouble());
+      _showSnack('เพิ่มลงตะกร้าเรียบร้อยแล้ว', err: false);
+    } on ApiException catch (e) {
+      _showSnack(e.message);
+    }
+  }
+
+  Future<void> _openEditor({int initRating = 0, String initText = ''}) async {
+    if (!_isLoggedIn) {
+      final ok = await Navigator.pushNamed(context, '/login');
+      if (ok != true) return;
+    }
+
+    final offset = _scrollCtrl.offset;
+    final submitted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       builder: (_) => CommentEditor(
         recipeId: widget.recipeId,
         initialRating: initRating,
         initialText: initText,
-        onSubmitted: () {},
       ),
     );
 
-    if (ok == true) await _refreshData();
-
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted) {
+    if (submitted == true) {
+      setState(() {
+        _initFuture = _loadAllData().then((v) {
+          _scrollToComments();
+          return v;
+        });
+      });
+    } else if (_scrollCtrl.hasClients) {
       _scrollCtrl.animateTo(
         offset,
         duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
+        curve: Curves.easeOut,
       );
     }
   }
 
   Future<void> _deleteComment() async {
-    await ApiService.deleteComment(widget.recipeId);
-    await _refreshData();
-    _scrollToComments();
-  }
-
-  Future<void> _refreshData() async {
-    try {
-      final loggedIn = await AuthService.isLoggedIn();
-      final recipe = await ApiService.fetchRecipeDetail(widget.recipeId);
-      final rawComment = await ApiService.getComments(widget.recipeId);
-      final loginData = await AuthService.getLoginData();
-
-      final mapped = rawComment.map((c) {
-        if (!c.isMine) return c;
-        return Comment(
-          userId: c.userId,
-          profileName: loginData['profileName'] ?? c.profileName,
-          avatarUrl: loginData['profileImage'] ?? c.avatarUrl,
-          rating: c.rating,
-          comment: c.comment,
-          createdAt: c.createdAt,
-          isMine: true,
-        );
-      }).toList();
-
-      final mine =
-          mapped.firstWhere((c) => c.isMine, orElse: () => Comment.empty());
-
-      if (mounted) {
-        setState(() {
-          _futureRecipe = Future.value(recipe);
-          _comments = mapped;
-          _userRating = mine.rating ?? 0;
-          _isLoggedIn = loggedIn;
-          _currentServings = recipe.currentServings;
-          _isFavorited = recipe.isFavorited;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ดึงข้อมูลล้มเหลว: $e')),
-        );
-      }
-    }
-  }
-
-  Widget _buildDots(int total, double dot) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: List.generate(total, (i) {
-          final active = i == _currentPage;
-          return Container(
-            margin: EdgeInsets.symmetric(horizontal: dot / 2),
-            width: dot,
-            height: dot,
-            decoration: BoxDecoration(
-              color: active ? const Color(0xFFFF9B05) : const Color(0xFFE3E3E3),
-              borderRadius: BorderRadius.circular(dot / 2),
-            ),
-          );
-        }),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    final statusBar = MediaQuery.of(context).padding.top;
-
-    return LayoutBuilder(builder: (context, constraints) {
-      /* ───── responsive numbers ───── */
-      final w = constraints.maxWidth;
-
-      double clamp(double v, double min, double max) =>
-          v < min ? min : (v > max ? max : v);
-
-      final carouselH = clamp(w * 0.68, 220, 340); // รูปหลัก
-      final dotSz = clamp(w * 0.014, 4.5, 7); // ดอทแถบล่าง
-      final nextBtn = clamp(w * 0.11, 40, 56); // ปุ่ม next
-      final paddingH = clamp(w * 0.04, 12, 24); // ขอบซ้าย/ขวา
-      final text16 = clamp(w * 0.04, 14, 18); // ฟอนต์ 16→ responsive
-
-      return AnnotatedRegion<SystemUiOverlayStyle>(
-        value: SystemUiOverlayStyle.light,
-        child: Scaffold(
-          extendBodyBehindAppBar: true,
-          body: FutureBuilder<RecipeDetail?>(
-            future: _futureRecipe,
-            builder: (ctx, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snap.data == null) {
-                return const Center(child: Text('ไม่พบสูตรอาหารนี้'));
-              }
-
-              final recipe = snap.data!;
-
-              return RefreshIndicator(
-                onRefresh: _refreshData,
-                child: SingleChildScrollView(
-                  controller: _scrollCtrl,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        height: statusBar + carouselH + 16,
-                        child: Stack(
-                          children: [
-                            Positioned.fill(
-                              child: CarouselWidget(
-                                imageUrls: recipe.imageUrls,
-                                height: carouselH,
-                                controller: _pageCtrl,
-                                onPageChanged: (i) =>
-                                    setState(() => _currentPage = i),
-                              ),
-                            ),
-                            Positioned(
-                              top: statusBar + 16,
-                              left: 16,
-                              child: GestureDetector(
-                                onTap: () => Navigator.pop(context),
-                                child: const Icon(Icons.close,
-                                    color: Colors.white, size: 24),
-                              ),
-                            ),
-                            if (recipe.imageUrls.length > 1) ...[
-                              Positioned(
-                                bottom: 20,
-                                left: 0,
-                                right: 0,
-                                child: Center(
-                                    child: _buildDots(
-                                        recipe.imageUrls.length, dotSz)),
-                              ),
-                              Positioned(
-                                right: 16,
-                                top: statusBar + (carouselH - nextBtn) / 2,
-                                child: _NextButton(
-                                  size: nextBtn,
-                                  iconSize: nextBtn * 0.55,
-                                  onTap: () {
-                                    final next = (_currentPage + 1) %
-                                        recipe.imageUrls.length;
-                                    _pageCtrl.animateToPage(
-                                      next,
-                                      duration:
-                                          const Duration(milliseconds: 300),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  },
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: paddingH),
-                        child: _MainContent(
-                          recipe: recipe,
-                          currentServings: _currentServings,
-                          onServingsChange: (v) =>
-                              setState(() => _currentServings = v),
-                          isFavorited: _isFavorited,
-                          onToggleFavorite: _toggleFavorite,
-                          baseFont: text16,
-                        ),
-                      ),
-                      CommentSection(
-                        key: _commentKey,
-                        comments: _comments,
-                        currentRating: _userRating,
-                        isLoggedIn: _isLoggedIn,
-                        onRatingSelected: (r) async {
-                          if (!await AuthService.checkAndRedirectIfLoggedOut(
-                              context)) return;
-                          _openEditor(initRating: r);
-                        },
-                        onCommentPressed: () {
-                          if (!_isLoggedIn) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const LoginScreen()),
-                            ).then((_) => _refreshData());
-                            return;
-                          }
-                          _openEditor(initRating: _userRating);
-                        },
-                        onEdit: (c) => _openEditor(
-                            initRating: c.rating ?? 0,
-                            initText: c.comment ?? ''),
-                        onDelete: (_) => _deleteComment(),
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-              );
-            },
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ยืนยันการลบ'),
+        content: const Text('คุณต้องการลบคอมเมนต์นี้ใช่หรือไม่?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
           ),
-          bottomNavigationBar: CustomBottomNav(
-            selectedIndex: _selectedIndex,
-            isLoggedIn: _isLoggedIn,
-            onItemSelected: _onBottomNav,
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('ลบ',
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
-        ),
-      );
-    });
-  }
-
-  Future<void> _onBottomNav(int idx) async {
-    if (idx == 2 || idx == 3) {
-      if (!await AuthService.checkAndRedirectIfLoggedOut(context)) return;
-    }
-
-    if (idx == _selectedIndex) {
-      if (idx == 2) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MyRecipesScreen()),
-        );
-      } else if (idx == 3) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-        );
-      }
-    } else {
-      setState(() => _selectedIndex = idx);
-    }
-  }
-
-  Future<void> _toggleFavorite(bool fav) async {
-    if (!await AuthService.checkAndRedirectIfLoggedOut(context)) return;
-    setState(() => _isFavorited = fav);
-    await ApiService.toggleFavorite(widget.recipeId, fav);
-  }
-}
-
-class _NextButton extends StatelessWidget {
-  final double size;
-  final double iconSize;
-  final VoidCallback onTap;
-  const _NextButton(
-      {required this.size, required this.iconSize, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(size / 2),
-      child: Container(
-        width: size,
-        height: size,
-        padding: EdgeInsets.all(size * 0.25),
-        decoration: const BoxDecoration(
-          color: Colors.white70,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(Icons.arrow_forward_ios,
-            size: iconSize, color: const Color(0xFF666666)),
+        ],
       ),
     );
-  }
-}
 
-class _MainContent extends StatelessWidget {
-  final RecipeDetail recipe;
-  final int currentServings;
-  final ValueChanged<int> onServingsChange;
-  final bool isFavorited;
-  final ValueChanged<bool> onToggleFavorite;
-  final double baseFont; // responsive font base
+    if (confirm != true) return;
 
-  const _MainContent({
-    required this.recipe,
-    required this.currentServings,
-    required this.onServingsChange,
-    required this.isFavorited,
-    required this.onToggleFavorite,
-    required this.baseFont,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final baseServ = recipe.nServings;
-    final titleF = baseFont + 2;
-    final smallF = baseFont - 2;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 16),
-        RecipeMetaWidget(
-          name: recipe.name,
-          averageRating: recipe.averageRating,
-          reviewCount: recipe.reviewCount,
-          createdAt: recipe.createdAt,
-          prepTimeMinutes: recipe.prepTime,
-        ),
-        if (recipe.categories.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          TagList(tags: recipe.categories),
-        ],
-        const SizedBox(height: 24),
-
-        /* ───────── ingredients ───────── */
-        Row(
-          children: [
-            Text(
-              'วัตถุดิบ',
-              style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
-            ),
-            const Spacer(),
-            CartButton(
-              recipeId: recipe.recipeId,
-              currentServings: currentServings,
-              onServingsChanged: onServingsChange,
-              onAddToCart: () async {
-                if (!await AuthService.checkAndRedirectIfLoggedOut(context))
-                  return;
-                await ApiService.updateCart(
-                  recipe.recipeId,
-                  currentServings.toDouble(),
-                );
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('เพิ่มลงตะกร้าเรียบร้อยแล้ว')),
-                  );
-                }
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        IngredientTable(
-          items: recipe.ingredients,
-          baseServings: baseServ,
-          currentServings: currentServings,
-        ),
-        const SizedBox(height: 24),
-
-        /* ───────── nutrition ───────── */
-        Text(
-          'โภชนาการ',
-          style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        NutritionSummary(
-          nutrition: recipe.nutrition,
-          baseServings: baseServ,
-          currentServings: currentServings,
-        ),
-        const SizedBox(height: 24),
-
-        /* ───────── steps ───────── */
-        Text(
-          'วิธีทำ',
-          style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        StepWidget(
-          steps: recipe.steps,
-          previewCount: 3,
-          onStepTap: (idx) => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => StepDetailScreen(
-                steps: recipe.steps,
-                imageUrls: recipe.imageUrls,
-                initialIndex: idx,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        /* ───────── favorite button ───────── */
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: () => onToggleFavorite(!isFavorited),
-            icon: Icon(
-              isFavorited ? Icons.bookmark : Icons.bookmark_border,
-              size: 26,
-              color: Colors.white,
-            ),
-            label: Text(
-              isFavorited ? 'อยู่ในสูตรโปรดแล้ว' : 'เพิ่มเป็นสูตรโปรดของฉัน',
-              style: TextStyle(fontSize: baseFont, fontWeight: FontWeight.w600),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF9B05),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(41),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        /* ───────── voice step button ───────── */
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () {
-              if (recipe.steps.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('เมนูนี้ยังไม่มีขั้นตอนประกอบอาหารเลยน้า~'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-                return;
-              }
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => StepDetailScreen(
-                    steps: recipe.steps,
-                    imageUrls: recipe.imageUrls,
-                    initialIndex: 0,
-                  ),
-                ),
-              );
-            },
-            icon: const Icon(Icons.play_arrow, size: 24, color: Colors.black),
-            label: Text(
-              'ขั้นตอนที่อธิบายด้วยเสียง',
-              style: TextStyle(fontSize: smallF, fontWeight: FontWeight.w600),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Color(0xFF828282), width: 1.5),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(41),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 32),
-      ],
-    );
+    try {
+      await ApiService.deleteComment(widget.recipeId);
+      setState(() {
+        _initFuture = _loadAllData().then((v) {
+          _scrollToComments();
+          return v;
+        });
+      });
+    } on ApiException catch (e) {
+      _showSnack(e.message);
+    }
   }
 }

@@ -1,17 +1,18 @@
-// lib/screens/splash_screen.dart (Final Version for Onboarding)
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // ★★★ เพิ่ม import
+
+// ✅ 1. ลบ SharedPreferences ออก เพราะจะเรียกผ่าน AuthService
+// import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/auth_service.dart';
-import 'welcome_screen.dart';
-import 'home_screen.dart';
-import 'onboarding_screen.dart'; // ★★★ เพิ่ม import
+// ✅ 2. เปลี่ยนไปใช้ Named Routes เพื่อความสอดคล้อง
+// import 'welcome_screen.dart';
+// import 'home_screen.dart';
+// import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -31,69 +32,61 @@ class _SplashScreenState extends State<SplashScreen> {
       statusBarIconBrightness: Brightness.dark,
     ));
 
-    _timer = Timer(_duration, _goNext);
+    // ใช้ Future.delayed แทน Timer เพื่อให้โค้ดสั้นลง
+    Future.delayed(_duration, _goNext);
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _timer?.cancel(); // แม้จะไม่ได้ใช้ Timer แล้ว แต่เก็บไว้เผื่อกรณีฉุกเฉิน
     super.dispose();
   }
 
-  /* ───────────────── NAV (เวอร์ชันปรับปรุง) ───────────────── */
-  // ★★★ แก้ไขฟังก์ชันนี้ทั้งหมด ★★★
+  /* ───────────────── NAV  ───────────────── */
+  ///  3. ปรับปรุง Logic การนำทางให้เรียกใช้ AuthService และ Named Routes
   Future<void> _goNext() async {
     if (!mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    // ตรวจสอบว่าเคยเห็นหน้า Onboarding แล้วหรือยัง (ค่าเริ่มต้นคือ false)
-    final hasSeenOnboarding = prefs.getBool('hasSeenOnboarding') ?? false;
+    // ตรวจสอบจาก Service ว่าเคยเห็น Onboarding แล้วหรือยัง
+    final hasSeenOnboarding = await AuthService.hasSeenOnboarding();
 
-    Widget destination;
+    String destinationRoute;
 
     if (!hasSeenOnboarding) {
       // 1. ถ้ายังไม่เคยเห็น -> ไปหน้า Onboarding
-      destination = const OnboardingScreen();
+      destinationRoute = '/onboarding';
     } else {
-      // 2. ถ้าเคยเห็นแล้ว -> ใช้ logic เดิม คือตรวจสอบการล็อกอิน
-      final loggedIn = await AuthService.isLoggedIn();
-      destination = loggedIn ? const HomeScreen() : const WelcomeScreen();
+      // 2. ถ้าเคยเห็นแล้ว -> ตรวจสอบการล็อกอิน
+      final isLoggedIn = await AuthService.isLoggedIn();
+      destinationRoute = isLoggedIn ? '/home' : '/welcome';
     }
 
-    // นำทางไปยังหน้าที่กำหนด
-    Navigator.of(context).pushReplacement(PageRouteBuilder(
-      pageBuilder: (_, __, ___) => destination,
-      transitionDuration: const Duration(milliseconds: 600),
-      transitionsBuilder: (_, animation, __, child) =>
-          FadeTransition(opacity: animation, child: child),
-    ));
+    // นำทางไปยังหน้าที่กำหนดโดยใช้ Named Route
+    Navigator.of(context).pushReplacementNamed(destinationRoute);
   }
-  // ★★★ จบส่วนแก้ไข ★★★
 
   /* ────────────────────────── UI ────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFFC08D), // สีแบรนด์
-      body: LayoutBuilder(builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        // โลโก้ = 40 % ความกว้างหน้าจอ แต่ไม่เกิน 160 และไม่น้อยกว่า 100
-        double logo = w * 0.4;
-        logo = logo.clamp(100, 160);
+    //  4. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final size = MediaQuery.of(context).size;
 
-        return SafeArea(
-          child: Center(
-            child: Hero(
-              tag: 'appLogo',
-              child: Image.asset(
-                'assets/images/logo.png',
-                width: logo,
-                height: logo,
-              ),
-            ),
+    // คำนวณขนาดโลโก้ให้ยืดหยุ่น แต่ไม่ใหญ่หรือเล็กเกินไป
+    final logoSize = (size.width * 0.4).clamp(120.0, 180.0);
+
+    return Scaffold(
+      backgroundColor: theme.colorScheme.primaryContainer,
+      body: Center(
+        child: Hero(
+          tag: 'appLogo', // Tag สำหรับ Hero animation ไปยังหน้า Login/Register
+          child: Image.asset(
+            'assets/images/logo.png',
+            width: logoSize,
+            height: logoSize,
           ),
-        );
-      }),
+        ),
+      ),
     );
   }
 }

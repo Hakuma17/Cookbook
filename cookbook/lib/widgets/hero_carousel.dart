@@ -1,8 +1,3 @@
-// lib/widgets/hero_carousel.dart
-//
-// 1-Row Carousel 1–3 cards (เมนูแนะนำ) – responsive
-// • 2025-07-13 v2: ใช้ Row.mainAxisAlignment.center → การ์ดอยู่กลางแถวเสมอ
-// ---------------------------------------------------------------------------
 import 'package:flutter/material.dart';
 import '../models/recipe.dart';
 import '../utils/highlight_span.dart';
@@ -11,112 +6,118 @@ import 'rank_badge.dart';
 /// แคโรเซล 1 แถว (สูงสุด 3 การ์ด) ใช้โชว์ “เมนูแนะนำ”
 class HeroCarousel extends StatelessWidget {
   final List<Recipe> recipes;
-  final double? itemSize; // ขนาดกำหนดเอง (ถ้ามี)
   final ValueChanged<Recipe>? onTap;
   final List<String> highlightTerms;
 
   const HeroCarousel({
     super.key,
     required this.recipes,
-    this.itemSize,
     this.onTap,
     this.highlightTerms = const [],
   });
 
   @override
   Widget build(BuildContext context) {
-    if (recipes.isEmpty) return const SizedBox.shrink();
+    if (recipes.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
-    return LayoutBuilder(builder: (context, box) {
-      /* ── responsive metrics ── */
-      final slotW = box.maxWidth; // พื้นที่ทั้งแถว
-      double clamp(double v, double min, double max) =>
-          v < min ? min : (v > max ? max : v);
+    // ✅ 1. ลบ Manual Responsive Calculation ทั้งหมด
+    // เราจะใช้ Row + Expanded เพื่อให้ Flutter จัดการการแบ่งพื้นที่ให้เอง
 
-      final itemCnt = recipes.length.clamp(1, 3); // 1–3 การ์ด
-      final gap = clamp(slotW * .02, 8, 14); // ช่องไฟระหว่างการ์ด
-      final avail = slotW - gap * (itemCnt - 1);
-      final autoSz = avail / itemCnt;
-      final size = clamp(itemSize ?? autoSz, 90, 170);
-      final radius = clamp(size * .14, 10, 22);
-      final font14 = clamp(size * .12, 12, 17);
+    // แสดงผลสูงสุด 3 การ์ด
+    final topRecipes = recipes.take(3).toList();
 
-      final top = recipes.take(3).toList();
+    return Padding(
+      // ✅ 2. ใช้ Padding แบบคงที่
+      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
+      child: Row(
+        // ใช้ MainAxisAlignment.center เพื่อจัดกลางกรณีมีการ์ดไม่เต็มแถว
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: List.generate(topRecipes.length, (index) {
+          final recipe = topRecipes[index];
 
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center, // ★ ให้อยู่กลางแถว
-        children: List.generate(top.length, (i) {
-          final r = top[i];
-
-          return Padding(
-            padding: EdgeInsets.only(right: i == top.length - 1 ? 0 : gap),
-            child: GestureDetector(
-              onTap: () => onTap?.call(r),
-              child: Column(
-                children: [
-                  /* ── รูป + Badge ── */
-                  Stack(
-                    children: [
-                      _recipeImage(r.imageUrl, size, radius),
-                      Positioned(
-                        top: 6,
-                        left: 6,
-                        child: RankBadge(rank: r.rank ?? (i + 1)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  /* ── ชื่อเมนู ── */
-                  SizedBox(
-                    width: size,
-                    child: RichText(
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      text: highlightSpan(
-                        r.name,
-                        highlightTerms,
-                        TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontWeight: FontWeight.w700,
-                          fontSize: font14,
-                          height: 1.28,
-                          color: const Color(0xFF0A2533),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          return Expanded(
+            child: Padding(
+              // เพิ่มช่องว่างระหว่างการ์ด (ยกเว้นการ์ดแรก)
+              padding: EdgeInsets.only(left: index == 0 ? 0 : 8.0),
+              child: _buildRecipeCard(context, recipe, index),
             ),
           );
         }),
-      );
-    });
-  }
-
-  /* ───────────────────── helpers ───────────────────── */
-  Widget _recipeImage(String url, double sz, double radius) {
-    final img = url.isNotEmpty
-        ? Image.network(
-            url,
-            width: sz,
-            height: sz,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _fallback(sz),
-          )
-        : _fallback(sz);
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: img,
+      ),
     );
   }
 
-  Widget _fallback(double sz) => Image.asset(
+  /// ✅ 3. แยก UI ของการ์ดแต่ละใบออกมาเป็น Helper Function และใช้ Theme
+  Widget _buildRecipeCard(BuildContext context, Recipe recipe, int index) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+
+    return GestureDetector(
+      onTap: () => onTap?.call(recipe),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // --- รูป + Badge ---
+          Stack(
+            children: [
+              // ✅ 4. ใช้ AspectRatio เพื่อรักษาสัดส่วนของรูปให้เป็นสี่เหลี่ยมจัตุรัสเสมอ
+              AspectRatio(
+                aspectRatio: 1.0,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _recipeImage(recipe.imageUrl),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                left: 8,
+                child: RankBadge(rank: recipe.rank ?? (index + 1)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // --- ชื่อเมนู ---
+          RichText(
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            text: highlightSpan(
+              recipe.name,
+              highlightTerms,
+              // ✅ 5. ใช้ TextStyle จาก Theme ส่วนกลาง
+              textTheme.bodyMedium!.copyWith(
+                fontWeight: FontWeight.bold,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _recipeImage(String url) {
+    return url.isNotEmpty
+        ? Image.network(
+            url,
+            fit: BoxFit.cover,
+            // เพิ่ม loadingBuilder เพื่อ UX ที่ดีขึ้น
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2));
+            },
+            errorBuilder: (_, __, ___) => _fallbackImage(),
+          )
+        : _fallbackImage();
+  }
+
+  Widget _fallbackImage() => Image.asset(
         'assets/images/default_recipe.png',
-        width: sz,
-        height: sz,
         fit: BoxFit.cover,
       );
 }

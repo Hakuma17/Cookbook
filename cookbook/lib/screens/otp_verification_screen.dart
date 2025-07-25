@@ -4,8 +4,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
 import '../services/api_service.dart';
-import 'new_password_screen.dart';
-import 'reset_password_screen.dart';
+// import 'new_password_screen.dart'; // 🗑️ ลบออก เพราะจะใช้ Named Routes
+// import 'reset_password_screen.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   final String email;
@@ -24,7 +24,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   String? _errorMsg;
 
   Timer? _timer;
-  int _remainingSeconds = 60; // กำหนดค่าเริ่มต้น
+  int _remainingSeconds = 60;
 
   @override
   void initState() {
@@ -57,6 +57,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     });
   }
 
+  /// ✅ 1. ปรับปรุง Error Handling
   Future<void> _resendOtp() async {
     if (_isResending || _remainingSeconds > 0) return;
 
@@ -69,25 +70,23 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       final result = await ApiService.sendOtp(widget.email);
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'ส่ง OTP สำเร็จ')),
-      );
+      _showSnack(result['message'] ?? 'ส่ง OTP สำเร็จ', isError: false);
       if (result['success'] == true) {
         _startCountdown();
       }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      _showSnack(e.message);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('เกิดข้อผิดพลาด กรุณาลองใหม่')),
-      );
+      _showSnack('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     } finally {
       if (mounted) setState(() => _isResending = false);
     }
   }
 
   Future<void> _verifyOtp() async {
-    // ใช้ Form validation ของ Pinput
-    if (!_formKey.currentState!.validate() || _isLoading) return;
+    if (!(_formKey.currentState?.validate() ?? false) || _isLoading) return;
 
     setState(() {
       _isLoading = true;
@@ -99,38 +98,36 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           await ApiService.verifyOtp(widget.email, _otpController.text);
       if (!mounted) return;
 
-      //  ตรวจสอบผลลัพธ์จาก API อย่างเป็นโครงสร้าง
       if (result['success'] == true) {
         _timer?.cancel();
-        // ใช้ pushAndRemoveUntil เพื่อเคลียร์หน้า auth flow ทิ้ง
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => NewPasswordScreen(
-              email: widget.email,
-              otp: _otpController.text,
-            ),
-          ),
+        // ✅ 2. ปรับปรุง Navigation ให้ใช้ Named Routes
+        // ส่ง email และ otp ไปยังหน้าถัดไปผ่าน arguments
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/new_password',
           (_) => false,
+          arguments: {
+            'email': widget.email,
+            'otp': _otpController.text,
+          },
         );
       } else {
-        // เช็ค error code แทนการเช็คข้อความ String
+        // การเช็ค errorCode ดีอยู่แล้ว
         if (result['errorCode'] == 'ACCOUNT_LOCKED') {
           await _showLockedDialog(result['message']);
           if (mounted) {
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
-              (_) => false,
-            );
+            Navigator.of(context)
+                .pushNamedAndRemoveUntil('/login', (_) => false);
           }
         } else {
           setState(() =>
               _errorMsg = result['message'] ?? 'รหัสไม่ถูกต้องหรือหมดอายุ');
         }
       }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _errorMsg = e.message);
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
-      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -153,39 +150,37 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     );
   }
 
-  // ปรับปรุง UI ให้สวยงามและใช้งานง่าย
+  void _showSnack(String msg, {bool isError = true}) {
+    if (!mounted) return;
+    final theme = Theme.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: isError ? theme.colorScheme.error : Colors.green[600],
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
+    // ✅ 3. ใช้ Theme จาก Context
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
-    // Theme สำหรับ pinput
+    // Theme สำหรับ pinput ที่ดึงค่าจาก Theme หลัก
     final defaultPinTheme = PinTheme(
       width: 56,
       height: 60,
-      textStyle: textTheme.headlineSmall?.copyWith(
-        fontFamily: 'Mitr',
-        color: Colors.black87,
-      ),
+      textStyle: textTheme.headlineSmall,
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade400),
+        border: Border.all(color: theme.colorScheme.outline.withOpacity(0.5)),
       ),
     );
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: const BackButton(color: Colors.black),
-        title: Text(
-          'ยืนยันรหัส OTP',
-          // ใช้ Theme ที่กำหนดไว้ส่วนกลางจะดีที่สุด
-          style: textTheme.titleLarge
-              ?.copyWith(fontFamily: 'Mitr', color: Colors.black),
-        ),
+        title: const Text('ยืนยันรหัส OTP'),
       ),
       body: SafeArea(
         child: Center(
@@ -195,17 +190,23 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               key: _formKey,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  Icon(Icons.shield_moon_outlined,
+                      size: 80, color: theme.colorScheme.primary),
+                  const SizedBox(height: 24),
                   Text(
-                    'เราได้ส่งรหัส OTP ไปที่\n${widget.email}',
+                    'เราได้ส่งรหัส OTP ไปที่',
                     textAlign: TextAlign.center,
-                    style: textTheme.bodyLarge
-                        ?.copyWith(fontFamily: 'Mitr', height: 1.5),
+                    style: textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.email,
+                    textAlign: TextAlign.center,
+                    style: textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 32),
-
-                  // ใช้ Pinput แทนการสร้าง TextField เอง
                   Pinput(
                     length: 5,
                     controller: _otpController,
@@ -219,7 +220,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     ),
                     submittedPinTheme: defaultPinTheme.copyWith(
                       decoration: defaultPinTheme.decoration!.copyWith(
-                        color: const Color(0xFFE3F2FD), // สีฟ้าอ่อนๆ
+                        color: theme.colorScheme.primaryContainer,
                       ),
                     ),
                     validator: (s) {
@@ -229,42 +230,28 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     },
                     onCompleted: (pin) => _verifyOtp(),
                   ),
-
                   if (_errorMsg != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 16),
                       child: Text(
                         _errorMsg!,
-                        style: textTheme.bodyMedium?.copyWith(
-                          fontFamily: 'Mitr',
-                          color: theme.colorScheme.error,
-                        ),
+                        style: textTheme.bodyMedium
+                            ?.copyWith(color: theme.colorScheme.error),
                       ),
                     ),
                   const SizedBox(height: 24),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed:
-                          (_isLoading || _isResending) ? null : _verifyOtp,
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 24,
-                              width: 24,
-                              child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 3),
-                            )
-                          : Text(
-                              'ยืนยันรหัส',
-                              style: textTheme.labelLarge
-                                  ?.copyWith(fontFamily: 'Mitr'),
-                            ),
-                    ),
+                  ElevatedButton(
+                    onPressed: (_isLoading || _isResending) ? null : _verifyOtp,
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 3),
+                          )
+                        : const Text('ยืนยันรหัส'),
                   ),
                   const SizedBox(height: 24),
-
                   _buildResendText(theme),
                 ],
               ),
@@ -279,13 +266,13 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     if (_remainingSeconds > 0) {
       return Text(
         'ขอรหัสใหม่อีกครั้งได้ใน $_remainingSeconds วินาที',
-        style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'Mitr'),
+        style: theme.textTheme.bodyMedium,
       );
     }
     return RichText(
       text: TextSpan(
         style: theme.textTheme.bodyMedium
-            ?.copyWith(fontFamily: 'Mitr', color: Colors.black87),
+            ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         children: [
           const TextSpan(text: 'ยังไม่ได้รับรหัส OTP ใช่ไหม? '),
           TextSpan(
@@ -293,6 +280,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             style: TextStyle(
               color: theme.colorScheme.primary,
               decoration: TextDecoration.underline,
+              fontWeight: FontWeight.bold,
             ),
             recognizer: TapGestureRecognizer()..onTap = _resendOtp,
           ),

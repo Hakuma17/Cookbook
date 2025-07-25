@@ -1,5 +1,3 @@
-// lib/screens/ingredient_photo_screen.dart
-
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -32,54 +30,273 @@ class IngredientPhotoScreen extends StatefulWidget {
 }
 
 class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
-  /* ─── theme ─── */
-  static const _ACCENT = Color(0xFFFF9B05);
+  // ✅ 1. State หลักจะทำหน้าที่เป็น "ผู้ควบคุม" (Orchestrator) เท่านั้น
+  late final _CameraHelper _cameraHelper;
+  late final _ModelHelper _modelHelper;
+  late final _ImageHelper _imageHelper;
+  late final Future<void> _initFuture;
 
-  /* ─── runtime ─── */
-  bool _busy = false, _modelReady = false;
-
-  /* ─── helpers ─── */
-  final _picker = ImagePicker();
-  late tfl.Interpreter _itp;
-  late List<String> _labels;
-
-  /* ─── camera ─── */
-  CameraController? _cam;
-  late Future<void> _camInit;
+  bool _isBusy = false; // สถานะการประมวลผล
 
   @override
   void initState() {
     super.initState();
-    _loadModel();
-    _initCamera();
+    // สร้าง instance ของ helpers
+    _cameraHelper = _CameraHelper();
+    _modelHelper = _ModelHelper();
+    _imageHelper = _ImageHelper(context: context);
+
+    // ใช้ Future เดียวในการ initialize ทุกอย่างพร้อมกัน
+    _initFuture = _initialize();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      await Future.wait([
+        _cameraHelper.initialize(),
+        _modelHelper.load(context),
+      ]);
+    } catch (e) {
+      // ถ้าเกิดข้อผิดพลาดร้ายแรงระหว่าง init, แสดงผลใน UI
+      if (mounted) _showSnack('เกิดข้อผิดพลาดในการเริ่มต้น: $e');
+      rethrow; // โยน error ต่อเพื่อให้ FutureBuilder แสดงผล
+    }
   }
 
   @override
   void dispose() {
-    _itp.close();
-    _cam?.dispose();
+    _cameraHelper.dispose();
+    _modelHelper.dispose();
     super.dispose();
   }
 
-  /* ───────────────────────────── Model ───────────────────────────── */
+  /* ─────────────────────────── Actions ────────────────────────── */
 
-  Future<void> _loadModel() async {
+  Future<void> _onShutterPressed(Size cameraPreviewSize) async {
+    if (_isBusy) return;
+
     try {
-      _itp = await tfl.Interpreter.fromAsset(
-        'assets/converted_tflite_quantized/model_unquant.tflite',
-      );
-      _labels = (await DefaultAssetBundle.of(context)
-              .loadString('assets/converted_tflite_quantized/labels.txt'))
-          .split('\n')
-          .where((e) => e.trim().isNotEmpty)
-          .toList();
-      if (mounted) setState(() => _modelReady = true);
+      setState(() => _isBusy = true);
+      final rawFile = await _cameraHelper.takePicture();
+      if (rawFile == null) return;
+
+      final croppedFile =
+          await _imageHelper.cropPreviewFromCamera(rawFile, cameraPreviewSize);
+      await _processImage(croppedFile);
     } catch (e) {
-      _showSnack('โหลดโมเดลล้มเหลว: $e');
+      _showSnack('เกิดข้อผิดพลาด: $e');
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
     }
   }
 
-  Future<List<Map<String, dynamic>>> _runModel(File imageFile) async {
+  Future<void> _onGalleryPressed() async {
+    if (_isBusy) return;
+
+    try {
+      setState(() => _isBusy = true);
+      final croppedFile = await _imageHelper.pickAndCropFromGallery();
+      if (croppedFile == null) return;
+
+      await _processImage(croppedFile);
+    } catch (e) {
+      _showSnack('เกิดข้อผิดพลาด: $e');
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  Future<void> _processImage(File imageFile) async {
+    if (!_modelHelper.isReady) {
+      _showSnack('โมเดลยังไม่พร้อมใช้งาน');
+      return;
+    }
+
+    final predictions = await _modelHelper.predict(imageFile);
+    if (predictions.isEmpty) {
+      _showSnack('ไม่รู้จักวัตถุดิบในภาพ');
+      return;
+    }
+
+    if (!mounted) return;
+    final selectedIngredients = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => IngredientPredictionResultScreen(
+          imageFile: imageFile,
+          allPredictions: predictions,
+        ),
+      ),
+    );
+
+    if (selectedIngredients != null && mounted) {
+      Navigator.pop(context, selectedIngredients);
+    }
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /* ───────────────────────────── UI Build ──────────────────────── */
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: _buildAppBar(theme),
+      body: FutureBuilder<void>(
+        future: _initFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+                child: CircularProgressIndicator(color: Colors.white));
+          }
+          if (snapshot.hasError || !_cameraHelper.isInitialized) {
+            return Center(
+              child: Text(
+                'ไม่สามารถเปิดกล้องได้\n${snapshot.error ?? ''}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white),
+              ),
+            );
+          }
+
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              // Camera Preview
+              LayoutBuilder(builder: (context, constraints) {
+                final area = Size(constraints.maxWidth, constraints.maxHeight);
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    _cameraHelper.buildPreview(),
+                    _buildMaskAndFrame(area, theme),
+                    _buildControls(
+                      theme: theme,
+                      onShutter: () => _onShutterPressed(area),
+                      onGallery: _onGalleryPressed,
+                    ),
+                  ],
+                );
+              }),
+              // Loading Overlay
+              if (_isBusy)
+                Container(
+                  color: Colors.black54,
+                  child: const Center(
+                      child: CircularProgressIndicator(color: Colors.white)),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ✅ 2. UI ถูก Refactor และใช้ Theme ทั้งหมด
+  PreferredSizeWidget _buildAppBar(ThemeData theme) {
+    return AppBar(
+      backgroundColor: theme.colorScheme.surface,
+      foregroundColor: theme.colorScheme.onSurface,
+      title: Text('ถ่ายรูปวัตถุดิบ',
+          style: theme.textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.bold)),
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: () => !_isBusy ? Navigator.pop(context) : null,
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.help_outline),
+          onPressed: () {/* TODO: Implement help dialog */},
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMaskAndFrame(Size area, ThemeData theme) {
+    final frameSize = area.width * 0.8;
+    return IgnorePointer(
+      child: ClipPath(
+        clipper: _InvertedSquareClipper(frameSize: frameSize),
+        child: Container(
+          color: Colors.black.withOpacity(0.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControls({
+    required ThemeData theme,
+    required VoidCallback onShutter,
+    required VoidCallback onGallery,
+  }) {
+    return Positioned(
+      bottom: 48,
+      left: 0,
+      right: 0,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // Gallery Button
+          IconButton(
+            onPressed: onGallery,
+            icon:
+                const Icon(Icons.photo_library, color: Colors.white, size: 32),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withOpacity(0.2),
+              padding: const EdgeInsets.all(16),
+            ),
+          ),
+          // Shutter Button
+          GestureDetector(
+            onTap: onShutter,
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 4),
+              ),
+            ),
+          ),
+          // Spacer to balance the layout
+          const SizedBox(width: 64, height: 64),
+        ],
+      ),
+    );
+  }
+}
+
+/* ──────────────── Helper Classes ──────────────── */
+// ✅ 3. แยก Logic ออกมาเป็นคลาสย่อยๆ เพื่อให้จัดการง่าย
+
+/// จัดการ TFLite Model
+class _ModelHelper {
+  late tfl.Interpreter _interpreter;
+  late List<String> _labels;
+  bool isReady = false;
+
+  Future<void> load(BuildContext context) async {
+    try {
+      _interpreter = await tfl.Interpreter.fromAsset(
+          'assets/converted_tflite_quantized/model_unquant.tflite');
+      final labelsString = await DefaultAssetBundle.of(context)
+          .loadString('assets/converted_tflite_quantized/labels.txt');
+      _labels =
+          labelsString.split('\n').where((e) => e.trim().isNotEmpty).toList();
+      isReady = true;
+    } catch (e) {
+      throw Exception('Failed to load TFLite model: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> predict(File imageFile) async {
     final bytes = await imageFile.readAsBytes();
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return [];
@@ -100,13 +317,14 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
 
     final output =
         List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
-    _itp.run(input.reshape([1, 224, 224, 3]), output);
+    _interpreter.run(input.reshape([1, 224, 224, 3]), output);
 
     final res = <Map<String, dynamic>>[];
     for (var i = 0; i < _labels.length; i++) {
-      final sc = output[0][i] as double;
-      if (sc > 0.05) {
-        res.add({'label': _labels[i], 'confidence': sc});
+      final score = output[0][i] as double;
+      if (score > 0.05) {
+        // Confidence threshold
+        res.add({'label': _labels[i], 'confidence': score});
       }
     }
     res.sort((a, b) =>
@@ -114,110 +332,68 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
     return res;
   }
 
-  /* ───────────────────────────── Camera ───────────────────────────── */
+  void dispose() {
+    _interpreter.close();
+  }
+}
 
-  Future<void> _initCamera() async {
-    try {
-      final cams = await availableCameras();
-      if (cams.isEmpty) throw 'ไม่พบกล้อง';
-      _cam = CameraController(cams.first, ResolutionPreset.high,
-          enableAudio: false);
-      _camInit = _cam!.initialize();
-      await _camInit;
-      if (mounted) setState(() {});
-    } catch (e) {
-      _showSnack('กล้องโหลดไม่สำเร็จ: $e');
-    }
+/// จัดการ Camera
+class _CameraHelper {
+  CameraController? _controller;
+  bool get isInitialized => _controller?.value.isInitialized ?? false;
+
+  Future<void> initialize() async {
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) throw Exception('ไม่พบกล้องในอุปกรณ์');
+    _controller = CameraController(cameras.first, ResolutionPreset.high,
+        enableAudio: false);
+    await _controller!.initialize();
   }
 
-  /* ──────────────────────── Gallery + Crop ───────────────────────── */
-
-  /// ครอปภาพแบบ interactive (ใช้ image_cropper)
-  Future<File?> _pickAndCropImage() async {
-    final picked =
-        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (picked == null) return null;
-
-    final cropped = await ImageCropper().cropImage(
-      sourcePath: picked.path,
-      compressFormat: ImageCompressFormat.jpg,
-      compressQuality: 90,
-      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
-      uiSettings: [
-        AndroidUiSettings(
-          toolbarTitle: 'เลือกส่วนที่ต้องการ',
-          toolbarColor: Colors.white,
-          toolbarWidgetColor: _ACCENT,
-          activeControlsWidgetColor: _ACCENT,
-          hideBottomControls: true,
-          initAspectRatio: CropAspectRatioPreset.square,
-          lockAspectRatio: true,
-        ),
-        IOSUiSettings(
-          title: 'เลือกส่วนที่ต้องการ',
-          aspectRatioLockEnabled: true,
-        ),
-      ],
+  Widget buildPreview() {
+    if (!isInitialized) return const SizedBox.shrink();
+    // CameraPreview ต้องถูกห่อด้วย widget ที่กำหนดขนาดและอัตราส่วนให้ถูกต้อง
+    // ในที่นี้เราใช้ FittedBox ใน parent แต่การคำนวณที่แม่นยำอาจจำเป็น
+    return Transform.scale(
+      scale: 1 /
+          (_controller!.value.aspectRatio * (9 / 16)), // ปรับแก้ตามอัตราส่วนจอ
+      child: Center(
+        child: CameraPreview(_controller!),
+      ),
     );
-
-    return cropped != null ? File(cropped.path) : null;
   }
 
-  /* ─────────────────────────── Processing ────────────────────────── */
-
-  Future<void> _processPhoto(
-    File rawFile, {
-    Size? displayArea, // null = already-cropped
-  }) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final imgFile = displayArea == null
-          ? rawFile
-          : await _cropSquareLikePreview(rawFile, displayArea);
-
-      final res = await _runModel(imgFile);
-
-      if (res.isEmpty) {
-        _showSnack('ไม่รู้จักวัตถุดิบในภาพ');
-        return;
-      }
-
-      // ignore: use_build_context_synchronously
-      final sel = await Navigator.push<List<String>>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => IngredientPredictionResultScreen(
-            imageFile: imgFile,
-            allPredictions: res,
-          ),
-        ),
-      );
-      if (sel != null && mounted) Navigator.pop(context, sel);
-    } catch (e) {
-      _showSnack('ประมวลผลภาพไม่สำเร็จ: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  Future<File?> takePicture() async {
+    if (!isInitialized) return null;
+    final xfile = await _controller!.takePicture();
+    return File(xfile.path);
   }
 
-  /* ──────────────────────── Permission ───────────────────────────── */
+  void dispose() {
+    _controller?.dispose();
+  }
+}
 
-  Future<bool> _requestPermission(ImageSource src) async {
-    if (kIsWeb) return true;
-    if (src == ImageSource.camera) {
-      return (await Permission.camera.request()).isGranted;
+/// จัดการ Image Picker, Cropper, และ Permissions
+class _ImageHelper {
+  final BuildContext context;
+  final ImagePicker _picker = ImagePicker();
+
+  _ImageHelper({required this.context});
+
+  Future<File?> pickAndCropFromGallery() async {
+    if (!await _ensurePhotosPermission()) {
+      _showSnack('ไม่ได้รับสิทธิ์เข้าถึงคลังภาพ');
+      return null;
     }
-    final info = await DeviceInfoPlugin().androidInfo;
-    if ((info.version.sdkInt) >= 33) {
-      return (await Permission.photos.request()).isGranted;
-    }
-    return (await Permission.storage.request()).isGranted;
+    final pickedFile =
+        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 90);
+    if (pickedFile == null) return null;
+
+    return _cropImage(pickedFile.path);
   }
 
-  /* ───────────────────────────── Crop (auto) ─────────────────────── */
-
-  Future<File> _cropSquareLikePreview(File file, Size displayArea) async {
+  Future<File> cropPreviewFromCamera(File file, Size displayArea) async {
     final bytes = await file.readAsBytes();
     final originalImage = img.decodeImage(bytes);
     if (originalImage == null) return file;
@@ -227,7 +403,6 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
     final imgW = originalImage.width.toDouble();
     final imgH = originalImage.height.toDouble();
     final scale = math.max(displayArea.width / imgW, displayArea.height / imgH);
-
     final frameSize = displayArea.width * 0.8;
     final cropSize = (frameSize / scale);
 
@@ -244,247 +419,106 @@ class _IngredientPhotoScreenState extends State<IngredientPhotoScreen> {
       height: cropSize.round(),
     );
 
-    return File(await _writeTempJpg(croppedImage));
-  }
-
-  Future<String> _writeTempJpg(img.Image i) async {
-    final jpg = img.encodeJpg(i, quality: 90);
+    final jpg = img.encodeJpg(croppedImage, quality: 90);
     final dir = await getTemporaryDirectory();
     final path = '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.jpg';
-    await File(path).writeAsBytes(jpg);
-    return path;
+    return await File(path).writeAsBytes(jpg);
   }
 
-  /* ───────────────────────────── UI ──────────────────────────────── */
-
-  void _showHelpSheet() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('📸 วิธีใช้หน้านี้',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const SizedBox(height: 12),
-            _bullet('กดปุ่มชัตเตอร์ (วงกลม) เพื่อถ่ายรูป'),
-            _bullet('กดไอคอนรูปภาพเพื่อเลือกรูปในเครื่อง'),
-            _bullet('กรอบสี่เหลี่ยมคือพื้นที่ที่จะถูกสแกน'),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _bullet(String text) =>
-      Row(children: [const Text('• '), Expanded(child: Text(text))]);
-
-  Widget _buildCameraPreview() {
-    if (_cam == null || !_cam!.value.isInitialized) {
-      return Container(color: Colors.black);
-    }
-    return FittedBox(
-      fit: BoxFit.cover,
-      child: SizedBox(
-        width: _cam!.value.previewSize!.height,
-        height: _cam!.value.previewSize!.width,
-        child: CameraPreview(_cam!),
-      ),
-    );
-  }
-
-  Widget _buildMaskAndFrame(double frame, Size area) {
-    final top = (area.height - frame) / 2;
-    final left = (area.width - frame) / 2;
-    return Stack(
-      children: [
-        IgnorePointer(
-          child: Stack(children: [
-            Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: top,
-                child: Container(color: Colors.black45)),
-            Positioned(
-                top: top + frame,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(color: Colors.black45)),
-            Positioned(
-                top: top,
-                left: 0,
-                width: left,
-                height: frame,
-                child: Container(color: Colors.black45)),
-            Positioned(
-                top: top,
-                right: 0,
-                width: left,
-                height: frame,
-                child: Container(color: Colors.black45)),
-          ]),
-        ),
-        Positioned(
-          top: top,
-          left: left,
-          child: Container(
-            width: frame,
-            height: frame,
-            decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 2)),
-          ),
+  Future<File?> _cropImage(String filePath) async {
+    final theme = Theme.of(context);
+    final croppedFile = await ImageCropper().cropImage(
+      sourcePath: filePath,
+      compressFormat: ImageCompressFormat.jpg,
+      compressQuality: 80,
+      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+      uiSettings: [
+        AndroidUiSettings(
+            toolbarTitle: 'ครอบตัดรูปภาพ',
+            toolbarColor: theme.colorScheme.primary,
+            toolbarWidgetColor: theme.colorScheme.onPrimary,
+            backgroundColor: Colors.black,
+            activeControlsWidgetColor: theme.colorScheme.primary,
+            lockAspectRatio: true),
+        IOSUiSettings(
+          title: 'ครอบตัดรูปภาพ',
+          aspectRatioLockEnabled: true,
         ),
       ],
     );
+    return croppedFile != null ? File(croppedFile.path) : null;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Column(children: [
-        /* ───────── Header ───────── */
-        Container(
-          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
-          color: Colors.white,
-          child: SizedBox(
-            height: 88,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0),
-                  child: TextButton(
-                    onPressed: () => !_busy ? Navigator.pop(context) : null,
-                    child: const Text('ยกเลิก',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: _ACCENT)),
-                  ),
-                ),
-                const Text('ถ่ายรูปวัตถุดิบ',
-                    style: TextStyle(
-                        fontFamily: 'Josefin Sans',
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: _ACCENT)),
-                IconButton(
-                  icon: const Icon(Icons.help_outline, color: _ACCENT),
-                  tooltip: 'วิธีใช้งาน',
-                  onPressed: _showHelpSheet,
-                ),
-              ],
-            ),
+  Future<bool> _ensurePhotosPermission() async {
+    if (Platform.isIOS) return _requestPermission(Permission.photos);
+
+    final info = await DeviceInfoPlugin().androidInfo;
+    if (info.version.sdkInt >= 33) return true; // Android 13+ ไม่ต้องขอ
+
+    return _requestPermission(Permission.storage);
+  }
+
+  // ignore: unused_element
+  Future<bool> _ensureCameraPermission() =>
+      _requestPermission(Permission.camera);
+
+  Future<bool> _requestPermission(Permission permission) async {
+    final status = await permission.status;
+    if (status.isGranted) return true;
+    if (status.isPermanentlyDenied) {
+      _showOpenSettingsDialog();
+      return false;
+    }
+    return await permission.request().isGranted;
+  }
+
+  void _showOpenSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ไม่ได้รับสิทธิ์'),
+        content: const Text('กรุณาเปิดสิทธิ์ในหน้าตั้งค่าแอป'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ยกเลิก'),
           ),
-        ),
-
-        /* ───────── Camera + Controls ───────── */
-        Expanded(
-          child: FutureBuilder<void>(
-            future: _camInit,
-            builder: (_, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              return LayoutBuilder(builder: (_, cst) {
-                final area = Size(cst.maxWidth, cst.maxHeight);
-                final frame = area.width * 0.8;
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    _buildCameraPreview(),
-                    _buildMaskAndFrame(frame, area),
-
-                    /* ───── Controls ───── */
-                    Positioned(
-                      bottom: 48,
-                      left: 0,
-                      right: 0,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          /* ── Gallery button ── */
-                          GestureDetector(
-                            onTap: () async {
-                              if (_busy) return;
-                              if (!await _requestPermission(
-                                  ImageSource.gallery)) {
-                                _showSnack('ต้องการสิทธิ์เข้าถึงรูปภาพ');
-                                return;
-                              }
-                              final file = await _pickAndCropImage();
-                              if (file != null) {
-                                await _processPhoto(file); // already-cropped
-                              }
-                            },
-                            child: Container(
-                              width: 64,
-                              height: 64,
-                              decoration: const BoxDecoration(
-                                  color: Colors.white24,
-                                  shape: BoxShape.circle),
-                              child: const Icon(Icons.photo_library,
-                                  color: Colors.white, size: 32),
-                            ),
-                          ),
-                          /* ── Shutter button ── */
-                          GestureDetector(
-                            onTap: () async {
-                              if (_busy ||
-                                  _cam == null ||
-                                  !_cam!.value.isInitialized) return;
-                              if (!await _requestPermission(
-                                  ImageSource.camera)) {
-                                _showSnack('ต้องการสิทธิ์ใช้กล้อง');
-                                return;
-                              }
-                              final raw = await _cam!.takePicture();
-                              await _processPhoto(File(raw.path),
-                                  displayArea: area); // auto-crop
-                            },
-                            child: Container(
-                              width: 72,
-                              height: 72,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: Colors.white, width: 4),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 64, height: 64), // spacer
-                        ],
-                      ),
-                    ),
-                    if (_busy)
-                      Container(
-                        color: Colors.black54,
-                        child: const Center(
-                            child:
-                                CircularProgressIndicator(color: Colors.white)),
-                      ),
-                  ],
-                );
-              });
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await openAppSettings();
             },
+            child: const Text('เปิดการตั้งค่า'),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
-  /* ─── snackbar helper ─── */
   void _showSnack(String msg) {
-    if (!mounted) return;
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
+}
+
+// Helper Clipper สำหรับสร้างกรอบใส
+class _InvertedSquareClipper extends CustomClipper<Path> {
+  final double frameSize;
+  _InvertedSquareClipper({required this.frameSize});
+
+  @override
+  Path getClip(Size size) {
+    // สร้าง Path รูปสี่เหลี่ยมเต็มพื้นที่ แล้วเจาะรูตรงกลาง
+    return Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addRect(Rect.fromCenter(
+        center: size.center(Offset.zero),
+        width: frameSize,
+        height: frameSize,
+      ))
+      ..fillType = PathFillType.evenOdd;
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }

@@ -1,5 +1,3 @@
-// lib/screens/step_detail_screen.dart (ฉบับ Final - เลือกเพศแบบฉลาด)
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -13,56 +11,53 @@ class StepDetailScreen extends StatefulWidget {
   final int initialIndex;
 
   const StepDetailScreen({
-    Key? key,
+    super.key,
     required this.steps,
     required this.imageUrls,
     this.initialIndex = 0,
-  }) : super(key: key);
+  });
 
   @override
   State<StepDetailScreen> createState() => _StepDetailScreenState();
 }
 
 class _StepDetailScreenState extends State<StepDetailScreen> {
+  // TTS & State
   late final FlutterTts _tts;
-  late int _idx;
-  bool _busy = false;
-  bool _spoken = false;
+  late int _currentIndex;
+  bool _isSpeaking = false;
+  bool _hasSpoken = false;
 
-  // --- State สำหรับการตั้งค่าเสียง ---
-  bool _isFemaleVoice = true; // ค่าเริ่มต้นเป็นเสียงผู้หญิง
+  // Voice Settings
+  bool _isFemaleVoice = true; // true for female, false for male
   List<Map> _thaiVoices = [];
   double _speechRate = 0.5;
   double _pitch = 1.0;
 
-  // Future สำหรับรอให้ init เสร็จ
-  late Future<void> _ttsInitializationFuture;
+  // Future for TTS initialization
+  late Future<void> _ttsInitFuture;
 
   @override
   void initState() {
     super.initState();
-    _idx = widget.initialIndex.clamp(0, widget.steps.length - 1);
-    _ttsInitializationFuture = _initTts();
+    _currentIndex = widget.initialIndex.clamp(0, widget.steps.length - 1);
+    _ttsInitFuture = _initializeTts();
   }
 
-  Future<void> _initTts() async {
+  Future<void> _initializeTts() async {
     _tts = FlutterTts();
     _tts.setCompletionHandler(() {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _spoken = true;
-      });
+      if (mounted) setState(() => _isSpeaking = false);
     });
 
     try {
-      // ดึงเสียงทั้งหมดในเครื่องมาเก็บไว้
       final voices = List<Map>.from(await _tts.getVoices as List);
       if (mounted) {
         _thaiVoices = voices.where((v) => v['locale'] == 'th-TH').toList();
       }
     } catch (e) {
       debugPrint("Error initializing TTS voices: $e");
+      if (mounted) _showSnack('ไม่สามารถโหลดเสียงอ่านได้');
     }
   }
 
@@ -72,50 +67,25 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
     super.dispose();
   }
 
-// แก้ไขเฉพาะฟังก์ชันนี้
-  Future<void> _speak() async {
-    if (_busy) return;
-    final txt = widget.steps[_idx].description.trim();
-    if (txt.isEmpty) {
-      _showSnack('ไม่มีข้อความให้พูด');
+  /* ────────────────────────── Actions ────────────────────────── */
+
+  Future<void> _speakCurrentStep() async {
+    if (_isSpeaking) {
+      await _tts.stop();
+      setState(() => _isSpeaking = false);
       return;
     }
 
-    // ★★★ แก้ไข Logic การค้นหาเสียงให้ตรงกับรหัส "thd" และ "thc" ★★★
-    String? voiceNameToUse;
-    if (_thaiVoices.isNotEmpty) {
-      Map? foundVoice;
-      if (_isFemaleVoice) {
-        // หาเสียงผู้หญิง (thc) ก่อน
-        foundVoice = _thaiVoices.firstWhere(
-            (v) => v['name'].toString().contains('-thc-'),
-            orElse: () => _thaiVoices.first);
-      } else {
-        // หาเสียงผู้ชาย (thd)
-        foundVoice = _thaiVoices.firstWhere(
-            (v) => v['name'].toString().contains('-thd-'),
-            orElse: () => {});
-      }
-
-      if (foundVoice != null) {
-        voiceNameToUse = foundVoice['name'];
-      } else if (!_isFemaleVoice) {
-        // ถ้าเลือกผู้ชาย แต่หาไม่เจอเลย ให้แจ้งผู้ใช้และใช้เสียง default แทน
-        _showSnack('ไม่พบเสียงผู้ชาย, ใช้เสียงตั้งต้นแทน');
-        voiceNameToUse = _thaiVoices.first['name'];
-      }
+    final textToSpeak = widget.steps[_currentIndex].description.trim();
+    if (textToSpeak.isEmpty) {
+      _showSnack('ไม่มีข้อความสำหรับอ่าน');
+      return;
     }
 
-    if (voiceNameToUse == null && _thaiVoices.isNotEmpty) {
-      // Fallback สุดท้ายถ้าเกิดกรณีแปลกๆ
-      voiceNameToUse = _thaiVoices.first['name'];
-    }
-
-    if (voiceNameToUse == null) {
-      _showSnack('ไม่พบเสียงอ่านภาษาไทยในเครื่องของคุณ');
-    }
-
-    setState(() => _busy = true);
+    setState(() {
+      _isSpeaking = true;
+      _hasSpoken = true;
+    });
 
     try {
       await _tts.stop();
@@ -123,191 +93,101 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
       await _tts.setSpeechRate(_speechRate);
       await _tts.setPitch(_pitch);
 
-      // ถ้าหา voice name เจอ ก็ให้ setVoice
-      if (voiceNameToUse != null) {
-        await _tts.setVoice({'name': voiceNameToUse, 'locale': 'th-TH'});
+      if (_thaiVoices.isNotEmpty) {
+        // Find the best voice based on user's gender preference
+        final preferredVoice = _thaiVoices.firstWhere(
+          (v) =>
+              v['name'].toString().contains(_isFemaleVoice ? '-thc-' : '-thd-'),
+          orElse: () =>
+              _thaiVoices.first, // Fallback to the first available Thai voice
+        );
+        await _tts
+            .setVoice({'name': preferredVoice['name'], 'locale': 'th-TH'});
+      } else {
+        _showSnack('ไม่พบเสียงภาษาไทยในอุปกรณ์');
       }
 
-      await _tts.speak(txt);
+      await _tts.speak(textToSpeak);
     } catch (e) {
       if (mounted) {
-        setState(() => _busy = false);
-        _showSnack('พูดไม่สำเร็จ: $e');
+        setState(() => _isSpeaking = false);
+        _showSnack('เกิดข้อผิดพลาดในการอ่าน: $e');
       }
     }
   }
 
-  void _showSnack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
+  Future<void> _goToStep(int index) async {
+    if (index < 0) return;
+    if (index >= widget.steps.length) {
+      // Reached the end, pop the screen
+      await _tts.stop();
+      if (mounted) Navigator.pop(context);
+      return;
+    }
 
-  Future<void> _toPrev() async {
-    if (_idx == 0) return;
     await _tts.stop();
     setState(() {
-      _idx--;
-      _busy = false;
-      _spoken = false;
+      _currentIndex = index;
+      _isSpeaking = false;
+      _hasSpoken = false;
     });
   }
 
-  Future<void> _toNext() async {
-    if (_idx < widget.steps.length - 1) {
-      await _tts.stop();
-      setState(() {
-        _idx++;
-        _busy = false;
-        _spoken = false;
-      });
-    } else {
-      await _tts.stop();
-      if (mounted) Navigator.pop(context);
-    }
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
   }
 
   void _showSettingsSheet() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (_) {
         return FutureBuilder(
-            future: _ttsInitializationFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SizedBox(
-                    height: 200,
-                    child: Center(child: CircularProgressIndicator()));
-              }
-
-              return StatefulBuilder(
-                builder: (BuildContext context, StateSetter setModalState) {
-                  return Container(
-                    padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 32.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('ตั้งค่าเสียงอ่าน',
-                            style: TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 24),
-
-                        Text('เสียงพูด',
-                            style: TextStyle(color: Colors.grey[700])),
-                        const SizedBox(height: 8),
-                        // ★★★ กลับมาใช้ปุ่มเลือก ชาย/หญิง ★★★
-                        SegmentedButton<bool>(
-                          segments: const [
-                            ButtonSegment(
-                                value: true,
-                                label: Text('หญิง'),
-                                icon: Icon(Icons.female)),
-                            ButtonSegment(
-                                value: false,
-                                label: Text('ชาย'),
-                                icon: Icon(Icons.male)),
-                          ],
-                          selected: {_isFemaleVoice},
-                          onSelectionChanged: (newSelection) {
-                            setModalState(() => setState(
-                                () => _isFemaleVoice = newSelection.first));
-                          },
-                        ),
-                        const SizedBox(height: 24),
-
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('ความเร็วในการอ่าน:',
-                                style: TextStyle(color: Colors.grey[700])),
-                            Text('${(_speechRate * 2).toStringAsFixed(1)}x',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        Slider(
-                          value: _speechRate,
-                          min: 0.1,
-                          max: 1.0,
-                          divisions: 9,
-                          label: '${(_speechRate * 2).toStringAsFixed(1)}x',
-                          onChanged: (value) => setModalState(
-                              () => setState(() => _speechRate = value)),
-                        ),
-
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('โทนเสียง (Pitch):',
-                                style: TextStyle(color: Colors.grey[700])),
-                            Text(_pitch.toStringAsFixed(1),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        Slider(
-                          value: _pitch,
-                          min: 0.5,
-                          max: 2.0,
-                          divisions: 15,
-                          label: _pitch.toStringAsFixed(1),
-                          onChanged: (value) => setModalState(
-                              () => setState(() => _pitch = value)),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+          future: _ttsInitFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SizedBox(
+                height: 200,
+                child: Center(child: CircularProgressIndicator()),
               );
-            });
+            }
+            // Use StatefulBuilder to manage the state within the modal sheet
+            return StatefulBuilder(
+              builder: (BuildContext context, StateSetter setModalState) {
+                return _buildSettingsContent(context, setModalState);
+              },
+            );
+          },
+        );
       },
     );
   }
 
+  /* ────────────────────────── Build UI ────────────────────────── */
+
   @override
   Widget build(BuildContext context) {
-    // ... ส่วน build UI หลักที่เหลือเหมือนเดิมทั้งหมด ไม่มีการเปลี่ยนแปลง ...
-    final w = MediaQuery.of(context).size.width;
-    final h = MediaQuery.of(context).size.height;
+    // 1. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final currentStep = widget.steps[_currentIndex];
 
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
-
-    final imgH = clamp(h * 0.34, 200, 340);
-    final descF = clamp(w * 0.05, 16, 22);
-    final btnH = clamp(h * 0.085, 56, 72);
-    final btnFont = clamp(w * 0.055, 18, 24);
-    final btnIcon = btnH * 0.6;
-    final navIcon = clamp(w * 0.1, 32, 48);
-    final navFont = clamp(w * 0.04, 14, 18);
-    final pagePad = clamp(w * 0.08, 24, 40);
-
-    final step = widget.steps[_idx];
-    final imgUrl = (widget.imageUrls.length > _idx &&
-            widget.imageUrls[_idx].trim().isNotEmpty)
-        ? widget.imageUrls[_idx]
+    // Logic to find the best image for the current step
+    final imageUrl = (widget.imageUrls.length > _currentIndex &&
+            widget.imageUrls[_currentIndex].trim().isNotEmpty)
+        ? widget.imageUrls[_currentIndex]
         : (widget.imageUrls.isNotEmpty ? widget.imageUrls.first : null);
 
-    final isFirst = _idx == 0;
-    final isLast = _idx == widget.steps.length - 1;
+    final isFirstStep = _currentIndex == 0;
+    final isLastStep = _currentIndex == widget.steps.length - 1;
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFFFF9B05),
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
-          onPressed: () async {
-            await _tts.stop();
-            if (mounted) Navigator.pop(context);
-          },
-        ),
-        title: Text('ขั้นตอนที่ ${_idx + 1}',
-            style: const TextStyle(color: Colors.white)),
-        centerTitle: true,
+        title: Text('ขั้นตอนที่ ${_currentIndex + 1}'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings, color: Colors.white),
+            icon: const Icon(Icons.settings_outlined),
             tooltip: 'ตั้งค่าเสียง',
             onPressed: _showSettingsSheet,
           ),
@@ -315,86 +195,65 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
       ),
       body: Column(
         children: [
+          // --- Image Section ---
           SizedBox(
-            height: imgH,
+            height: 250, // กำหนดความสูงที่เหมาะสม
             width: double.infinity,
-            child: imgUrl != null
-                ? Image.network(imgUrl,
+            child: imageUrl != null
+                ? Image.network(imageUrl,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Image.asset(
-                        'assets/images/default_recipe.png',
-                        fit: BoxFit.cover))
-                : Image.asset('assets/images/default_recipe.png',
-                    fit: BoxFit.cover),
+                    errorBuilder: (_, __, ___) => _buildPlaceholderImage())
+                : _buildPlaceholderImage(),
           ),
+
+          // --- Description Section ---
           Expanded(
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(pagePad * 0.8),
+              padding: const EdgeInsets.all(24.0),
               child: Text(
-                step.description,
-                style: TextStyle(
-                  fontSize: descF,
-                  height: 1.4,
-                  fontWeight: FontWeight.w500,
-                  color: const Color(0xFF3D3D3D),
-                ),
+                currentStep.description,
+                style: textTheme.bodyLarge?.copyWith(height: 1.5),
               ),
             ),
           ),
+
+          // --- Controls Section ---
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: pagePad),
-            child: SizedBox(
-              width: double.infinity,
-              height: btnH,
-              child: ElevatedButton.icon(
-                onPressed: _busy ? null : _speak,
-                icon: Icon(
-                  _busy
-                      ? Icons.volume_up
-                      : (_spoken
-                          ? Icons.replay_circle_filled
-                          : Icons.play_circle_fill_rounded),
-                  size: btnIcon,
-                  color: Colors.white,
-                ),
-                label: Text(
-                  _busy ? 'กำลังพูด...' : (_spoken ? 'เล่นซ้ำ' : 'ฟังเสียง'),
-                  style:
-                      TextStyle(fontSize: btnFont, fontWeight: FontWeight.w700),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF9B05),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(btnH / 2)),
-                ),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: ElevatedButton.icon(
+              onPressed: _speakCurrentStep,
+              icon: Icon(_isSpeaking
+                  ? Icons.stop_circle_outlined
+                  : Icons.play_circle_outline),
+              label: Text(_isSpeaking
+                  ? 'กำลังอ่าน...'
+                  : (_hasSpoken ? 'อ่านซ้ำ' : 'ฟังเสียง')),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 56),
               ),
             ),
           ),
-          SizedBox(height: pagePad * 0.5),
+          const SizedBox(height: 16),
+
+          // --- Navigation Section ---
           SafeArea(
             top: false,
             child: Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: pagePad, vertical: pagePad * 0.25),
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _NavButton(
-                    enabled: !isFirst,
-                    icon: 'assets/icons/play_previous.svg',
+                    enabled: !isFirstStep,
+                    iconAsset: 'assets/icons/play_previous.svg',
                     label: 'กลับ',
-                    iconSize: navIcon,
-                    fontSize: navFont,
-                    onTap: _toPrev,
+                    onTap: () => _goToStep(_currentIndex - 1),
                   ),
                   _NavButton(
                     enabled: true,
-                    icon: 'assets/icons/play_next.svg',
-                    label: isLast ? 'เสร็จสิ้น' : 'ถัดไป',
-                    iconSize: navIcon,
-                    fontSize: navFont,
-                    onTap: _toNext,
+                    iconAsset: 'assets/icons/play_next.svg',
+                    label: isLastStep ? 'เสร็จสิ้น' : 'ถัดไป',
+                    onTap: () => _goToStep(_currentIndex + 1),
                   ),
                 ],
               ),
@@ -404,46 +263,125 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
       ),
     );
   }
+
+  // 2. แยก UI ย่อยๆ ออกมาเป็น Helper และใช้ Theme
+  Widget _buildPlaceholderImage() {
+    return Image.asset('assets/images/default_recipe.png', fit: BoxFit.cover);
+  }
+
+  Widget _buildSettingsContent(
+      BuildContext context, StateSetter setModalState) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('ตั้งค่าเสียงอ่าน', style: textTheme.titleLarge),
+          const SizedBox(height: 24),
+          Text('เสียงพูด', style: textTheme.titleSmall),
+          const SizedBox(height: 8),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(
+                  value: true, label: Text('หญิง'), icon: Icon(Icons.female)),
+              ButtonSegment(
+                  value: false, label: Text('ชาย'), icon: Icon(Icons.male)),
+            ],
+            selected: {_isFemaleVoice},
+            onSelectionChanged: (newSelection) {
+              setModalState(
+                  () => setState(() => _isFemaleVoice = newSelection.first));
+            },
+          ),
+          const SizedBox(height: 24),
+
+          // --- Speech Rate Slider ---
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('ความเร็วในการอ่าน:', style: textTheme.titleSmall),
+              Text('${(_speechRate * 2).toStringAsFixed(1)}x',
+                  style: textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          Slider(
+            value: _speechRate,
+            min: 0.1,
+            max: 1.0,
+            divisions: 9,
+            label: '${(_speechRate * 2).toStringAsFixed(1)}x',
+            onChanged: (value) =>
+                setModalState(() => setState(() => _speechRate = value)),
+          ),
+
+          // --- Pitch Slider ---
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('ระดับเสียง (Pitch):', style: textTheme.titleSmall),
+              Text(_pitch.toStringAsFixed(1),
+                  style: textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          Slider(
+            value: _pitch,
+            min: 0.5,
+            max: 2.0,
+            divisions: 15,
+            label: _pitch.toStringAsFixed(1),
+            onChanged: (value) =>
+                setModalState(() => setState(() => _pitch = value)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-/*───────────── widget ย่อย ─────────────*/
+/// Widget สำหรับปุ่ม Previous/Next
 class _NavButton extends StatelessWidget {
   final bool enabled;
-  final String icon;
+  final String iconAsset;
   final String label;
   final VoidCallback onTap;
-  final double iconSize;
-  final double fontSize;
+
   const _NavButton({
     required this.enabled,
-    required this.icon,
+    required this.iconAsset,
     required this.label,
     required this.onTap,
-    required this.iconSize,
-    required this.fontSize,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.4,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: SvgPicture.asset(icon,
-                width: iconSize,
-                height: iconSize,
-                colorFilter:
-                    const ColorFilter.mode(Color(0xFF555555), BlendMode.srcIn)),
-            onPressed: enabled ? onTap : null,
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.4,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SvgPicture.asset(
+                iconAsset,
+                width: 40,
+                colorFilter: ColorFilter.mode(
+                    theme.colorScheme.onSurface, BlendMode.srcIn),
+              ),
+              const SizedBox(height: 4),
+              Text(label, style: theme.textTheme.labelMedium),
+            ],
           ),
-          Text(label,
-              style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF555555))),
-        ],
+        ),
       ),
     );
   }

@@ -1,85 +1,68 @@
-// lib/widgets/rank_badge.dart
-
 import 'package:flutter/material.dart';
 
 class RankBadge extends StatelessWidget {
-  /// 1 = Gold / 2 = Silver / 3 = Bronze  (อื่น ๆ ไม่แสดง)
+  /// 1 = Gold / 2 = Silver / 3 = Bronze (อื่น ๆ ไม่แสดง)
   final int? rank;
 
   /// แสดงวงกลมเตือนสีแดง + ไอคอน ⚠
   final bool showWarning;
 
-  /// override เส้นผ่านศูนย์กลางขั้นต่ำ / สูงสุด (optional)
-  final double? minDiameter;
-  final double? maxDiameter;
+  /// ✅ 1. เพิ่ม parameter สำหรับกำหนดขนาดโดยตรงจาก Parent
+  final double radius;
 
   const RankBadge({
     super.key,
     this.rank,
     this.showWarning = false,
-    this.minDiameter,
-    this.maxDiameter,
+    this.radius = 14.0, // กำหนดขนาดเริ่มต้นที่เหมาะสม
   });
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, box) {
-      // ✔︎ ใช้พื้นที่จริง (width ของ parent) แทน MediaQuery ทั้งจอ
-      final parentW = box.maxWidth.isFinite
-          ? box.maxWidth
-          : MediaQuery.of(context).size.width;
+    // ✅ 2. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final colorScheme = theme.colorScheme;
 
-      // ถ้าพื้นที่ไม่มีจำกัด (เช่นวางทับใน Stack) fallback = screen-w
-      double d = parentW * .066; // ≈ 24 px เมื่อ parent ≈ 360 px
-      d = d.clamp(
-        (minDiameter ?? 20),
-        (maxDiameter ?? 32),
-      );
+    // --- กำหนดสีพื้นหลัง ---
+    final Color backgroundColor = showWarning
+        ? colorScheme.error // ใช้สี error จาก Theme
+        : switch (rank) {
+            1 => const Color(0xFFFFD700), // Gold
+            2 => const Color(0xFFC0C0C0), // Silver
+            3 => const Color(0xFFCD7F32), // Bronze
+            _ => Colors.transparent,
+          };
 
-      // ---------- กำหนด UI ----------
-      final bgColor = showWarning
-          ? Colors.redAccent
-          : switch (rank) {
-              1 => const Color(0xFFFFD700),
-              2 => const Color(0xFFB0B0B0),
-              3 => const Color(0xFFCD7F32),
-              _ => Colors.transparent,
-            };
+    // ถ้าไม่มี rank และไม่ใช่ warning, จะไม่แสดงผลอะไรเลย
+    if (backgroundColor == Colors.transparent) {
+      return const SizedBox.shrink();
+    }
 
-      if (bgColor == Colors.transparent) return const SizedBox.shrink();
+    // --- กำหนด child (ตัวเลข หรือ ไอคอน) ---
+    final Widget child = showWarning
+        ? Icon(
+            Icons.priority_high_rounded,
+            size: radius * 1.1, // กำหนดขนาดไอคอนตามสัดส่วนของ radius
+            color: colorScheme.onError, // ใช้สี onError จาก Theme
+          )
+        : Text(
+            '$rank',
+            // ✅ 3. ใช้ TextStyle จาก Theme ส่วนกลาง
+            style: textTheme.labelSmall?.copyWith(
+              color: Colors.white, // สีขาวยังคงเหมาะสมกับพื้นหลังสีๆ
+              fontWeight: FontWeight.bold,
+            ),
+          );
 
-      final Widget iconWidget = showWarning
-          ? const Icon(Icons.priority_high, color: Colors.white)
-          : Text(
-              '$rank',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: d * .48,
-                fontWeight: FontWeight.w700,
-              ),
-            );
-
-      return SizedBox(
-        width: d,
-        height: d,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: bgColor,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: bgColor.withOpacity(.35),
-                blurRadius: d * .22,
-                offset: Offset(0, d * .08),
-              ),
-            ],
-          ),
-          child: Center(
-            child: FittedBox(child: iconWidget),
-          ),
-        ),
-      );
-    });
+    // ✅ 4. เปลี่ยนมาใช้ CircleAvatar ซึ่งเป็น Widget ที่เหมาะสมที่สุด
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: backgroundColor,
+      child: FittedBox(
+        // ทำให้ child ปรับขนาดพอดีกับวงกลม
+        child: child,
+      ),
+    );
   }
 }

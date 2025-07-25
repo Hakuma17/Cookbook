@@ -1,9 +1,14 @@
-// lib/widgets/nutrition_summary.dart
-
 import 'package:flutter/material.dart';
 import '../models/nutrition.dart';
 
-/// NutritionSummary - แสดงโภชนาการแบบ 4 ช่อง พร้อมปรับ label ยาวขึ้น 2 บรรทัด
+/*──────────────── helper ───────────────*/
+class _NutItem {
+  final String label;
+  final double value;
+  const _NutItem(this.label, this.value);
+}
+
+/*──────────────── widget ───────────────*/
 class NutritionSummary extends StatelessWidget {
   final Nutrition? nutrition;
   final int baseServings;
@@ -18,113 +23,76 @@ class NutritionSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (nutrition == null || baseServings <= 0) return const SizedBox.shrink();
+    if (nutrition == null || baseServings <= 0) {
+      return const SizedBox.shrink();
+    }
 
-    // ------------------------------------------------------------------
-    // 1) เตรียมข้อมูลหลังปรับ servings
-    // ------------------------------------------------------------------
-    final portionRatio = currentServings / baseServings;
-    final items = <_NutItem>[
-      _NutItem('แคลอรี่', nutrition!.calories * portionRatio),
-      _NutItem('ไขมัน', nutrition!.fat * portionRatio),
-      _NutItem('โปรตีน', nutrition!.protein * portionRatio),
-      _NutItem('คาร์โบไฮเดรต', nutrition!.carbs * portionRatio),
+    final ratio = currentServings / baseServings;
+    final items = [
+      _NutItem('แคลอรี่', nutrition!.calories * ratio),
+      _NutItem('ไขมัน', nutrition!.fat * ratio),
+      _NutItem('โปรตีน', nutrition!.protein * ratio),
+      _NutItem('คาร์โบไฮเดรต', nutrition!.carbs * ratio),
     ];
 
-    // ------------------------------------------------------------------
-    // 2) UI – ใช้ LayoutBuilder >>> responsive scale ตามพื้นที่จริง
-    // ------------------------------------------------------------------
-    return LayoutBuilder(
-      builder: (context, box) {
-        final w = box.maxWidth; // กว้างของวิดเจ็ต
-        final scale = (w / 360).clamp(0.80, 1.30); // safe-range
-
-        double px(double v) => v * scale;
-
-        final gap = px(10); // ช่องว่างกริด
-        final radius = px(14); // มุมโค้ง
-        final stroke = px(1.3); // เส้นขอบ
-        final labelF = px(13);
-        final valueF = labelF + 1;
-
-        return Padding(
-          padding: EdgeInsets.symmetric(horizontal: px(16)),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              crossAxisSpacing: gap,
-              mainAxisSpacing: gap,
-              // square-ish cell แต่ยืดตาม scale
-              childAspectRatio: 1.03,
-            ),
-            itemBuilder: (_, i) {
-              final it = items[i];
-              final v = it.value;
-              final s = v >= 10000
-                  ? '${(v / 1000).toStringAsFixed(1)}K'
-                  : v % 1 == 0
-                      ? v.toStringAsFixed(0)
-                      : v.toStringAsFixed(1);
-
-              return Container(
-                padding: EdgeInsets.all(px(8)),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(radius),
-                  border: Border.all(
-                    color: const Color(0xFFFF9B05),
-                    width: stroke,
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // ── LABEL ────────────────────────────────────────
-                    FittedBox(
-                      child: Text(
-                        it.label == 'คาร์โบไฮเดรต'
-                            ? 'คาร์โบ\nไฮเดรต'
-                            : it.label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontWeight: FontWeight.w600,
-                          fontSize: labelF,
-                          color: const Color(0xFFFF9B05),
-                          height: 1.25,
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: px(6)),
-                    // ── VALUE ───────────────────────────────────────
-                    FittedBox(
-                      child: Text(
-                        '$s g',
-                        style: TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontWeight: FontWeight.w700,
-                          fontSize: valueF,
-                          color: Colors.black,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
+    /* ปรับ childAspectRatio = 0.95 (+ความสูง ~1‑2px) แก้ overflow */
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+        childAspectRatio: 0.95, // ← เดิม 1.0
+      ),
+      itemBuilder: (_, i) => _buildCell(context, items[i]),
     );
   }
-}
 
-/*──────────────────────────────────────────────────────────────*/
-class _NutItem {
-  final String label;
-  final double value;
-  const _NutItem(this.label, this.value);
+  /*───────── cell ─────────*/
+  Widget _buildCell(BuildContext context, _NutItem item) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final num = item.value;
+    final v = num >= 10000
+        ? '${(num / 1000).toStringAsFixed(1)}K'
+        : num % 1 == 0
+            ? num.toInt().toString()
+            : num.toStringAsFixed(1);
+
+    final label = item.label == 'คาร์โบไฮเดรต' ? 'คาร์โบ\nไฮเดรต' : item.label;
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.primary.withOpacity(.7), width: 1.5),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(label,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: cs.primary,
+                fontWeight: FontWeight.bold,
+                height: 1.2,
+              )),
+          const SizedBox(height: 6),
+          FittedBox(
+            child: Text(
+              item.label == 'แคลอรี่' ? v : '$v g',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: cs.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

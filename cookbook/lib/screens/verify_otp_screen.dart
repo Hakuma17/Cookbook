@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cookbook/services/auth_service.dart';
+import 'package:cookbook/services/api_service.dart';
 import 'package:pinput/pinput.dart';
-import 'edit_profile_screen.dart';
+// import 'edit_profile_screen.dart'; // 🗑️ ลบออก เพราะจะใช้ Named Routes
 
 class VerifyOtpScreen extends StatefulWidget {
   final String email;
@@ -18,9 +19,9 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
 
   bool _submitting = false;
   bool _resending = false;
-  String? _error;
+  String? _errorMsg;
 
-  // Cooldown logic (เหมือนเดิม)
+  // Cooldown logic
   static const int _cooldown = 60;
   Timer? _timer;
   int _secLeft = 0;
@@ -28,8 +29,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
   @override
   void initState() {
     super.initState();
-    // เริ่ม cooldown ทันทีที่หน้าจอถูกสร้าง (เป็นทางเลือก)
-    // _startCooldown();
+    _startCooldown(); // เริ่มนับถอยหลังทันทีที่เข้ามาหน้านี้
   }
 
   @override
@@ -39,54 +39,63 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     super.dispose();
   }
 
+  /// 2. ปรับปรุง Error Handling และ Navigation
   Future<void> _verify() async {
-    // ใช้ Form key ในการ validate
-    if (!_formKey.currentState!.validate()) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() {
       _submitting = true;
-      _error = null;
+      _errorMsg = null;
     });
 
-    final res = await AuthService.verifyOtp(widget.email, _otpCtrl.text);
-    if (!mounted) return;
+    try {
+      final res = await AuthService.verifyOtp(widget.email, _otpCtrl.text);
+      if (!mounted) return;
 
-    setState(() => _submitting = false);
-
-    if (res['success'] == true) {
-      // ✅ พาไปหน้าแก้โปรไฟล์และล้างหน้าก่อนหน้าทั้งหมดทิ้ง
-      // เพื่อไม่ให้ผู้ใช้กด back กลับมาหน้า auth flow ได้อีก
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const EditProfileScreen()),
-        (_) => false,
-      );
-    } else {
-      setState(() => _error = res['message'] ?? 'OTP ไม่ถูกต้อง');
+      if (res['success'] == true) {
+        // เมื่อ OTP ถูกต้อง, ให้บันทึกข้อมูล login (ถ้า API ส่งกลับมา)
+        // และเคลียร์ Stack ทั้งหมดแล้วไปหน้า Home
+        // หมายเหตุ: Backend ควรส่งข้อมูล user กลับมาด้วยหลัง verify OTP สำเร็จ
+        if (res['data'] != null && res['data'] is Map<String, dynamic>) {
+          await AuthService.saveLoginData(res['data']);
+        }
+        Navigator.of(context).pushNamedAndRemoveUntil('/home', (_) => false);
+      } else {
+        setState(() => _errorMsg = res['message'] ?? 'OTP ไม่ถูกต้อง');
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _errorMsg = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
-  // Resend logic (เหมือนเดิม)
   Future<void> _resend() async {
-    if (_secLeft > 0) return;
+    if (_secLeft > 0 || _resending) return;
 
     setState(() {
       _resending = true;
-      _error = null;
+      _errorMsg = null;
     });
-    final res = await AuthService.resendOtp(widget.email);
-    setState(() => _resending = false);
 
-    if (res['success'] == true) {
-      _startCooldown();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('ส่ง OTP ใหม่แล้ว'),
-          behavior: SnackBarBehavior.floating,
-        ));
+    try {
+      final res = await AuthService.resendOtp(widget.email);
+      if (res['success'] == true) {
+        _startCooldown();
+        if (mounted) {
+          _showSnack('ส่ง OTP ใหม่แล้ว', isError: false);
+        }
+      } else {
+        setState(() => _errorMsg = res['message'] ?? 'ส่ง OTP ใหม่ไม่สำเร็จ');
       }
-    } else {
-      setState(() => _error = res['message'] ?? 'ส่ง OTP ไม่สำเร็จ');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _errorMsg = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      if (mounted) setState(() => _resending = false);
     }
   }
 
@@ -98,9 +107,9 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
         timer.cancel();
         return;
       }
-      if (_secLeft == 0) {
+      if (_secLeft <= 1) {
         timer.cancel();
-        setState(() {});
+        setState(() => _secLeft = 0);
       } else {
         setState(() => _secLeft--);
       }
@@ -108,55 +117,60 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
   }
 
   void _skip() {
+    // การข้ามควรจะพาไปหน้า Home ในฐานะ Guest
     Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+  }
+
+  void _showSnack(String msg, {bool isError = true}) {
+    if (!mounted) return;
+    final theme = Theme.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: isError ? theme.colorScheme.error : Colors.green[600],
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
+    //  3. ใช้ Theme จาก Context
     final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
 
-    // Theme สำหรับ pinput
+    // Theme สำหรับ pinput ที่ดึงค่าจาก Theme หลัก
     final defaultPinTheme = PinTheme(
       width: 56,
       height: 60,
-      textStyle: theme.textTheme.headlineSmall,
+      textStyle: textTheme.headlineSmall,
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.transparent),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withOpacity(0.5)),
       ),
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('ยืนยันตัวตน')),
+      appBar: AppBar(title: const Text('ยืนยันอีเมล')),
       body: Center(
-        //  จัดให้อยู่กลางจอ
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Form(
-            //  หุ้มด้วย Form
             key: _formKey,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.shield_moon_outlined,
-                    size: 80, color: Colors.grey),
+                Icon(Icons.shield_moon_outlined,
+                    size: 80, color: theme.colorScheme.primary),
                 const SizedBox(height: 24),
-                Text(
-                  'ป้อนรหัสที่ส่งไปยัง',
-                  style: theme.textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                ),
+                Text('ป้อนรหัสที่ส่งไปยัง', style: textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Text(
                   widget.email,
-                  style: theme.textTheme.titleLarge
+                  style: textTheme.titleLarge
                       ?.copyWith(fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),
-
-                //
                 Pinput(
                   length: 6,
                   controller: _otpCtrl,
@@ -164,7 +178,8 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                   defaultPinTheme: defaultPinTheme,
                   focusedPinTheme: defaultPinTheme.copyWith(
                     decoration: defaultPinTheme.decoration!.copyWith(
-                      border: Border.all(color: theme.colorScheme.primary),
+                      border: Border.all(
+                          color: theme.colorScheme.primary, width: 2),
                     ),
                   ),
                   submittedPinTheme: defaultPinTheme.copyWith(
@@ -178,20 +193,14 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                   },
                   onCompleted: (pin) => _verify(),
                 ),
-
-                if (_error != null)
+                if (_errorMsg != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 16),
-                    child: Text(_error!,
+                    child: Text(_errorMsg!,
                         style: TextStyle(color: theme.colorScheme.error)),
                   ),
                 const SizedBox(height: 24),
-
-                // ปุ่มยืนยัน
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                  ),
                   onPressed: _submitting ? null : _verify,
                   child: _submitting
                       ? const SizedBox(
@@ -203,15 +212,11 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                       : const Text('ยืนยัน'),
                 ),
                 const SizedBox(height: 12),
-
-                // ปุ่มข้าม
                 TextButton(
                   onPressed: _skip,
                   child: const Text('ข้ามไปก่อน'),
                 ),
                 const SizedBox(height: 24),
-
-                // ปุ่มขอรหัสใหม่
                 TextButton(
                   onPressed: _resending || _secLeft > 0 ? null : _resend,
                   child: _resending

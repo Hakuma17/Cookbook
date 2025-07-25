@@ -1,148 +1,169 @@
-// lib/screens/references_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ReferencesScreen extends StatelessWidget {
-  const ReferencesScreen({Key? key}) : super(key: key);
+  const ReferencesScreen({super.key});
 
-  // Helper สำหรับเปิด URL
-  Future<void> _launchURL(String url, BuildContext context) async {
-    final uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ไม่สามารถเปิดลิงก์ได้: $url')),
-      );
-    }
-  }
+  // ✅ 1. ย้าย Helper สำหรับเปิด URL มาไว้ใน build method หรือแยกเป็น utility
+  //    เพื่อให้เข้าถึง context ได้ง่ายขึ้นเมื่อต้องการแสดง SnackBar
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+
+    // Data for references, making the build method cleaner
+    final nutritionReferences = [
+      {
+        'title': 'ตารางแสดงคุณค่าทางโภชนาการของอาหารไทย',
+        'subtitle': 'กรมอนามัย กระทรวงสาธารณสุข',
+        'url':
+            'https://nutrition2.anamai.moph.go.th/th/thai-food-composition-table/download?id=61523&mid=31993&mkey=m_document&lang=th&did=18032',
+        'imageAsset': 'assets/images/Department_of_health.png',
+      },
+      {
+        'title': 'Thai Food Composition Tables',
+        'subtitle': 'สถาบันโภชนาการ มหาวิทยาลัยมหิดล (INMU)',
+        'url': 'https://inmu.mahidol.ac.th/thaifcd',
+        'imageAsset': 'assets/images/mahidol_Referange.jpg',
+      },
+    ];
+
+    final bookReferences = [
+      {
+        'imageAsset': 'assets/images/Pimwit.jpg',
+        'title': 'เมนูเด็ด...อาหารจานเดียว',
+        'author': 'พิมพ์วิชญ์ โภคาสุวิบุลย์',
+      },
+      {
+        'imageAsset': 'assets/images/Yodying.jpg',
+        'title': 'ตำรับเด็ด อาหารตามสั่ง ทำกินอร่อยง่าย ทำขายยิ่งรวย',
+        'author': 'ยอดยิ่ง ถาวรไทย',
+      },
+      {
+        'imageAsset': 'assets/images/Nidda.jpg',
+        'title': 'อาหารไทย สูตรจริงที่ทำได้ ทำง่าย มีภาพแสดงขั้นตอนการปรุง',
+        'author': 'นิดาห์ หงษ์วิวัตน์',
+      },
+    ];
+
     return Scaffold(
+      // ✅ 2. AppBar จะดึงสไตล์มาจาก Theme ที่กำหนดใน main.dart โดยอัตโนมัติ
       appBar: AppBar(
         title: const Text('ข้อมูลอ้างอิง'),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 1,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // Section: ข้อมูลโภชนาการ
+          // --- Section: ข้อมูลโภชนาการ ---
           _buildSection(
             context,
             icon: Icons.health_and_safety_outlined,
             title: 'ข้อมูลโภชนาการ',
-            children: [
-              _buildReferenceTile(
+            children: List.generate(nutritionReferences.length, (index) {
+              final ref = nutritionReferences[index];
+              return _buildReferenceTile(
                 context,
-                title: 'ตารางแสดงคุณค่าทางโภชนาการของอาหารไทย',
-                subtitle: 'กรมอนามัย กระทรวงสาธารณสุข',
-                url:
-                    'https://nutrition2.anamai.moph.go.th/th/thai-food-composition-table/download?id=61523&mid=31993&mkey=m_document&lang=th&did=18032',
-                imageAsset:
-                    'assets/images/Department_of_health.png', // รูปจากกรมอนามัย
-              ),
-              const Divider(height: 1),
-              _buildReferenceTile(
-                context,
-                title: 'Thai Food Composition Tables',
-                subtitle: 'สถาบันโภชนาการ มหาวิทยาลัยมหิดล (INMU)',
-                url: 'https://inmu.mahidol.ac.th/thaifcd/home',
-                imageAsset:
-                    'assets/images/mahidol_Referange.jpg', // รูปจากมหิดล
-              ),
-            ],
+                title: ref['title']!,
+                subtitle: ref['subtitle']!,
+                url: ref['url']!,
+                imageAsset: ref['imageAsset'],
+              );
+            }).toList(),
           ),
 
-          // Section: ข้อมูลสูตรอาหาร
+          // --- Section: ข้อมูลสูตรอาหาร ---
           _buildSection(
             context,
             icon: Icons.menu_book_rounded,
             title: 'ข้อมูลสูตรอาหาร',
-            children: [
-              _buildBookReferenceTile(
+            children: List.generate(bookReferences.length, (index) {
+              final book = bookReferences[index];
+              return _buildBookReferenceTile(
                 context,
-                imageAsset: 'assets/images/Pimwit.jpg',
-                title: 'เมนูเด็ด...อาหารจานเดียว',
-                author: 'พิมพ์วิชญ์ โภคาสุวิบุลย์',
+                imageAsset: book['imageAsset']!,
+                title: book['title']!,
+                author: book['author']!,
+              );
+            }).toList(),
+          ),
+
+          // --- Section: ผู้จัดทำ ---
+          _buildSection(
+            context,
+            icon: Icons.people_outline,
+            title: 'ผู้จัดทำ',
+            children: const [
+              ListTile(
+                leading: CircleAvatar(child: Text('ย')), // ตัวอย่าง Avatar
+                title: Text('นายยศพล แสงอินทร์'),
+                subtitle: Text('นักศึกษาคณะวิศวกรรมคอมพิวเตอร์'),
               ),
-              const Divider(height: 1, indent: 16, endIndent: 16),
-              _buildBookReferenceTile(
-                context,
-                imageAsset: 'assets/images/Yodying.jpg',
-                title: 'ตำรับเด็ด อาหารตามสั่ง ทำกินอร่อยง่าย ทำขายยิ่งรวย',
-                author: 'ยอดยิ่ง ถาวรไทย',
-              ),
-              const Divider(height: 1, indent: 16, endIndent: 16),
-              _buildBookReferenceTile(
-                context,
-                imageAsset: 'assets/images/Nidda.jpg',
-                title:
-                    'อาหารไทย สูตรจริงที่ทำได้ ทำง่าย มีภาพแสดงขั้นตอนการปรุง',
-                author: 'นิดาห์ หงษ์วิวัตน์',
+              ListTile(
+                leading: CircleAvatar(child: Text('ฉ')), // ตัวอย่าง Avatar
+                title: Text('นายฉัตรดนัย ปูทอง'),
+                subtitle: Text('นักศึกษาคณะวิศวกรรมคอมพิวเตอร์'),
               ),
             ],
           ),
-
-          // Section: ผู้จัดทำ
-          _buildSection(context,
-              icon: Icons.person_pin_rounded,
-              title: 'ผู้จัดทำ',
-              children: [
-                ListTile(
-                  title: Text('นายยศพล แสงอินทร์',
-                      style: TextStyle(fontWeight: FontWeight.w500)),
-                  subtitle: Text('นักศึกษาคณะวิศวกรรมคอมพิวเตอร์',
-                      style: TextStyle(color: Colors.grey[600])),
-                ),
-                ListTile(
-                  title: Text('ฉัตรดนัย ปูทอง',
-                      style: TextStyle(fontWeight: FontWeight.w500)),
-                  subtitle: Text('นักศึกษาคณะวิศวกรรมคอมพิวเตอร์',
-                      style: TextStyle(color: Colors.grey[600])),
-                ),
-              ]),
         ],
       ),
     );
   }
 
+  // Helper สำหรับเปิด URL
+  Future<void> _launchURL(String url, BuildContext context) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ไม่สามารถเปิดลิงก์ได้: $url')),
+        );
+      }
+    }
+  }
+
+  // ✅ 3. Refactor Helper Widgets ให้ใช้ Theme และสะอาดขึ้น
   // Helper Widget สำหรับสร้างแต่ละ Section
-  Widget _buildSection(BuildContext context,
-      {required IconData icon,
-      required String title,
-      required List<Widget> children}) {
-    final titleStyle = Theme.of(context)
-        .textTheme
-        .titleLarge
-        ?.copyWith(fontWeight: FontWeight.w600, fontSize: 18);
+  Widget _buildSection(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required List<Widget> children,
+  }) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4.0, bottom: 12.0),
+          padding: const EdgeInsets.fromLTRB(4.0, 8.0, 0, 12.0),
           child: Row(
             children: [
-              Icon(icon, color: Colors.grey[800], size: 22),
-              const SizedBox(width: 8),
-              Text(title, style: titleStyle),
+              Icon(icon, color: theme.colorScheme.primary, size: 24),
+              const SizedBox(width: 12),
+              Text(title, style: textTheme.titleLarge),
             ],
           ),
         ),
         Card(
-          elevation: 2,
-          margin: const EdgeInsets.only(bottom: 24.0),
-          clipBehavior: Clip.antiAlias, // ทำให้มุมโค้งมีผลกับ Child
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
-            children: children,
+            // --- ⭐️ จุดที่แก้ไข ⭐️ ---
+            // เปลี่ยนจากการใช้ ListView.separated ที่ผิดพลาด
+            // มาใช้ for loop เพื่อสร้างรายการ Widget และ Divider สลับกัน
+            children: [
+              for (int i = 0; i < children.length; i++) ...[
+                children[i],
+                // เพิ่ม Divider ถ้าหากยังไม่ใช่ item สุดท้าย
+                if (i < children.length - 1) const Divider(height: 1),
+              ],
+            ],
+            // -------------------------
           ),
         ),
+        const SizedBox(height: 24),
       ],
     );
   }
@@ -155,6 +176,9 @@ class ReferencesScreen extends StatelessWidget {
     required String url,
     String? imageAsset,
   }) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
     return ListTile(
       leading: imageAsset != null
           ? ClipRRect(
@@ -163,9 +187,13 @@ class ReferencesScreen extends StatelessWidget {
                   width: 56, height: 56, fit: BoxFit.cover),
             )
           : null,
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle, style: TextStyle(color: Colors.grey[600])),
-      trailing: const Icon(Icons.open_in_new, color: Colors.grey),
+      title: Text(title, style: textTheme.titleSmall),
+      subtitle: Text(
+        subtitle,
+        style:
+            textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+      ),
+      trailing: const Icon(Icons.open_in_new),
       onTap: () => _launchURL(url, context),
       contentPadding:
           const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
@@ -179,8 +207,11 @@ class ReferencesScreen extends StatelessWidget {
     required String title,
     required String author,
   }) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+      padding: const EdgeInsets.all(16.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -198,15 +229,12 @@ class ReferencesScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 15),
-                ),
+                Text(title, style: textTheme.titleSmall),
                 const SizedBox(height: 4),
                 Text(
                   'ผู้แต่ง: $author',
-                  style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: colorScheme.onSurfaceVariant),
                 ),
               ],
             ),

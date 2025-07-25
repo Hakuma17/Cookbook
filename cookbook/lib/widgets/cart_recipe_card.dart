@@ -1,13 +1,5 @@
-// lib/widgets/cart_recipe_card.dart
-//
-// responsive-plus  (2025-07-11)
-// – ไม่ยุ่ง logic onTapEditServings / onDelete / navigator
-// – ไม่มี overflow / analyzer warning
-// -------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
-import '../screens/recipe_detail_screen.dart';
 
 /// การ์ดสูตรในตะกร้า
 class CartRecipeCard extends StatelessWidget {
@@ -16,127 +8,92 @@ class CartRecipeCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   const CartRecipeCard({
-    Key? key,
+    super.key,
     required this.cartItem,
     required this.onTapEditServings,
     required this.onDelete,
-  }) : super(key: key);
+  });
+
+  //  1. เปลี่ยนไปใช้ Named Route เพื่อความสอดคล้อง
+  void _openDetail(BuildContext context) {
+    Navigator.pushNamed(
+      context,
+      '/recipe_detail',
+      arguments: cartItem.recipeId, // ส่ง ID ไปแทน Object
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    /* ── responsive metrics ── */
-    final w = MediaQuery.of(context).size.width;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
-
-    final cardW = clamp(w * .44, 150, 240);
-    final radius = clamp(w * .04, 12, 20);
-    final imgH = cardW * (140 / 180); // ratio จาก mock-up
-    final padIn = clamp(w * .030, 10, 16);
-    final nameF = clamp(w * .045, 14, 19);
-    final badgeF = clamp(w * .035, 11, 15);
-    final badgePad = clamp(w * .018, 5, 9);
-    final delSz = clamp(w * .048, 16, 24);
-    final delPad = delSz * .35;
-    final gapName = clamp(w * .020, 6, 12);
+    //  2. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final colorScheme = theme.colorScheme;
 
     return SizedBox(
-      width: cardW,
+      width: 180, // กำหนดความกว้างคงที่ เหมาะสำหรับ Horizontal ListView
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          /* ───────── การ์ด ───────── */
-          ClipRRect(
-            borderRadius: BorderRadius.circular(radius),
-            child: Container(
-              color: Theme.of(context).cardColor,
+          // --- Card หลัก ---
+          Card(
+            // Card จะใช้สไตล์จาก CardTheme ใน main.dart
+            margin: const EdgeInsets.only(top: 8, right: 8),
+            child: InkWell(
+              onTap: () => _openDetail(context),
+              borderRadius:
+                  BorderRadius.circular(12), // ทำให้ splash effect โค้งตาม Card
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  /* ───── รูป + badge ───── */
+                  // --- รูปภาพ และ Badge จำนวนเสิร์ฟ ---
                   SizedBox(
-                    height: imgH,
+                    height: 120,
                     width: double.infinity,
                     child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        // รูป (คลิกเปิดรายละเอียด)
-                        InkWell(
-                          onTap: () => _openDetail(context),
+                        ClipRRect(
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(12)),
                           child: Image.network(
                             cartItem.imageUrl,
-                            width: double.infinity,
-                            height: double.infinity,
                             fit: BoxFit.cover,
-                            loadingBuilder: (_, child, ev) => ev == null
-                                ? child
-                                : Image.asset(
-                                    'assets/images/default_recipe.png',
-                                    fit: BoxFit.cover),
-                            errorBuilder: (_, __, ___) => Image.asset(
-                                'assets/images/default_recipe.png',
-                                fit: BoxFit.cover),
+                            errorBuilder: (_, __, ___) => Container(
+                              color: colorScheme.surfaceVariant,
+                              child: Icon(Icons.image_not_supported_outlined,
+                                  color: colorScheme.onSurfaceVariant),
+                            ),
                           ),
                         ),
-
-                        // Badge จำนวนเสิร์ฟ
                         Positioned(
-                          bottom: badgePad,
-                          right: badgePad,
-                          child: GestureDetector(
+                          bottom: 8,
+                          right: 8,
+                          child: InkWell(
                             onTap: onTapEditServings,
-                            child: Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: badgePad * 1.6,
-                                vertical: badgePad,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius:
-                                    BorderRadius.circular(radius * .6),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Colors.black12,
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.person,
-                                      size: badgeF + 3, color: Colors.black54),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${cartItem.nServings} คน',
-                                    style: TextStyle(
-                                      fontSize: badgeF,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            child: Chip(
+                              avatar: Icon(Icons.person,
+                                  size: 16,
+                                  color: colorScheme.onSecondaryContainer),
+                              label: Text('${cartItem.nServings} คน'),
+                              labelStyle: textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onSecondaryContainer),
+                              backgroundColor: colorScheme.secondaryContainer,
+                              visualDensity: VisualDensity.compact,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-
-                  /* ───── ชื่อเมนู ───── */
+                  // --- ชื่อเมนู ---
                   Padding(
-                    padding: EdgeInsets.fromLTRB(padIn, gapName, padIn, padIn),
-                    child: InkWell(
-                      onTap: () => _openDetail(context),
-                      child: Text(
-                        cartItem.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontWeight: FontWeight.w600,
-                          fontSize: nameF,
-                        ),
-                      ),
+                    padding: const EdgeInsets.all(12.0),
+                    child: Text(
+                      cartItem.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleSmall,
                     ),
                   ),
                 ],
@@ -144,19 +101,21 @@ class CartRecipeCard extends StatelessWidget {
             ),
           ),
 
-          /* ───────── ปุ่มลบ ───────── */
+          // --- ปุ่มลบ ---
+          // 3. เปลี่ยนมาใช้ IconButton ที่จัดสไตล์ได้ง่ายกว่า
           Positioned(
-            top: -delPad,
-            right: -delPad,
-            child: GestureDetector(
-              onTap: onDelete,
-              child: Container(
-                padding: EdgeInsets.all(delPad),
-                decoration: const BoxDecoration(
-                  color: Colors.redAccent,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.delete, size: delSz, color: Colors.white),
+            top: 0,
+            right: 0,
+            child: IconButton(
+              icon: const Icon(Icons.close),
+              iconSize: 18,
+              tooltip: 'ลบออกจากตะกร้า',
+              onPressed: onDelete,
+              style: IconButton.styleFrom(
+                backgroundColor: colorScheme.error,
+                foregroundColor: colorScheme.onError,
+                padding: const EdgeInsets.all(4),
+                visualDensity: VisualDensity.compact,
               ),
             ),
           ),
@@ -164,54 +123,61 @@ class CartRecipeCard extends StatelessWidget {
       ),
     );
   }
-
-  void _openDetail(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RecipeDetailScreen(recipeId: cartItem.recipeId),
-      ),
-    );
-  }
 }
 
-/*───────────────── BottomSheet picker ─────────────────*/
+// ✅ 4. Refactor _ServingsPicker ให้เป็น Widget สาธารณะและใช้ Theme
+// ⭐️ แนะนำ: ย้าย Widget นี้ไปไว้ในไฟล์ของตัวเอง (เช่น lib/widgets/servings_picker.dart)
+//    เพื่อให้หน้าจออื่น (เช่น MyRecipesScreen) สามารถเรียกใช้ได้โดยไม่ต้องมีโค้ดซ้ำซ้อน
 class ServingsPicker extends StatelessWidget {
   final int initialServings;
-  const ServingsPicker({Key? key, required this.initialServings})
-      : super(key: key);
+  const ServingsPicker({super.key, required this.initialServings});
 
   @override
   Widget build(BuildContext context) {
-    final scr = MediaQuery.of(context).size;
-    final maxH = scr.height * .50;
-    final fz = clamp(scr.width * .044, 13, 18);
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final maxHeight = MediaQuery.of(context).size.height * 0.55;
 
     return SafeArea(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: ListView.builder(
-          shrinkWrap: true,
-          itemCount: 10,
-          itemBuilder: (_, i) {
-            final s = i + 1;
-            return ListTile(
-              title: Text(
-                '$s คน',
-                style: TextStyle(
-                  fontSize: fz,
-                  fontWeight:
-                      s == initialServings ? FontWeight.w700 : FontWeight.w400,
-                ),
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child:
+                  Text('เลือกจำนวนที่รับประทาน', style: textTheme.titleLarge),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: 10,
+                itemBuilder: (_, i) {
+                  final servings = i + 1;
+                  final isSelected = servings == initialServings;
+
+                  return ListTile(
+                    title: Text(
+                      '$servings คน',
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: isSelected ? theme.colorScheme.primary : null,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? Icon(Icons.check, color: theme.colorScheme.primary)
+                        : null,
+                    onTap: () => Navigator.of(context).pop(servings),
+                  );
+                },
               ),
-              onTap: () => Navigator.of(context).pop(s),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );
   }
-
-  double clamp(double v, double min, double max) =>
-      v < min ? min : (v > max ? max : v);
 }

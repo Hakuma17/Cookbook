@@ -1,184 +1,110 @@
-// lib/widgets/carousel_widget.dart
-
 import 'package:flutter/material.dart';
 
-/// CarouselWidget
-/// แสดง list ของ URL รูปภาพเป็น PageView พร้อม indicator และปุ่มเลื่อน
+/// CarouselWidget – PageView + arrows + dots
+/// • ถ้า list ว่าง หรือโหลดรูปเน็ตไม่ได้  ➜  ใช้ default_recipe.png
 class CarouselWidget extends StatefulWidget {
-  final List<String>? imageUrls;
-  final double height; // สูงของรูป (ไม่รวม indicator)
+  final List<String>? imageUrls; // ← ยอมรับ null ได้ด้วย
+  final double height;
   final PageController? controller;
   final ValueChanged<int>? onPageChanged;
+
   const CarouselWidget({
-    Key? key,
-    this.imageUrls,
-    this.height = 272.67,
+    super.key,
+    required this.imageUrls,
+    this.height = 280,
     this.controller,
     this.onPageChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<CarouselWidget> createState() => _CarouselWidgetState();
 }
 
 class _CarouselWidgetState extends State<CarouselWidget> {
-  late final PageController _internalController;
-  int _currentIndex = 0;
+  late final PageController _internal;
+  int _idx = 0;
 
-  PageController get _controller => widget.controller ?? _internalController;
+  PageController get _ctrl => widget.controller ?? _internal;
 
   @override
   void initState() {
     super.initState();
-    _internalController = PageController();
+    _internal = PageController();
     if (widget.controller == null) {
-      _internalController.addListener(_handlePageChange);
-    }
-  }
-
-  void _handlePageChange() {
-    final page = _controller.page;
-    if (page != null) {
-      final idx = page.round();
-      if (idx != _currentIndex) setState(() => _currentIndex = idx);
+      _internal.addListener(() {
+        final p = _ctrl.page;
+        if (p != null) setState(() => _idx = p.round());
+      });
     }
   }
 
   @override
   void dispose() {
-    if (widget.controller == null) {
-      _internalController.removeListener(_handlePageChange);
-      _internalController.dispose();
-    }
+    if (widget.controller == null) _internal.dispose();
     super.dispose();
   }
 
-  /* ────────────── build ────────────── */
   @override
   Widget build(BuildContext context) {
-    final urls = widget.imageUrls ?? [];
-    final hasImages = urls.isNotEmpty;
+    final theme = Theme.of(context);
 
-    /* ── responsive numbers ── */
-    final w = MediaQuery.of(context).size.width;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
-
-    final arrowSize = clamp(w * .11, 32, widget.height * .80); // ≤ 80 % สูงรูป
-    final iconSize = arrowSize * .50;
-    final arrowPad = arrowSize * .25;
-    final sideInset = clamp(w * .02, 6, 20);
-    final dotSize = clamp(w * .015, 4, 8);
-    final dotGap = dotSize * .80;
-    final indicatorPad = dotSize;
-    final bottomOff = dotSize * 2; // space ยก indicator
-
-    const arrowColor = Color(0xFF666666);
-    const bgColor = Colors.white;
-    const dotActive = Color(0xFFFF9B05);
-    const dotInactive = Color(0xFFE3E3E3);
+    /* 1️⃣ เตรียมรายการรูป (ใส่ fallback เสมอ) */
+    final imgs = (widget.imageUrls ?? [])
+        .where((e) => e.trim().isNotEmpty)
+        .toList(growable: true);
+    if (imgs.isEmpty) imgs.add('assets/images/default_recipe.png');
 
     return SizedBox(
-      width: double.infinity,
-      height: widget.height + bottomOff + indicatorPad * 2,
+      height: widget.height,
       child: Stack(
+        alignment: Alignment.center,
         children: [
-          /* รูปหลัก / fallback */
-          Positioned.fill(
-            child: hasImages
-                ? PageView.builder(
-                    controller: _controller,
-                    itemCount: urls.length,
-                    onPageChanged: widget.onPageChanged ??
-                        (i) => setState(() => _currentIndex = i),
-                    itemBuilder: (_, i) => Image.network(
-                      urls[i],
-                      width: double.infinity,
-                      height: widget.height,
+          /* PageView */
+          PageView.builder(
+            controller: _ctrl,
+            itemCount: imgs.length,
+            onPageChanged: widget.onPageChanged,
+            itemBuilder: (_, i) {
+              final src = imgs[i];
+              final isAsset = src.startsWith('assets/');
+              return isAsset
+                  ? Image.asset(src, fit: BoxFit.cover)
+                  : Image.network(
+                      src,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Icon(Icons.broken_image,
-                            size: 48, color: Colors.grey),
-                      ),
-                    ),
-                  )
-                : Image.asset('assets/images/default_recipe.png',
-                    width: double.infinity,
-                    height: widget.height,
-                    fit: BoxFit.cover),
+                      loadingBuilder: (_, child, p) => p == null
+                          ? child
+                          : const Center(child: CircularProgressIndicator()),
+                      errorBuilder: (_, __, ___) => Image.asset(
+                          'assets/images/default_recipe.png',
+                          fit: BoxFit.cover),
+                    );
+            },
           ),
 
-          /* ───────── controls / indicator ───────── */
-          if (hasImages && urls.length > 1) ...[
-            /* ปุ่มซ้าย */
+          /* arrows + dots */
+          if (imgs.length > 1) ...[
             Positioned(
-              left: sideInset,
-              top: (widget.height - arrowSize) / 2,
-              child: _ArrowButton(
-                size: arrowSize,
-                iconSize: iconSize,
-                padding: arrowPad,
-                icon: Icons.arrow_back_ios,
-                onTap: () {
-                  final prev = (_currentIndex - 1 + urls.length) % urls.length;
-                  _controller.animateToPage(
-                    prev,
+              left: 16,
+              child: _Arrow(
+                Icons.arrow_back_ios_new,
+                () => _ctrl.previousPage(
                     duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                },
+                    curve: Curves.easeOut),
               ),
             ),
-
-            /* ปุ่มขวา */
             Positioned(
-              right: sideInset,
-              top: (widget.height - arrowSize) / 2,
-              child: _ArrowButton(
-                size: arrowSize,
-                iconSize: iconSize,
-                padding: arrowPad,
-                icon: Icons.arrow_forward_ios,
-                onTap: () {
-                  final next = (_currentIndex + 1) % urls.length;
-                  _controller.animateToPage(
-                    next,
+              right: 16,
+              child: _Arrow(
+                Icons.arrow_forward_ios,
+                () => _ctrl.nextPage(
                     duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                },
+                    curve: Curves.easeOut),
               ),
             ),
-
-            /* dot-indicator */
             Positioned(
-              bottom: bottomOff,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: EdgeInsets.all(indicatorPad * .6),
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(40),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(urls.length, (i) {
-                      final active = i == _currentIndex;
-                      return Container(
-                        margin: EdgeInsets.symmetric(horizontal: dotGap / 2),
-                        width: dotSize,
-                        height: dotSize,
-                        decoration: BoxDecoration(
-                          color: active ? dotActive : dotInactive,
-                          shape: BoxShape.circle,
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-              ),
+              bottom: 16,
+              child: _Dots(count: imgs.length, active: _idx),
             ),
           ],
         ],
@@ -187,36 +113,56 @@ class _CarouselWidgetState extends State<CarouselWidget> {
   }
 }
 
-/*─────────── arrow button widget ─────────*/
-class _ArrowButton extends StatelessWidget {
-  final double size;
-  final double iconSize;
-  final double padding;
+/* ── helper ───────────────────────── */
+
+class _Arrow extends StatelessWidget {
   final IconData icon;
-  final VoidCallback onTap;
-  const _ArrowButton({
-    required this.size,
-    required this.iconSize,
-    required this.padding,
-    required this.icon,
-    required this.onTap,
-  });
+  final VoidCallback tap;
+  const _Arrow(this.icon, this.tap);
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(size / 2),
-      child: Container(
-        width: size,
-        height: size,
-        padding: EdgeInsets.all(padding),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
+  Widget build(BuildContext context) => IconButton(
+        onPressed: tap,
+        icon: Icon(icon),
+        iconSize: 22,
+        style: IconButton.styleFrom(
+          backgroundColor:
+              Theme.of(context).colorScheme.surface.withOpacity(.8),
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
+          shape: const CircleBorder(),
+          padding: const EdgeInsets.all(12),
         ),
-        child: Icon(icon, size: iconSize, color: Color(0xFF666666)),
-      ),
-    );
-  }
+      );
+}
+
+class _Dots extends StatelessWidget {
+  final int count;
+  final int active;
+  const _Dots({required this.count, required this.active});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black45,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: List.generate(count, (i) {
+            final on = i == active;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: on ? 10 : 8,
+              height: on ? 10 : 8,
+              decoration: BoxDecoration(
+                color: on
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.white.withOpacity(.8),
+                shape: BoxShape.circle,
+              ),
+            );
+          }),
+        ),
+      );
 }
