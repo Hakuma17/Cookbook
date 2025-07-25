@@ -1,21 +1,19 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../services/auth_service.dart';
+import 'package:cookbook/services/api_service.dart';
+import 'package:cookbook/services/auth_service.dart';
 
 /// Modal Bottom-Sheet สำหรับสร้างหรือแก้ไขคอมเมนต์
 class CommentEditor extends StatefulWidget {
   final int recipeId;
   final int initialRating;
   final String initialText;
-  final VoidCallback onSubmitted;
 
   const CommentEditor({
-    Key? key,
+    super.key,
     required this.recipeId,
     this.initialRating = 0,
     this.initialText = '',
-    required this.onSubmitted,
-  }) : super(key: key);
+  });
 
   @override
   _CommentEditorState createState() => _CommentEditorState();
@@ -25,7 +23,7 @@ class _CommentEditorState extends State<CommentEditor> {
   late int _rating;
   late TextEditingController _controller;
   bool _isLoading = false;
-  String? _error;
+  String? _errorMsg;
 
   @override
   void initState() {
@@ -41,191 +39,152 @@ class _CommentEditorState extends State<CommentEditor> {
   }
 
   /* ───────── submit ───────── */
+  /// ✅ 1. ปรับปรุง Error Handling
   Future<void> _submit() async {
     if (_rating <= 0) {
-      setState(() => _error = 'กรุณาให้คะแนนก่อนโพสต์');
+      setState(() => _errorMsg = 'กรุณาให้คะแนนอย่างน้อย 1 ดาว');
       return;
     }
+
+    // การเช็ค login ควรทำที่นี่ก่อนส่งข้อมูล
     if (!await AuthService.isLoggedIn()) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          // แสดง SnackBar แจ้งเตือน
-          const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนโพสต์')),
-        );
-      }
+      _showSnack('กรุณาเข้าสู่ระบบก่อนแสดงความคิดเห็น');
+      // อาจจะ pop และนำทางไปหน้า login
+      if (mounted) Navigator.pop(context);
       return;
     }
+
     setState(() {
       _isLoading = true;
-      _error = null;
+      _errorMsg = null;
     });
+
     try {
       await ApiService.postComment(
         widget.recipeId,
         _controller.text.trim(),
         _rating.toDouble(),
       );
-      widget.onSubmitted();
-      if (mounted) Navigator.pop(context, true);
+      if (mounted)
+        Navigator.pop(context, true); // ส่ง true กลับไปเพื่อบอกว่าสำเร็จ
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _errorMsg = e.message);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   /* ───────── build ───────── */
   @override
   Widget build(BuildContext context) {
-    /* responsive metrics */
-    final w = MediaQuery.of(context).size.width;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
+    // ✅ 2. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final isEditing = widget.initialText.isNotEmpty;
 
-    final radius = clamp(w * 0.04, 14, 22); // มุมโค้ง dialog
-    final handleW = clamp(w * 0.16, 40, 60); // แถบจับด้านบน
-    final handleH = clamp(w * 0.012, 3, 6);
-    final padBox = clamp(w * 0.04, 14, 20); // padding ในกล่อง
-    final titleF = clamp(w * 0.047, 16, 20); // ฟอนต์หัวเรื่อง
-    final starSz = clamp(w * 0.085, 26, 34); // ขนาดดาว
-    final textF = clamp(w * 0.04, 14, 16); // ฟอนต์ข้อความอินพุต
-    final btnF = clamp(w * 0.043, 14, 18); // ฟอนต์ปุ่มโพสต์
-    final errF = textF; // ฟอนต์ error
-    final fieldRad = radius * 0.7; // รัศมีกรอบ TextField
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-        ),
-        child: Stack(
-          children: [
-            /* ───── กล่องหลัก ───── */
-            Container(
-              padding: EdgeInsets.all(padBox),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(radius),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3)),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: handleW,
-                      height: handleH,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[400],
-                        borderRadius: BorderRadius.circular(handleH / 2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('ให้คะแนนและแสดงความคิดเห็น',
-                      style: TextStyle(
-                          fontSize: titleF, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 16),
-
-                  /* ───── ดาว rating ───── */
-                  Center(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(5, (i) {
-                        final filled = i < _rating;
-                        return GestureDetector(
-                          onTap: () => setState(() => _rating = i + 1),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Icon(
-                              filled ? Icons.star : Icons.star_border,
-                              size: starSz,
-                              color: filled
-                                  ? const Color(0xFFFFCC00)
-                                  : Colors.grey,
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  /* ───── ช่องคอมเมนต์ ───── */
-                  TextField(
-                    controller: _controller,
-                    autofocus: true,
-                    maxLength: 300,
-                    maxLines: 4,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    style: TextStyle(fontSize: textF),
-                    decoration: InputDecoration(
-                      hintText: 'เขียนความคิดเห็นของคุณ (ไม่บังคับ)',
-                      hintStyle: TextStyle(fontSize: textF),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(fieldRad)),
-                      counterText: '',
-                    ),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(_error!,
-                        style: TextStyle(color: Colors.red, fontSize: errF)),
-                  ],
-                  const SizedBox(height: 16),
-
-                  /* ───── ปุ่มโพสต์ / บันทึก ───── */
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _submit,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF9B05),
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(vertical: padBox * 0.6),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(radius)),
-                      ),
-                      child: _isLoading
-                          ? SizedBox(
-                              width: starSz * 0.7,
-                              height: starSz * 0.7,
-                              child: const CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : Text(
-                              widget.initialText.isEmpty ? 'โพสต์' : 'บันทึก',
-                              style: TextStyle(
-                                  fontSize: btnF, fontWeight: FontWeight.w600),
-                            ),
-                    ),
-                  ),
-                ],
-              ),
+    // Padding ที่ด้านล่างจะดัน UI ขึ้นเมื่อคีย์บอร์ดแสดง
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle สำหรับลาก
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.outline.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(2),
             ),
+          ),
+          const SizedBox(height: 16),
 
-            /* ───── ปุ่มปิด ───── */
-            Positioned(
-              right: 0,
-              top: 0,
-              child: IconButton(
-                icon: Icon(Icons.close, size: titleF + 2),
+          // Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'ให้คะแนนและแสดงความคิดเห็น',
+                style: textTheme.titleLarge,
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),
               ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Rating Stars
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (i) {
+              final ratingValue = i + 1;
+              return IconButton(
+                icon: Icon(
+                  ratingValue <= _rating ? Icons.star : Icons.star_border,
+                  size: 32,
+                  color: ratingValue <= _rating ? Colors.amber : Colors.grey,
+                ),
+                onPressed: () => setState(() => _rating = ratingValue),
+              );
+            }),
+          ),
+          const SizedBox(height: 16),
+
+          // Text Field
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            maxLength: 300,
+            maxLines: 4,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            decoration: const InputDecoration(
+              hintText: 'เขียนความคิดเห็นของคุณ (ไม่บังคับ)',
+              counterText: '', // ซ่อน counter text เริ่มต้น
+            ),
+          ),
+
+          // Error Message
+          if (_errorMsg != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _errorMsg!,
+              style: textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.error),
             ),
           ],
-        ),
+          const SizedBox(height: 16),
+
+          // Submit Button
+          ElevatedButton(
+            onPressed: _isLoading ? null : _submit,
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: _isLoading
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 3),
+                  )
+                : Text(isEditing ? 'บันทึกการแก้ไข' : 'โพสต์ความคิดเห็น'),
+          ),
+        ],
       ),
     );
   }

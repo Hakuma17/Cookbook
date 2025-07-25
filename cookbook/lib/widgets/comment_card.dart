@@ -1,5 +1,3 @@
-// lib/widgets/comment_card.dart
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -13,11 +11,11 @@ class CommentCard extends StatefulWidget {
   final ValueChanged<Comment>? onDelete;
 
   const CommentCard({
-    Key? key,
+    super.key,
     required this.comment,
     this.onEdit,
     this.onDelete,
-  }) : super(key: key);
+  });
 
   @override
   State<CommentCard> createState() => _CommentCardState();
@@ -25,150 +23,86 @@ class CommentCard extends StatefulWidget {
 
 class _CommentCardState extends State<CommentCard> {
   bool _expanded = false; // “ดูเพิ่มเติม”
-  int _hovered = -1; // index ดาวที่ hover (desktop)
 
   @override
   Widget build(BuildContext context) {
-    /* ── responsive metrics ── */
-    final w = MediaQuery.of(context).size.width;
-    double clamp(double v, double min, double max) =>
-        v < min ? min : (v > max ? max : v);
+    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final colorScheme = theme.colorScheme;
 
-    final avatarR = clamp(w * .045, 14, 22);
-    final starSz = clamp(w * .040, 14, 18);
-    final nameF = clamp(w * .040, 13, 16);
-    final dateF = clamp(w * .033, 11, 13);
-    final textF = clamp(w * .039, 13, 15);
-    final editF = clamp(w * .038, 12, 14);
-    final cardPad = clamp(w * .032, 10, 16);
-    final headGap = clamp(w * .022, 6, 10);
-    final marginV = clamp(w * .020, 6, 12);
-
-    /* ── data mapping ── */
+    // --- Data Mapping ---
     final c = widget.comment;
-
     final userName = (c.profileName?.trim().isNotEmpty ?? false)
         ? c.profileName!
         : 'ผู้ใช้ทั่วไป';
-
     final dateText = c.createdAt != null
-        ? DateFormat('d MMM y', 'th').format(c.createdAt!)
+        ? DateFormat('d MMM yyyy', 'th').format(c.createdAt!)
         : 'ไม่ระบุวันที่';
-
     final avatarProvider = (c.avatarUrl?.isNotEmpty ?? false)
         ? NetworkImage(c.avatarUrl!)
         : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
-
     final commentText = (c.comment?.trim().isNotEmpty ?? false)
         ? c.comment!
-        : '— ไม่มีข้อความ —';
+        : '— ไม่มีข้อความรีวิว —';
 
-    /* ── UI ── */
+    // --- UI ---
     return Card(
-      margin: EdgeInsets.symmetric(horizontal: 16, vertical: marginV),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 2,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Padding(
-        padding: EdgeInsets.all(cardPad),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            /* ---------- Header ---------- */
+            // --- Header ---
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 CircleAvatar(
-                  radius: avatarR,
-                  backgroundColor: Colors.grey.shade200,
+                  radius: 20,
+                  backgroundColor: colorScheme.surfaceVariant,
                   backgroundImage: avatarProvider,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     userName,
+                    style: textTheme.titleSmall,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: nameF,
-                      fontWeight: FontWeight.w600,
-                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 8),
                 Text(
                   dateText,
-                  style: TextStyle(
-                    fontSize: dateF,
-                    color: const Color(0xFF909090),
-                  ),
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.onSurfaceVariant),
                 ),
-                if (c.isMine && widget.onDelete != null) ...[
-                  const SizedBox(width: 4),
-                  PopupMenuButton<String>(
-                    iconSize: dateF + 4,
-                    padding: EdgeInsets.zero,
-                    onSelected: (v) {
-                      if (v == 'delete') widget.onDelete?.call(c);
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'delete', child: Text('ลบ')),
-                    ],
-                  ),
-                ],
+                // --- Popup Menu for Delete ---
+                if (c.isMine && widget.onDelete != null) _buildPopupMenu(c),
               ],
             ),
-            SizedBox(height: headGap),
-
-            /* ---------- Rating stars ---------- */
-            Row(
-              children: List.generate(5, (i) {
-                final filled = i < (c.rating ?? 0);
-                final star = Icon(
-                  filled ? Icons.star : Icons.star_border,
-                  size: starSz,
-                  color: const Color(0xFFFFCC00),
-                );
-
-                // hover effect on desktop / web
-                if (kIsWeb ||
-                    defaultTargetPlatform == TargetPlatform.macOS ||
-                    defaultTargetPlatform == TargetPlatform.windows ||
-                    defaultTargetPlatform == TargetPlatform.linux) {
-                  return MouseRegion(
-                    onEnter: (_) => setState(() => _hovered = i),
-                    onExit: (_) => setState(() => _hovered = -1),
-                    child: AnimatedScale(
-                      scale: _hovered == i ? 1.30 : 1.00,
-                      duration: const Duration(milliseconds: 180),
-                      child: star,
-                    ),
-                  );
-                }
-                return star;
-              }),
-            ),
             const SizedBox(height: 8),
-
-            /* ---------- Comment body (expandable) ---------- */
-            _expandable(commentText, textF),
-
-            /* ---------- Edit button ---------- */
+            // --- Rating Stars ---
+            _buildRatingStars(c.rating ?? 0, colorScheme),
+            const SizedBox(height: 12),
+            // --- Comment Body (expandable) ---
+            _ExpandableText(
+              text: commentText,
+              style: textTheme.bodyMedium,
+              toggleStyle: textTheme.bodyMedium?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            // --- Edit Button ---
             if (c.isMine && widget.onEdit != null)
               Align(
-                alignment: Alignment.bottomRight,
+                alignment: Alignment.centerRight,
                 child: TextButton.icon(
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF666666),
-                    minimumSize: const Size(64, 28),
-                    padding: EdgeInsets.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  icon: Icon(Icons.edit, size: editF + 2),
-                  label: Text('แก้ไข',
-                      style: TextStyle(
-                        fontSize: editF,
-                        fontWeight: FontWeight.w500,
-                      )),
                   onPressed: () => widget.onEdit!.call(c),
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('แก้ไข'),
                 ),
               ),
           ],
@@ -177,43 +111,88 @@ class _CommentCardState extends State<CommentCard> {
     );
   }
 
-  /* ───────── ย่อ / ขยายข้อความ ───────── */
-  Widget _expandable(String text, double fz) {
-    return LayoutBuilder(
-      builder: (context, cons) {
-        // 1) สร้าง TextPainter เพื่อเช็กว่าล้นหรือไม่
-        final tp = TextPainter(
-          text:
-              TextSpan(text: text, style: TextStyle(fontSize: fz, height: 1.4)),
-          textDirection: Directionality.of(context), // ใช้บริบทจริง
-          maxLines: _expanded ? null : 3,
-        )..layout(maxWidth: cons.maxWidth);
+  /// ✅ 2. แยก UI ย่อยๆ ออกมาเป็น Widget Builder และใช้ Theme
+  Widget _buildPopupMenu(Comment c) {
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: PopupMenuButton<String>(
+        iconSize: 18,
+        tooltip: 'ตัวเลือกเพิ่มเติม',
+        onSelected: (value) {
+          if (value == 'delete') widget.onDelete?.call(c);
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'delete', child: Text('ลบรีวิว')),
+        ],
+      ),
+    );
+  }
 
-        final isOverflow = tp.didExceedMaxLines;
+  Widget _buildRatingStars(int rating, ColorScheme colorScheme) {
+    return Row(
+      children: List.generate(5, (i) {
+        return Icon(
+          i < rating ? Icons.star : Icons.star_border,
+          size: 20,
+          color: const Color(0xFFFFCC00), // สีดาวยังคงเดิมได้เพื่อให้เด่นชัด
+        );
+      }),
+    );
+  }
+}
+
+/// ✅ 3. แยก Logic ของ Expandable Text ออกมาเป็น StatefulWidget ของตัวเอง
+class _ExpandableText extends StatefulWidget {
+  final String text;
+  final TextStyle? style;
+  final TextStyle? toggleStyle;
+
+  const _ExpandableText({required this.text, this.style, this.toggleStyle});
+
+  @override
+  __ExpandableTextState createState() => __ExpandableTextState();
+}
+
+class __ExpandableTextState extends State<_ExpandableText> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textStyle = widget.style ?? DefaultTextStyle.of(context).style;
+
+        // --- ⭐️ จุดที่แก้ไข ⭐️ ---
+        // ดึงค่า textDirection มาจาก context โดยตรง
+        final textDirection = Directionality.of(context);
+
+        final textPainter = TextPainter(
+          text: TextSpan(text: widget.text, style: textStyle),
+          textDirection: textDirection, // 👈 แก้ไขตรงนี้
+          maxLines: 3,
+        )..layout(maxWidth: constraints.maxWidth);
+        // -------------------------
+
+        final isOverflow = textPainter.didExceedMaxLines;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              text,
-              maxLines: _expanded ? null : 3,
+              widget.text,
+              style: textStyle,
+              maxLines: _isExpanded ? null : 3,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: fz, height: 1.4),
             ),
             if (isOverflow)
-              TextButton(
-                onPressed: () => setState(() => _expanded = !_expanded),
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: Text(
-                  _expanded ? 'ย่อ' : 'ดูเพิ่มเติม',
-                  style: TextStyle(
-                    fontSize: fz,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFFFF9B05),
+              GestureDetector(
+                onTap: () => setState(() => _isExpanded = !_isExpanded),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4.0),
+                  child: Text(
+                    _isExpanded ? '...ย่อลง' : 'อ่านเพิ่มเติม...',
+                    style: widget.toggleStyle,
                   ),
                 ),
               ),
