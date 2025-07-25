@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-
 import 'json_parser.dart';
 
 /// **วัตถุดิบ 1 รายการ** ที่ถูก *merge* เข้ามาอยู่ในตะกร้า
@@ -78,10 +77,12 @@ class CartIngredient extends Equatable {
       final key = '${ing.ingredientId}_${ing.unit}';
 
       // รวมปริมาณถ้า ingredientId-unit ซ้ำ
-      merged[key] = merged.containsKey(key)
-          ? merged[key]!
-              .copyWith(quantity: merged[key]!.quantity + ing.quantity)
-          : ing;
+      merged.update(
+        key,
+        (existing) =>
+            existing.copyWith(quantity: existing.quantity + ing.quantity),
+        ifAbsent: () => ing,
+      );
 
       // เก็บว่า ingredientId นี้มีหน่วยอะไรบ้าง
       unitTracker.putIfAbsent(ing.ingredientId, () => {}).add(ing.unit);
@@ -89,8 +90,9 @@ class CartIngredient extends Equatable {
 
     // ตรวจ flag หน่วยไม่เหมือนกัน
     return merged.values.map((e) {
-      final conflict = (unitTracker[e.ingredientId]?.length ?? 0) > 1;
-      return e.copyWith(unitConflict: conflict);
+      final hasConflict = (unitTracker[e.ingredientId]?.length ?? 0) > 1;
+      // คืนค่า object เดิมถ้าไม่มี conflict, หรือสร้างใหม่ถ้ามี
+      return hasConflict ? e.copyWith(unitConflict: true) : e;
     }).toList();
   }
 

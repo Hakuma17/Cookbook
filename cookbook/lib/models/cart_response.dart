@@ -1,12 +1,11 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 import 'cart_item.dart';
 import 'json_parser.dart';
 
 /// ผลลัพธ์จาก API **get_cart_items.php**
-///
-/// * `totalItems` – จำนวนเมนูในตะกร้าทั้งหมด
-/// * `items`      – รายละเอียดแต่ละเมนู (scaled-ingredient พร้อม flag ต่าง ๆ)
+@immutable
 class CartResponse extends Equatable {
   final int totalItems;
   final List<CartItem> items;
@@ -18,19 +17,11 @@ class CartResponse extends Equatable {
 
   /* ───────────────────────── factory ───────────────────────── */
 
-  /// รับโครงสร้าง JSON จาก PHP
-  ///
-  /// ```json
-  /// {
-  ///   "success": true,
-  ///   "totalItems": 3,
-  ///   "data": [ {..CartItem..}, ... ]
-  /// }
-  /// ```
   factory CartResponse.fromJson(Map<String, dynamic> json) {
     final rawList = json['data'] as List<dynamic>? ?? const [];
     final itemList = rawList.map((e) => CartItem.fromJson(e)).toList();
 
+    // ถ้า API ไม่ได้ส่ง totalItems มา, ให้ใช้จำนวน item ใน list แทน
     final total = json['totalItems'] != null
         ? JsonParser.parseInt(json['totalItems'])
         : itemList.length;
@@ -41,14 +32,24 @@ class CartResponse extends Equatable {
     );
   }
 
-  /* ───────────────────────── toJson ───────────────────────── */
+  /* ───────────────── toJson / copyWith ───────────────── */
 
   Map<String, dynamic> toJson() => {
         'totalItems': totalItems,
         'data': items.map((e) => e.toJson()).toList(),
       };
 
-  /* ───────────────────────── equatable ───────────────────────── */
+  CartResponse copyWith({
+    int? totalItems,
+    List<CartItem>? items,
+  }) {
+    return CartResponse(
+      totalItems: totalItems ?? this.totalItems,
+      items: items ?? this.items,
+    );
+  }
+
+  /* ───────────────────── equatable ───────────────────── */
 
   @override
   List<Object?> get props => [totalItems, items];
