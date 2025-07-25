@@ -1,16 +1,17 @@
-/// lib/models/comment.dart
-///
+import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
+import 'json_parser.dart';
+
 /// ข้อมูลรีวิว/ความคิดเห็นของผู้ใช้ต่อสูตรอาหาร
-///
-/// * ถ้า `isMine == true` หมายถึงเป็นคอมเมนต์ของผู้ใช้คนปัจจุบัน
-class Comment {
-  final int? userId; // user_id (nullable ─ guest?)
-  final String? profileName; // ชื่อในโปรไฟล์
-  final String? avatarUrl; // URL รูปโปรไฟล์
-  final int? rating; // ดาว 1 – 5 (nullable = ยังไม่ให้ดาว)
-  final String? comment; // เนื้อความรีวิว
-  final DateTime? createdAt; // เวลาโพสต์
-  final bool isMine; // ของเราหรือไม่? (frontend ใช้โชว์ปุ่มลบ/แก้ไข)
+@immutable
+class Comment extends Equatable {
+  final int? userId;
+  final String? profileName;
+  final String? avatarUrl;
+  final int? rating;
+  final String? comment;
+  final DateTime? createdAt;
+  final bool isMine;
 
   const Comment({
     this.userId,
@@ -24,26 +25,18 @@ class Comment {
 
   /* ───────────────────────── factory ───────────────────────── */
 
+  /// 1. เปลี่ยนมาใช้ JsonParser จากส่วนกลาง
   factory Comment.fromJson(Map<String, dynamic> json) {
-    int? _int(dynamic v) => v == null ? null : int.tryParse(v.toString());
-    String? _str(dynamic v) => v?.toString();
-    DateTime? _dt(dynamic v) =>
-        v == null ? null : DateTime.tryParse(v.toString());
-    bool _bool(dynamic v) {
-      if (v is bool) return v;
-      if (v is num) return v != 0;
-      if (v is String) return v == '1' || v.toLowerCase() == 'true';
-      return false;
-    }
-
     return Comment(
-      userId: _int(json['user_id']),
-      profileName: _str(json['user_name']), // ตาม API
-      avatarUrl: _str(json['avatar_url']), // ตาม API
-      rating: _int(json['rating']),
-      comment: _str(json['comment']),
-      createdAt: _dt(json['created_at']),
-      isMine: _bool(json['is_mine']), // ตาม API
+      userId: JsonParser.parseInt(json['user_id']),
+      profileName: JsonParser.parseString(json['user_name']),
+      avatarUrl: JsonParser.parseString(json['avatar_url']),
+      rating: JsonParser.parseInt(json['rating']),
+      comment: JsonParser.parseString(json['comment']),
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'])
+          : null,
+      isMine: JsonParser.parseBool(json['is_mine']),
     );
   }
 
@@ -61,23 +54,23 @@ class Comment {
 
   /* ───────────────────────── helpers ───────────────────────── */
 
-  /// สำเนาใหม่โดยปรับบางฟิลด์ตามต้องการ
+  /// 2. ปรับปรุง copyWith ให้รองรับการตั้งค่าเป็น null
   Comment copyWith({
-    int? userId,
-    String? profileName,
-    String? avatarUrl,
-    int? rating,
-    String? comment,
-    DateTime? createdAt,
+    ValueGetter<int?>? userId,
+    ValueGetter<String?>? profileName,
+    ValueGetter<String?>? avatarUrl,
+    ValueGetter<int?>? rating,
+    ValueGetter<String?>? comment,
+    ValueGetter<DateTime?>? createdAt,
     bool? isMine,
   }) {
     return Comment(
-      userId: userId ?? this.userId,
-      profileName: profileName ?? this.profileName,
-      avatarUrl: avatarUrl ?? this.avatarUrl,
-      rating: rating ?? this.rating,
-      comment: comment ?? this.comment,
-      createdAt: createdAt ?? this.createdAt,
+      userId: userId != null ? userId() : this.userId,
+      profileName: profileName != null ? profileName() : this.profileName,
+      avatarUrl: avatarUrl != null ? avatarUrl() : this.avatarUrl,
+      rating: rating != null ? rating() : this.rating,
+      comment: comment != null ? comment() : this.comment,
+      createdAt: createdAt != null ? createdAt() : this.createdAt,
       isMine: isMine ?? this.isMine,
     );
   }
@@ -85,12 +78,8 @@ class Comment {
   /// คอมเมนต์ “เปล่า” ไว้ใช้เป็น placeholder ของผู้ใช้ (ยังไม่รีวิว)
   factory Comment.empty() => Comment(
         userId: -1,
-        profileName: '',
-        avatarUrl: '',
-        rating: 0,
-        comment: '',
-        createdAt: DateTime.now(),
         isMine: true,
+        createdAt: DateTime.now(),
       );
 
   /// ไม่มีข้อความ & ไม่ให้ดาว  → ถือว่า “ว่าง”
@@ -100,4 +89,16 @@ class Comment {
 
   /// มีเนื้อความจริง ๆ ให้แสดงผล
   bool get hasContent => comment != null && comment!.trim().isNotEmpty;
+
+  ///  3. เพิ่ม props สำหรับ Equatable
+  @override
+  List<Object?> get props => [
+        userId,
+        profileName,
+        avatarUrl,
+        rating,
+        comment,
+        createdAt,
+        isMine,
+      ];
 }

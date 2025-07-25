@@ -1,14 +1,17 @@
+import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
+import 'json_parser.dart';
+
 /// ปริมาณวัตถุดิบที่ใช้ในสูตร (Ingredient + Quantity)
-///
-/// - ใช้ทั้งสำหรับแสดงผลใน UI และคำนวณโภชนาการ
-class IngredientQuantity {
-  final int ingredientId; // ingredient_id
-  final String name; // ชื่อวัตถุดิบมาตรฐาน (ingredients.name)
-  final String imageUrl; // URL ภาพวัตถุดิบ (ขนาดเล็ก)
-  final double quantity; // จำนวนที่ใช้ตามสูตร
-  final String unit; // หน่วย เช่น “ช้อนโต๊ะ”, “กรัม”
-  final double gramsActual; // น้ำหนักกรัมจริง (สำหรับคำนวณ nutrition)
-  final String description; // คำอธิบายเฉพาะ (เช่น “หมูสามชั้นหั่นชิ้น”)
+@immutable
+class IngredientQuantity extends Equatable {
+  final int ingredientId;
+  final String name;
+  final String imageUrl;
+  final double quantity;
+  final String unit;
+  final double gramsActual;
+  final String description;
 
   const IngredientQuantity({
     required this.ingredientId,
@@ -23,25 +26,19 @@ class IngredientQuantity {
   /* ───────────────────────── factory ───────────────────────── */
 
   factory IngredientQuantity.fromJson(Map<String, dynamic> json) {
-    int _int(dynamic v) =>
-        v == null ? 0 : (v is int ? v : int.tryParse(v.toString()) ?? 0);
-    double _dbl(dynamic v) => v == null
-        ? 0.0
-        : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
-    String _str(dynamic v) => v?.toString() ?? '';
-
+    // ✅ 1. เปลี่ยนมาใช้ JsonParser จากส่วนกลาง
     return IngredientQuantity(
-      ingredientId: _int(json['ingredient_id']),
-      name: _str(json['name']),
-      imageUrl: _str(json['image_url']),
-      quantity: _dbl(json['quantity']),
-      unit: _str(json['unit']),
-      gramsActual: _dbl(json['grams_actual']),
-      description: _str(json['descrip']), // backend field = “descrip”
+      ingredientId: JsonParser.parseInt(json['ingredient_id']),
+      name: JsonParser.parseString(json['name']),
+      imageUrl: JsonParser.parseString(json['image_url']),
+      quantity: JsonParser.parseDouble(json['quantity']),
+      unit: JsonParser.parseString(json['unit']),
+      gramsActual: JsonParser.parseDouble(json['grams_actual']),
+      description: JsonParser.parseString(json['descrip']),
     );
   }
 
-  /* ───────────────────────── toJson ───────────────────────── */
+  /* ─────────────────── toJson / copyWith ─────────────────── */
 
   Map<String, dynamic> toJson() => {
         'ingredient_id': ingredientId,
@@ -52,4 +49,40 @@ class IngredientQuantity {
         'grams_actual': gramsActual,
         'descrip': description,
       };
+
+  // ✅ 2. เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
+  IngredientQuantity copyWith({
+    int? ingredientId,
+    String? name,
+    String? imageUrl,
+    double? quantity,
+    String? unit,
+    double? gramsActual,
+    String? description,
+  }) {
+    return IngredientQuantity(
+      ingredientId: ingredientId ?? this.ingredientId,
+      name: name ?? this.name,
+      imageUrl: imageUrl ?? this.imageUrl,
+      quantity: quantity ?? this.quantity,
+      unit: unit ?? this.unit,
+      gramsActual: gramsActual ?? this.gramsActual,
+      description: description ?? this.description,
+    );
+  }
+
+  /* ─────────────────────── equatable ─────────────────────── */
+
+  @override
+  List<Object?> get props {
+    return [
+      ingredientId,
+      name,
+      imageUrl,
+      quantity,
+      unit,
+      gramsActual,
+      description,
+    ];
+  }
 }

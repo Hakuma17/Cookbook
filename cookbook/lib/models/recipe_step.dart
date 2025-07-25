@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 /// ───────────────────────────────────────────
-///  helpers ย่อย (เหมือนใน recipe.dart)
+///  helpers ย่อย
 /// ───────────────────────────────────────────
 int _toInt(dynamic v, {int fallback = 0}) {
   if (v == null) return fallback;
@@ -28,15 +28,35 @@ class RecipeStep {
     required this.description,
   });
 
-  /// factory fromJson
   factory RecipeStep.fromJson(Map<String, dynamic> json) => RecipeStep(
         stepNumber: _toInt(json['step_number']),
         description: _toString(json['description']),
       );
 
-  /// toJson (optional)
   Map<String, dynamic> toJson() => {
         'step_number': stepNumber,
         'description': description,
       };
+
+  // ✅ เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
+  RecipeStep copyWith({
+    int? stepNumber,
+    String? description,
+  }) {
+    return RecipeStep(
+      stepNumber: stepNumber ?? this.stepNumber,
+      description: description ?? this.description,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is RecipeStep &&
+        other.stepNumber == stepNumber &&
+        other.description == description;
+  }
+
+  @override
+  int get hashCode => stepNumber.hashCode ^ description.hashCode;
 }
