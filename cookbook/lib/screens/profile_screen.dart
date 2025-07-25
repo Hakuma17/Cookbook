@@ -1,3 +1,5 @@
+// lib/screens/profile_screen.dart
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -20,7 +22,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _profileImageUrl;
   List<Ingredient> _allergyList = [];
 
-  // ✅ 1. จัดการ State การโหลดเริ่มต้นด้วย Future เดียว
+  // ★ 1. เพิ่ม State สำหรับเก็บสถานะการล็อกอิน (เพื่อความสอดคล้อง)
+  bool _isLoggedIn = false;
   late Future<void> _initFuture;
   String? _errorMessage;
 
@@ -30,15 +33,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _initFuture = _initialize();
   }
 
-  // ✅ 2. รวมการโหลดข้อมูลเริ่มต้นไว้ในที่เดียว และปรับปรุง Error Handling
   Future<void> _initialize() async {
-    // ❌ ลบการเช็คสิทธิ์ใน initState ออก เพราะเป็นหน้าที่ของ Router (AuthGuard)
-
     if (!mounted) return;
     setState(() => _errorMessage = null);
 
     try {
-      // โหลดข้อมูล Profile และ Allergy พร้อมกัน
       await Future.wait([
         _loadProfile(),
         _fetchAllergies(),
@@ -54,6 +53,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadProfile() async {
+    // ★ 2. ดึงสถานะ isLoggedIn มาพร้อมกับข้อมูล Profile
     final data = await AuthService.getLoginData();
     if (!mounted) return;
 
@@ -61,7 +61,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final rawEmail = (data['email'] ?? '').toString().trim();
     final rawImage = (data['profileImage'] ?? '').toString();
 
-    // Note: การต่อ String แบบนี้ อาจย้ายไปไว้ใน Model หรือ Utility function ได้ในอนาคต
     String? fullImage;
     if (rawImage.isNotEmpty) {
       fullImage = rawImage.startsWith('http')
@@ -70,6 +69,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     setState(() {
+      // หน้านี้ถูกป้องกันด้วย AuthGuard ดังนั้น isLoggedIn จะเป็น true เสมอ
+      _isLoggedIn = data['isLoggedIn'] ?? false;
       _username = rawName.isEmpty ? 'ผู้ใช้' : rawName;
       _email = rawEmail;
       _profileImageUrl = fullImage;
@@ -80,18 +81,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final list = await ApiService.fetchAllergyIngredients();
     if (!mounted) return;
 
-    // --- ⭐️ จุดที่แก้ไขตามภาพที่ส่งมา ⭐️ ---
-    // สร้าง List ใหม่โดยใช้ copyWith เพื่อเปลี่ยน imageUrl ให้เป็น URL เต็ม
     final adjustedList = list.map((ing) {
       final imgUrl = ing.imageUrl;
       if (imgUrl.startsWith('http')) {
-        return ing; // ถ้าเป็น URL เต็มอยู่แล้ว ก็ใช้ object เดิมได้เลย
+        return ing;
       }
       final fullUrl = '${ApiService.baseUrl}$imgUrl';
-      // สร้าง object ใหม่ด้วย copyWith
       return ing.copyWith(imageUrl: fullUrl);
     }).toList();
-    // ------------------------------------
 
     setState(() => _allergyList = adjustedList);
   }
@@ -103,12 +100,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // ✅ 3. ปรับปรุงการนำทางให้ใช้ Named Routes
   Future<void> _navToEditProfile() async {
     final result = await Navigator.pushNamed(context, '/edit_profile');
-    // ถ้าหน้า EditProfile pop กลับมาพร้อมค่า true (คือมีการ save สำเร็จ)
     if (result == true && mounted) {
-      // โหลดข้อมูลโปรไฟล์ใหม่
       setState(() {
         _profileImageUrl = null;
         _initFuture = _initialize();
@@ -118,7 +112,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _navToAllergyScreen() async {
     await Navigator.pushNamed(context, '/allergy');
-    // โหลดข้อมูลใหม่เมื่อกลับมา
     if (mounted) {
       setState(() {
         _initFuture = _initialize();
@@ -126,9 +119,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // ★ 3. [แก้ไข] สร้างฟังก์ชันสำหรับจัดการการนำทางโดยเฉพาะ
+  void _onNavItemTapped(int index) {
+    if (index == 3) {
+      // หน้าปัจจุบัน
+      setState(() {
+        _initFuture = _initialize(); // สั่ง refresh ข้อมูล
+      });
+      return;
+    }
+
+    switch (index) {
+      case 0:
+        Navigator.pushReplacementNamed(context, '/home');
+        break;
+      case 1:
+        Navigator.pushReplacementNamed(context, '/search');
+        break;
+      case 2:
+        Navigator.pushReplacementNamed(context, '/my_recipes');
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // ✅ 4. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
@@ -136,17 +151,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       appBar: AppBar(
         title: const Text('โปรไฟล์ของฉัน'),
       ),
+      // ★ 4. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไป และเรียกใช้ฟังก์ชันใหม่
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: 3,
-        onItemSelected: (i) {
-          if (i == 3) {
-            setState(() => _initFuture = _initialize());
-            return;
-          }
-          const routes = ['/home', '/search', '/my_recipes', null];
-          if (routes[i] != null)
-            Navigator.pushReplacementNamed(context, routes[i]!);
-        },
+        onItemSelected: _onNavItemTapped,
+        isLoggedIn: _isLoggedIn,
       ),
       body: FutureBuilder(
           future: _initFuture,
@@ -175,9 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ✅ 5. แยก UI section ออกมาเป็น Widget Builder และใช้ Theme
   Widget _buildProfileHeader(ThemeData theme, TextTheme textTheme) {
-    // เพิ่ม cache-busting query string เพื่อให้รูป update ทันที
     final imageUrlWithCacheBuster = _profileImageUrl != null
         ? '$_profileImageUrl?v=${DateTime.now().millisecondsSinceEpoch}'
         : null;
@@ -192,7 +199,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           radius: 50,
           backgroundColor: theme.colorScheme.surfaceVariant,
           backgroundImage: imageProvider,
-          onBackgroundImageError: (_, __) {}, // Handle network image error
+          onBackgroundImageError: (_, __) {},
         ),
         const SizedBox(height: 16),
         Text(_username, style: textTheme.headlineSmall),
@@ -200,6 +207,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Text(_email,
               style: textTheme.bodyLarge
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        // ปุ่มแก้ไขโปรไฟล์อยู่ที่นี่ ถูกต้องตามแผนแล้ว
         TextButton(
           onPressed: _navToEditProfile,
           child: const Text('แก้ไขโปรไฟล์'),
@@ -210,7 +218,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildSettingsCard(ThemeData theme) {
     return Card(
-      // Card จะดึงสไตล์ (shape, elevation) มาจาก CardTheme ใน main.dart
       child: Column(
         children: [
           ListTile(

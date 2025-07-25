@@ -1,11 +1,4 @@
 // lib/screens/ingredient_filter_screen.dart
-// --------------------------------------------------------------
-// ★ 2025-07-19 – refactor: ใช้ Theme, ปรับปรุง State Initialization ★
-//   • รื้อระบบ Manual Responsive Calculation ทิ้งทั้งหมด
-//   • ใช้ Theme ส่วนกลางในการกำหนดสไตล์และสีทั้งหมด
-//   • รวมการโหลดข้อมูลเริ่มต้น (Login Status, Allergies) ไว้ใน Future เดียว
-//   • จัดระเบียบ Widget Helpers ให้สะอาดและพึ่งพา Theme
-// --------------------------------------------------------------
 
 import 'package:flutter/material.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
@@ -17,11 +10,8 @@ import 'package:cookbook/widgets/custom_bottom_nav.dart';
 import 'ingredient_photo_screen.dart' show scanIngredient;
 
 class IngredientFilterScreen extends StatefulWidget {
-  /// 🎯 ใหม่: ส่งค่าเริ่มต้นเข้ามาแยก “มี / ไม่มี”
   final List<String>? initialInclude;
   final List<String>? initialExclude;
-
-  // legacy (include ทั้งก้อน)
   final List<String>? initialIngredients;
 
   const IngredientFilterScreen({
@@ -39,13 +29,12 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   /* ─── State ──────────────────────────────────────────────── */
   final Set<String> _haveSet = {};
   final Set<String> _notHaveSet = {};
-  final Set<String> _allergySet = {}; // hidden (exclude only)
+  final Set<String> _allergySet = {};
 
-  bool _isLoggedIn = false;
+  bool _isLoggedIn = false; // ★ มี state นี้อยู่แล้ว ยอดเยี่ยม!
   final _haveCtrl = TextEditingController();
   final _notHaveCtrl = TextEditingController();
 
-  // ✅ 1. ใช้ Future เดียวในการจัดการสถานะการโหลดข้อมูลเริ่มต้น
   late final Future<void> _initFuture;
 
   /* ─── Lifecycle ─────────────────────────────────────────── */
@@ -74,7 +63,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
     if (!mounted) return;
     setState(() {
-      _isLoggedIn = results[0] as bool;
+      _isLoggedIn = results[0] as bool; // ★ มีการดึงข้อมูลสถานะอยู่แล้ว
       final allergyList = results[1] as List<String>;
       _allergySet.clear();
       _allergySet.addAll(allergyList);
@@ -100,14 +89,30 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         _notHaveSet.clear();
       });
 
-  /* ★ helper: pop พร้อมเซ็ตปัจจุบัน */
   void _popWithResult() =>
       Navigator.pop(context, [_haveSet.toList(), _notHaveSet.toList()]);
+
+  // ★ 1. [แก้ไข] สร้างฟังก์ชันสำหรับจัดการการนำทางโดยเฉพาะ
+  void _onNavItemTapped(int index) {
+    if (index == 1) return; // หน้าปัจจุบัน ไม่ต้องทำอะไร
+
+    switch (index) {
+      case 0:
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+        break;
+      case 2:
+        Navigator.pushNamedAndRemoveUntil(context, '/my_recipes', (_) => false);
+        break;
+      case 3:
+        final route = _isLoggedIn ? '/profile' : '/settings';
+        Navigator.pushNamedAndRemoveUntil(context, route, (_) => false);
+        break;
+    }
+  }
 
   /* ─── Build Method ──────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    // ✅ 2. ลบ Manual Responsive Calculation ทั้งหมด และใช้ Theme แทน
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
@@ -126,16 +131,12 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
             onPressed: _popWithResult,
           ),
           title: const Text('ค้นหาด้วยวัตถุดิบ'),
-          // actions ถูกกำหนด style จาก theme หลักแล้ว
         ),
+        // ★ 2. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไป และเรียกใช้ฟังก์ชันใหม่
         bottomNavigationBar: CustomBottomNav(
-          selectedIndex: 1, // Explore Tab
-          onItemSelected: (i) {
-            if (i == 1) return;
-            // ใช้ named route เพื่อกลับหน้าหลัก
-            Navigator.of(context)
-                .pushNamedAndRemoveUntil('/home', (route) => false);
-          },
+          selectedIndex: 1,
+          onItemSelected: _onNavItemTapped,
+          isLoggedIn: _isLoggedIn,
         ),
         body: FutureBuilder(
           future: _initFuture,
@@ -216,7 +217,6 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   }
 
   /* ─── UI Components ───────────────────────────────────────── */
-  /// ✅ 3. Refactor Component Helpers ให้สะอาดและใช้ Theme
   Widget _buildTypeAheadBox({
     required TextEditingController controller,
     required String hint,
@@ -250,7 +250,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
           onPressed: () async {
             final names = await scanIngredient(context);
             if (names != null && names.isNotEmpty) {
-              setState(() => onAdd(names.first)); // สมมติว่าเพิ่มทีละรายการ
+              setState(() => onAdd(names.first));
             }
           },
         ),
@@ -274,7 +274,6 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
           backgroundColor:
               Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
           deleteIcon: const Icon(Icons.close, size: 16),
-          // วัตถุดิบที่แพ้จะลบไม่ได้
           onDeleted: isAllergy ? null : () => onRemove(name),
         );
       }).toList(),

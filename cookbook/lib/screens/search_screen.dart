@@ -1,3 +1,5 @@
+// lib/screens/search_screen.dart
+
 import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/material.dart';
@@ -55,7 +57,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _hasMore = true;
   int _page = 1;
   late int _sortIndex;
-  bool _isLoggedIn = false;
+  bool _isLoggedIn = false; // ★ มี state นี้อยู่แล้ว
   String? _paginationErrorMsg;
   int _reqId = 0;
 
@@ -119,7 +121,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (isInitialLoad) {
       await _fetchPage(1, myId);
     } else {
-      final future = _fetchPage(1, myId); // ไม่คืน Future จาก setState
+      final future = _fetchPage(1, myId);
       if (mounted) setState(() => _initFuture = future);
       await future;
     }
@@ -190,6 +192,24 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  // ★ 1. [แก้ไข] ปรับปรุง Logic การนำทางให้เป็นมาตรฐานเดียวกัน
+  void _onBottomNavTap(int index) {
+    if (index == 1) return; // หน้าปัจจุบัน
+
+    switch (index) {
+      case 0:
+        Navigator.pushReplacementNamed(context, '/home');
+        break;
+      case 2:
+        Navigator.pushReplacementNamed(context, '/my_recipes');
+        break;
+      case 3:
+        final route = _isLoggedIn ? '/profile' : '/settings';
+        Navigator.pushReplacementNamed(context, route);
+        break;
+    }
+  }
+
   /* ───────── build ───────── */
   @override
   Widget build(BuildContext context) {
@@ -228,9 +248,11 @@ class _SearchScreenState extends State<SearchScreen> {
           );
         },
       ),
+      // ★ 2. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไปใน CustomBottomNav
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: 1,
         onItemSelected: _onBottomNavTap,
+        isLoggedIn: _isLoggedIn,
       ),
     );
   }
@@ -249,7 +271,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ],
       bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(100), // กัน overflow
+        preferredSize: const Size.fromHeight(100),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
           child: CustomSearchBar(
@@ -359,7 +381,7 @@ class _SearchScreenState extends State<SearchScreen> {
             maxCrossAxisExtent: 210,
             mainAxisSpacing: 16,
             crossAxisSpacing: 16,
-            childAspectRatio: 0.65, // การ์ดสูงขึ้น
+            childAspectRatio: 0.65,
           ),
           delegate: SliverChildBuilderDelegate(
             (ctx, i) {
@@ -429,14 +451,6 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     } else {
       Navigator.pushNamed(context, '/recipe_detail', arguments: r);
-    }
-  }
-
-  void _onBottomNavTap(int i) {
-    const routes = ['/home', null, '/my_recipes', '/profile'];
-    if (i == 1) return;
-    if (routes[i] != null) {
-      Navigator.pushReplacementNamed(context, routes[i]!);
     }
   }
 

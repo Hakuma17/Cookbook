@@ -1,3 +1,5 @@
+// lib/screens/my_recipes_screen.dart
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -38,23 +40,34 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   // State for Allergy data
   List<Ingredient> _allergyList = [];
 
-  // ✅ 1. จัดการ State การโหลดเริ่มต้นด้วย Future เดียว
+  // ★ 1. เพิ่ม State สำหรับเก็บสถานะการล็อกอิน
+  bool _isLoggedIn = false;
+
   late Future<void> _initFuture;
 
   @override
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab.clamp(0, 1);
-    _futureFavorites = Future.value(<Recipe>[]); // ค่าเริ่มต้น
+    _futureFavorites = Future.value(<Recipe>[]);
     _initFuture = _initialize();
   }
 
-  // ✅ 2. รวม Logic การโหลดข้อมูลเริ่มต้นไว้ในที่เดียว
+  // ★ 2. [แก้ไข] เพิ่มการดึงสถานะ isLoggedIn ใน initialize
   Future<void> _initialize({bool forceRefresh = false}) async {
     try {
-      // โหลดข้อมูลที่จำเป็นเสมอ (เช่น ข้อมูลแพ้)
-      final allergies = await ApiService.fetchAllergyIngredients();
-      if (mounted) setState(() => _allergyList = allergies);
+      // โหลดข้อมูลที่จำเป็นเสมอ (เช่น ข้อมูลแพ้ และสถานะล็อกอิน)
+      final results = await Future.wait([
+        AuthService.isLoggedIn(),
+        ApiService.fetchAllergyIngredients(),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = results[0] as bool;
+          _allergyList = results[1] as List<Ingredient>;
+        });
+      }
 
       // โหลดข้อมูลตาม Tab ที่เลือก
       if (_selectedTab == 0) {
@@ -92,7 +105,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
   @override
   void didPopNext() {
-    // เมื่อกลับมาหน้านี้ ให้โหลดข้อมูลใหม่
     setState(() {
       _initFuture = _initialize(forceRefresh: true);
     });
@@ -101,10 +113,8 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   // ──────────── favorite ────────────
   Future<void> _loadFavorites() async {
     setState(() {
-      // ✅ 3. ปรับปรุง Error Handling ให้รองรับ Custom Exception
       _futureFavorites = ApiService.fetchFavorites();
     });
-    // ให้ FutureBuilder จัดการ Error เอง
     await _futureFavorites;
   }
 
@@ -129,6 +139,32 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     }
   }
 
+  // ★ 3. [แก้ไข] สร้างฟังก์ชันสำหรับจัดการการนำทางโดยเฉพาะ
+  void _onNavItemTapped(int index) {
+    if (index == 2) {
+      // หน้าปัจจุบัน
+      setState(() {
+        _initFuture = _initialize(forceRefresh: true);
+      });
+      return;
+    }
+
+    switch (index) {
+      case 0:
+        Navigator.pushReplacementNamed(context, '/home');
+        break;
+      case 1:
+        Navigator.pushReplacementNamed(context, '/search');
+        break;
+      case 3:
+        // หน้านี้ต้องล็อกอินอยู่แล้ว ดังนั้น _isLoggedIn ควรเป็น true เสมอ
+        // แต่เพื่อความปลอดภัย เรายังคงตรวจสอบอยู่
+        final route = _isLoggedIn ? '/profile' : '/settings';
+        Navigator.pushReplacementNamed(context, route);
+        break;
+    }
+  }
+
   void _showSnack(String msg, {bool isError = true}) {
     if (!mounted) return;
     final theme = Theme.of(context);
@@ -148,7 +184,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
       backgroundColor: theme.colorScheme.surface,
       floatingActionButton: _selectedTab == 1
           ? FloatingActionButton.extended(
-              // ✅ 4. ใช้สีจาก Theme ส่วนกลาง
               backgroundColor: theme.colorScheme.primary,
               foregroundColor: theme.colorScheme.onPrimary,
               icon: const Icon(Icons.add),
@@ -165,7 +200,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Text(
                 'คลังของฉัน',
-                // ✅ ใช้สไตล์จาก Theme ส่วนกลาง
                 style: textTheme.headlineSmall
                     ?.copyWith(fontWeight: FontWeight.bold),
               ),
@@ -202,19 +236,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           ],
         ),
       ),
+      // ★ 4. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไปใน CustomBottomNav
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: 2,
-        onItemSelected: (i) {
-          if (i == 2) {
-            setState(() {
-              _initFuture = _initialize(forceRefresh: true);
-            });
-            return;
-          }
-          const routes = ['/home', '/search', null, '/profile'];
-          if (routes[i] != null)
-            Navigator.pushReplacementNamed(context, routes[i]!);
-        },
+        onItemSelected: _onNavItemTapped,
+        isLoggedIn: _isLoggedIn,
       ),
     );
   }
@@ -227,7 +253,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           if (_selectedTab == index) return;
           setState(() {
             _selectedTab = index;
-            // เมื่อสลับ Tab ให้โหลดข้อมูลใหม่
             _initFuture = _initialize();
           });
         },
@@ -257,7 +282,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
-  // ✅ 5. ปรับปรุง Grid View ให้เป็น Responsive อัตโนมัติ
   Widget _buildFavoritesView() {
     return FutureBuilder<List<Recipe>>(
       future: _futureFavorites,
@@ -287,23 +311,13 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           itemCount: list.length,
           itemBuilder: (_, i) {
             final r = list[i];
-
-            // ---  จุดที่แก้ไข  ---
-            // ของเดิมที่ Error:
-            // r.hasAllergy = _checkIfRecipeHasAllergy(r);
-
-            // ของใหม่ที่ถูกต้อง:
-            // สร้าง object ใหม่ด้วย copyWith
             final updatedRecipe = r.copyWith(
               hasAllergy: _checkIfRecipeHasAllergy(r),
             );
-            // -------------------------
 
             return MyRecipeCard(
-              // ใช้ object ใหม่ที่อัปเดตแล้ว
               recipe: updatedRecipe,
               onTap: () {
-                // ใช้ object ใหม่ในการเช็ค
                 if (updatedRecipe.hasAllergy) {
                   _showAllergyDialog(updatedRecipe);
                   return;
@@ -331,7 +345,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            height: 240, // กำหนดความสูงที่เหมาะสม
+            height: 240,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.all(16),
@@ -346,7 +360,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           ),
           const SizedBox(height: 24),
           CartIngredientListSection(ingredients: _cartIngredients),
-          const SizedBox(height: 80), // เว้นที่สำหรับ FAB
+          const SizedBox(height: 80),
         ],
       ),
     );

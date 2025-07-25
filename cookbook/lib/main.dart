@@ -1,9 +1,12 @@
+// lib/main.dart
+
 // ------------------------------------------------------------
-// 2025‑07‑21  – stable build: theme polish + safer routing
+// 2025‑07‑21  – stable build: theme polish + safer routing
 // ------------------------------------------------------------
 import 'dart:async';
 import 'dart:developer';
 
+import 'package:cookbook/screens/change_password_screen.dart';
 import 'package:cookbook/screens/ingredient_filter_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -11,10 +14,11 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
-import 'screens/change_password_screen.dart';
+// --- Services ---
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 
+// --- Screens ---
 import 'screens/splash_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/welcome_screen.dart';
@@ -35,23 +39,30 @@ import 'screens/allergy_screen.dart';
 import 'screens/step_detail_screen.dart';
 import 'screens/references_screen.dart';
 
+// --- Models & Widgets ---
 import 'models/recipe.dart';
 import 'models/recipe_step.dart';
 import 'widgets/auth_guard.dart';
 import 'widgets/error_page.dart';
 
 /* ───────────── GLOBALS ───────────── */
+// ★ [ดีมาก] การสร้าง GlobalKey ทำให้สามารถเข้าถึง Navigator จากที่ไหนก็ได้ในแอป
+// เหมาะสำหรับใช้ใน Service ที่ต้องการสั่งเปลี่ยนหน้า เช่น บังคับ logout
 final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 final RouteObserver<ModalRoute<void>> routeObserver =
     RouteObserver<ModalRoute<void>>();
 
 /* ───────────── MAIN ───────────── */
 Future<void> main() async {
+  // การตั้งค่าพื้นฐานที่จำเป็นก่อนแอปจะรัน
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   await initializeDateFormatting('th_TH', null);
   await ApiService.init();
+  await AuthService.init(); // ★ เพิ่มการ init AuthService เพื่อโหลด cache
 
+  // การใช้ runZonedGuarded สำหรับดักจับ Error ทั้งหมดที่ไม่ได้ถูก catch
+  // ช่วยป้องกันแอปแครช และสามารถจัดการ Error เฉพาะกรณีได้ เช่น UnauthorizedException
   runZonedGuarded(() {
     FlutterError.onError = (details) {
       log('Flutter framework error:',
@@ -61,6 +72,7 @@ Future<void> main() async {
   }, (error, stack) {
     log('Uncaught zoned error:', error: error, stackTrace: stack);
 
+    // จัดการเมื่อ Session หมดอายุโดยเฉพาะ
     if (error is UnauthorizedException) {
       AuthService.logout().then((_) {
         navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
@@ -83,13 +95,16 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // — 1  brand palette
+    //  การกำหนด Theme กลางไว้ที่นี่ ทำให้ทั้งแอปมีหน้าตาที่สอดคล้องกัน
+    // และง่ายต่อการแก้ไขในที่เดียว เป็น Best Practice ที่ยอดเยี่ยม
+
+    // — 1  brand palette
     const primaryColor = Color(0xFFFF9B05);
     const primaryContainerColor = Color(0xFFFCC09C);
     const onSurfaceColor = Color(0xFF0A2533);
     const onSurfaceVariantColor = Color(0xFF666666);
 
-    // — 2  base theme
+    // — 2  base theme
     final baseTheme = ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
@@ -110,7 +125,7 @@ class MyApp extends StatelessWidget {
       ),
     );
 
-    // — 3  component overrides
+    // — 3  component overrides
     final appTheme = baseTheme.copyWith(
       textTheme: GoogleFonts.itimTextTheme(baseTheme.textTheme).apply(
         bodyColor: onSurfaceColor,
@@ -216,6 +231,8 @@ class MyApp extends StatelessWidget {
   }
 
   /* ───────────── ROUTING ───────────── */
+  // ★ [โครงสร้างดี] การใช้ onGenerateRoute ทำให้สามารถจัดการการนำทางและส่งข้อมูล
+  // ระหว่างหน้าทั้งหมดได้จากศูนย์กลางที่เดียว
   Route<dynamic>? _onGenerateRoute(RouteSettings settings) {
     final args = settings.arguments;
 
@@ -290,8 +307,13 @@ class MyApp extends StatelessWidget {
         );
       case '/profile':
         return _material(const AuthGuard(child: ProfileScreen()), settings);
+
+      // ★ 1. [แก้ไข] เอา AuthGuard ออกจากหน้า Settings
+      // เพื่อให้ผู้ใช้ที่ยังไม่ล็อกอิน (Guest) สามารถเข้าถึงหน้านี้ได้โดยตรง
+      // จาก BottomNavigationBar ตามแผนที่เราวางไว้
       case '/settings':
-        return _material(const AuthGuard(child: SettingsScreen()), settings);
+        return _material(const SettingsScreen(), settings);
+
       case '/edit_profile':
         return _material(const AuthGuard(child: EditProfileScreen()), settings);
       case '/change_password':

@@ -1,23 +1,17 @@
 // lib/screens/all_ingredients_screen.dart
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
-// import 'dart:io'; // 🗑️ ลบออก ไม่ได้ใช้แล้ว
 import 'package:flutter/material.dart';
-// import 'package:shared_preferences/shared_preferences.dart'; // 🗑️ ลบออก เพราะจะเรียกผ่าน AuthService
 
 import '../models/ingredient.dart';
 import '../services/api_service.dart';
-import '../services/auth_service.dart'; // ✅ 1. เพิ่ม AuthService
+import '../services/auth_service.dart';
 import '../widgets/ingredient_card.dart';
 import '../widgets/custom_bottom_nav.dart';
 import 'search_screen.dart';
 
 class AllIngredientsScreen extends StatefulWidget {
-  /// ★ ถ้า true จะเป็นโหมดเลือก (Selection),
-  ///     ไม่กระโดดไป Search แต่เรียก `onSelected`
   final bool selectionMode;
-
-  /// ★ Callback เมื่อเลือก Ingredient (ใช้ในโหมดเลือก)
   final void Function(Ingredient)? onSelected;
 
   const AllIngredientsScreen({
@@ -32,19 +26,21 @@ class AllIngredientsScreen extends StatefulWidget {
 
 class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   /* ─── state ───────────────────────────────────────────── */
-  late Future<void> _initFuture; // ✅ 2. ใช้ Future เดียวในการโหลดข้อมูลเริ่มต้น
+  late Future<void> _initFuture;
   List<Ingredient> _all = [];
   List<Ingredient> _filtered = [];
 
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _debounce;
 
+  // ★ 1. เพิ่ม State สำหรับเก็บสถานะการล็อกอิน
+  bool _isLoggedIn = false;
   String? _username, _profileImg;
 
   @override
   void initState() {
     super.initState();
-    _initFuture = _initialize(); // เรียก Future เดียวจาก initState
+    _initFuture = _initialize();
     _searchCtrl.addListener(_onSearchChanged);
   }
 
@@ -56,9 +52,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   }
 
   /* ─── data loaders ───────────────────────────────────── */
-  /// ✅ 3. รวมการโหลดข้อมูลเริ่มต้นไว้ในที่เดียว
   Future<void> _initialize() async {
-    // โหลดข้อมูล User และ วัตถุดิบพร้อมกันเพื่อความรวดเร็ว
     await Future.wait([
       _loadUserInfo(),
       _loadIngredients(),
@@ -66,7 +60,8 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   }
 
   Future<void> _loadUserInfo() async {
-    // ดึงข้อมูลจาก AuthService แทนการใช้ SharedPreferences โดยตรง
+    // ★ 2. ดึงสถานะ isLoggedIn มาพร้อมกับข้อมูล User
+    _isLoggedIn = await AuthService.isLoggedIn();
     _username = await AuthService.getProfileName();
     _profileImg = await AuthService.getProfileImage();
     if (mounted) setState(() {});
@@ -82,7 +77,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
         _filtered = _applyFilter(list, _searchCtrl.text);
       });
     } on UnauthorizedException {
-      _logout(); // ถ้า Session หมดอายุ ให้ logout ทันที
+      _logout();
     } on ApiException catch (e) {
       _showSnack(e.message);
     } catch (e) {
@@ -107,7 +102,6 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   }
 
   /* ─── bottom-nav & actions ───────────────────────────── */
-  /// ✅ 4. สร้างฟังก์ชันสำหรับ Logout โดยเฉพาะ
   Future<void> _logout() async {
     await AuthService.logout();
     if (mounted) {
@@ -115,12 +109,24 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     }
   }
 
+  // ★ 3. [แก้ไข] ปรับปรุง Logic การนำทางให้รองรับ Profile/Settings
   void _onTabSelected(int idx) {
-    // การใช้ named routes จะทำให้จัดการง่ายกว่าในระยะยาว
-    const routes = ['/home', null, '/my_recipes', '/profile'];
-    if (idx == 1 || routes[idx] == null) return; // index 1 คือหน้าปัจจุบัน
+    // index 1 คือหน้าปัจจุบัน (All Ingredients ถือเป็นส่วนหนึ่งของ Explore/Search)
+    if (idx == 1) return;
 
-    Navigator.pushReplacementNamed(context, routes[idx]!);
+    switch (idx) {
+      case 0:
+        Navigator.pushReplacementNamed(context, '/home');
+        break;
+      case 2:
+        Navigator.pushReplacementNamed(context, '/my_recipes');
+        break;
+      case 3:
+        // ตรวจสอบสถานะ แล้วนำทางไปยังหน้าที่ถูกต้อง
+        final route = _isLoggedIn ? '/profile' : '/settings';
+        Navigator.pushReplacementNamed(context, route);
+        break;
+    }
   }
 
   /* ─── helpers ────────────────────────────────────────── */
@@ -132,16 +138,17 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   /* ─── build ──────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    // ✅ 5. ลบการคำนวณขนาดเองทั้งหมด และใช้ Theme จาก context แทน
     final theme = Theme.of(context);
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
+      // ★ 4. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไปใน CustomBottomNav
       bottomNavigationBar: widget.selectionMode
           ? null
           : CustomBottomNav(
-              selectedIndex: 1, // Explore tab
+              selectedIndex: 1, // Explore/Search tab
               onItemSelected: _onTabSelected,
+              isLoggedIn: _isLoggedIn,
             ),
       body: SafeArea(
         child: Column(
@@ -151,16 +158,14 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
               username: _username,
               profileImg: _profileImg,
               selectionMode: widget.selectionMode,
-              onActionPressed: widget.selectionMode
-                  ? () => Navigator.pop(context)
-                  : _logout, // ส่งฟังก์ชัน logout ไปแทน
+              onActionPressed:
+                  widget.selectionMode ? () => Navigator.pop(context) : _logout,
             ),
             /* ─── search box ─── */
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: TextField(
                 controller: _searchCtrl,
-                // ใช้ InputDecoration จาก Theme ที่กำหนดไว้ใน main.dart
                 decoration: const InputDecoration(
                   hintText: 'คุณอยากหาวัตถุดิบอะไร?',
                   prefixIcon: Icon(Icons.search),
@@ -193,11 +198,8 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
           return Center(child: Text('เกิดข้อผิดพลาดในการโหลด: ${snap.error}'));
         }
         if (_all.isEmpty) {
-          // เช็คข้อมูลจาก _all แทน _filtered ตอนเริ่มต้น
           return const Center(child: Text('ไม่พบข้อมูลวัตถุดิบ'));
         }
-
-        // แสดงผลว่าไม่พบจากการค้นหา
         if (_searchCtrl.text.isNotEmpty && _filtered.isEmpty) {
           return const Center(child: Text('ไม่พบวัตถุดิบที่ค้นหา'));
         }
@@ -213,7 +215,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
               crossAxisCount: cols,
               mainAxisSpacing: 16,
               crossAxisSpacing: 16,
-              childAspectRatio: 0.75, // ปรับอัตราส่วนให้เหมาะสม
+              childAspectRatio: 0.75,
             ),
             itemBuilder: (_, i) {
               final ing = _filtered[i];
@@ -224,6 +226,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
                     widget.onSelected?.call(ing);
                     Navigator.pop(context, ing);
                   } else {
+                    // เมื่อกดที่วัตถุดิบ ให้ไปหน้าค้นหาพร้อมกับเลือกวัตถุดิบนั้นๆ
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -242,7 +245,6 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
 }
 
 /*──────────────────── header bar (refactored) ───────────────────*/
-/// ✅ 6. ปรับปรุง HeaderBar ให้รับ Callback และใช้ Theme
 class _HeaderBar extends StatelessWidget {
   final String? username, profileImg;
   final bool selectionMode;
@@ -281,7 +283,6 @@ class _HeaderBar extends StatelessWidget {
           Expanded(
             child: Text(
               'สวัสดี ${username ?? 'คุณ'}',
-              // ใช้ TextStyle จาก Theme
               style:
                   textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
@@ -290,7 +291,7 @@ class _HeaderBar extends StatelessWidget {
           IconButton(
             icon: Icon(selectionMode ? Icons.close : Icons.logout_outlined),
             color: theme.colorScheme.onSurfaceVariant,
-            onPressed: onActionPressed, // เรียกใช้ Callback ที่ส่งมา
+            onPressed: onActionPressed,
           ),
         ],
       ),

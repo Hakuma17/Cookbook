@@ -1,11 +1,4 @@
 // lib/screens/home_screen.dart
-// ---------------------------------------------------------------------------
-// ★ 2025‑07‑21 – UI‑polish & gesture safe
-//   • ลด Ingredient section สูง 180 → 150         (★A)
-//   • ลด Recipe card list สูง 280 → 260            (★B)
-//   • bottomNavigationBar ห่อ SafeArea(bottom)     (★C)
-//   • เก็บ _allergyIngredientIds สำหรับ warning    (★D)
-// ---------------------------------------------------------------------------
 
 import 'dart:async';
 import 'dart:developer';
@@ -36,7 +29,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   List<Recipe> _popularRecipes = [];
   List<Recipe> _newRecipes = [];
   List<Ingredient> _allergyList = [];
-  List<int> _allergyIngredientIds = []; // ★D
+  List<int> _allergyIngredientIds = [];
 
   bool _isLoggedIn = false;
   String? _profileName;
@@ -48,12 +41,14 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   @override
   void initState() {
     super.initState();
+    // ★ ไม่มีการแก้ไขในส่วนนี้ โครงสร้างดีอยู่แล้ว
     _initFuture = _initialize();
   }
 
   Future<void> _initialize({bool forceRefresh = false}) async {
     if (mounted) setState(() => _errorMessage = null);
     try {
+      // โหลดสถานะล็อกอินและข้อมูลทั้งหมดไปพร้อมกัน
       await Future.wait([
         _loadLoginStatus(),
         _fetchAllData(force: forceRefresh),
@@ -80,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     super.dispose();
   }
 
+  // ★ การใช้ didPopNext เพื่อ refresh ข้อมูลเมื่อกลับมาหน้านี้เป็น Logic ที่ดีมาก
   @override
   void didPopNext() {
     setState(() {
@@ -103,6 +99,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }
 
   Future<void> _loadLoginStatus() async {
+    // ★ ไม่มีการแก้ไขในส่วนนี้ โครงสร้างดีอยู่แล้ว
+    await AuthService.init(); // ทำให้ isLoggedInSync() พร้อมใช้งาน
     if (await AuthService.isLoggedIn()) {
       final login = await AuthService.getLoginData();
       final allergy = await ApiService.fetchAllergyIngredients();
@@ -112,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         _profileName = login['profileName'];
         _profileImage = login['profileImage'];
         _allergyList = allergy;
-        _allergyIngredientIds = allergy.map((e) => e.id).toList(); // ★D
+        _allergyIngredientIds = allergy.map((e) => e.id).toList();
       });
     } else if (mounted) {
       setState(() {
@@ -141,30 +139,35 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }
 
   /* ═════════════ NAV ═════════════ */
+  // ★ 1. [แก้ไข] ปรับปรุง Logic การนำทางทั้งหมดให้ชัดเจนขึ้น
+  // และรองรับการสลับไปหน้า Profile/Settings ตามสถานะ _isLoggedIn
   Future<void> _onNavTap(int idx) async {
-    // ── ❶ ถ้ากด “ค้นหา” ──────────────────
-    if (idx == 1) {
-      // เปิดหน้า Search แบบ route (สร้าง‑ทำลายทุกครั้ง)
-      await Navigator.pushNamed(context, '/search');
-      // หลัง back กลับมา เซ็ต tab กลับเป็น Home
-      if (mounted) setState(() => _selectedIndex = 0);
-      return;
-    }
+    // ถ้ากดแท็บเดิม ไม่ต้องทำอะไร
+    if (idx == _selectedIndex) return;
 
-    // ── ❷ My Recipes / Profile (ต้องล็อกอิน) ──────────────────
-    const routes = [null, null, '/my_recipes', '/profile'];
-    if (routes[idx] != null) {
-      if (!_isLoggedIn) {
-        final ok = await Navigator.pushNamed(context, '/login');
-        if (ok == true) didPopNext();
-        return;
-      }
-      await Navigator.pushNamed(context, routes[idx]!);
-      return;
-    }
+    switch (idx) {
+      case 0: // Home
+        setState(() => _selectedIndex = idx);
+        break;
 
-    // ── ❸ กรณี idx == 0 (Home) ──────────────────
-    setState(() => _selectedIndex = idx);
+      case 1: // Search
+        await Navigator.pushNamed(context, '/search');
+        break;
+
+      case 2: // My Recipes (protected)
+        if (!_isLoggedIn) {
+          final result = await Navigator.pushNamed(context, '/login');
+          if (result == true) didPopNext(); // ถ้าล็อกอินสำเร็จ ให้ refresh
+          return;
+        }
+        await Navigator.pushNamed(context, '/my_recipes');
+        break;
+
+      case 3: // Profile หรือ Settings
+        final route = _isLoggedIn ? '/profile' : '/settings';
+        await Navigator.pushNamed(context, route);
+        break;
+    }
   }
 
   /* ═════════════ BUILD ═════════════ */
@@ -186,23 +189,22 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
           backgroundColor: const Color(0xFFFDF7F2),
           body: SafeArea(
             bottom: false,
+            // ★ ไม่มีการแก้ไขในส่วนนี้ การใช้ IndexedStack ถูกต้องแล้ว
             child: IndexedStack(
               index: _selectedIndex,
               children: [
                 _buildMainHomeView(),
-                // index 1 ไม่ต้องใส่อะไร (หรือใส่ Container())
-                // เพราะเราจะเปิด Search ด้วย Navigator ต่างหาก
-                const SizedBox.shrink(),
+                const SizedBox.shrink(), // index 1 (Search)
+                const SizedBox.shrink(), // index 2 (My Recipes)
+                const SizedBox.shrink(), // index 3 (Profile/Settings)
               ],
             ),
           ),
-          bottomNavigationBar: SafeArea(
-            // ★C
-            top: false,
-            child: CustomBottomNav(
-              selectedIndex: _selectedIndex,
-              onItemSelected: _onNavTap,
-            ),
+          // ★ 2. [แก้ไข] ส่งค่า `isLoggedIn` ที่เรามีอยู่ เข้าไปใน CustomBottomNav
+          bottomNavigationBar: CustomBottomNav(
+            selectedIndex: _selectedIndex,
+            onItemSelected: _onNavTap,
+            isLoggedIn: _isLoggedIn,
           ),
         );
       },
@@ -264,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 150, // ★A
+              height: 150,
               child: _ingredients.isEmpty
                   ? const Center(child: Text('ไม่พบวัตถุดิบ'))
                   : ListView.separated(
@@ -300,7 +302,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               title: title, actionText: 'ดูเพิ่มเติม', onAction: onAction),
           const SizedBox(height: 12),
           SizedBox(
-            height: 250, // ★B
+            height: 250,
             child: recipes.isEmpty
                 ? const Center(child: Text('ยังไม่มีสูตรอาหาร'))
                 : ListView.separated(
@@ -348,6 +350,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }
 
   /* ═════════════ CUSTOM APP BAR ═════════════ */
+  // ★ 3. [แก้ไข] ทำให้รูปโปรไฟล์กดได้ และปรับปรุงปุ่ม Action ด้านขวา
   Widget _buildCustomAppBar() {
     final theme = Theme.of(context);
     ImageProvider avatar = const AssetImage('assets/images/default_avatar.png');
@@ -363,7 +366,11 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       ),
       child: Row(
         children: [
-          CircleAvatar(radius: 24, backgroundImage: avatar),
+          // ทำให้ CircleAvatar กดได้ เพื่อเป็นทางลัดไปหน้าโปรไฟล์
+          GestureDetector(
+            onTap: _isLoggedIn ? () => _onNavTap(3) : null,
+            child: CircleAvatar(radius: 24, backgroundImage: avatar),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -376,6 +383,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
           IconButton(
             icon: Icon(
                 _isLoggedIn ? Icons.logout_outlined : Icons.login_outlined),
+            // ปุ่ม Action นี้ เมื่อกดจะทำงานเหมือนกดแท็บที่ 4
             onPressed: _isLoggedIn ? _handleLogout : () => _onNavTap(3),
           ),
         ],
