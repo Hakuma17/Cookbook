@@ -1,12 +1,12 @@
-0 ใบกะเพรา
-1 ใบโหระพา
-2 ใบยี่หร่า
-3 มะนาว
-4 มะกรูด
-5 กระเทียม
-6 หอมแดง
-7 พริกชี้ฟ้า
-8 พริกขี้หนู
-9 ข่า
-10 ตะไคร้
-11 กระชาย
+0 Bai Horapha
+1 Bai Yi Ra
+2 Hom Daeng
+3 Kaprao
+4 Krathiam
+5 Makrut
+6 Manao
+7 Prik Chi Fa
+8 Prik Khi Nu
+9 Takhrai
+10 Krachai
+11 Kha
