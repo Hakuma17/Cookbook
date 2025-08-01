@@ -4,6 +4,10 @@ import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/material.dart';
 
+// ★★★ [NEW] ใช้ SettingsStore เพื่ออ่านค่าสวิตช์ "ตัดคำภาษาไทย"
+import 'package:provider/provider.dart';
+import '../stores/settings_store.dart';
+
 import '../main.dart';
 import '../models/ingredient.dart';
 import '../models/recipe.dart';
@@ -13,6 +17,11 @@ import '../widgets/recipe_card.dart';
 import '../widgets/ingredient_card.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/allergy_warning_dialog.dart';
+
+// ⬆️ อ้างอิงค่าความกว้างการ์ดแนวตั้งจาก recipe_card.dart
+//    (ถ้าตัว import ไม่ expose constant ให้คัดลอกค่ามาใช้ให้ตรงกัน)
+// 🔁 ปรับเป็น 188 ให้ตรงกับการ์ดใหม่ (Meta 2 บรรทัด)
+const double kRecipeCardVerticalWidth = 188;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -99,8 +108,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }
 
   Future<void> _loadLoginStatus() async {
-    // ★ ไม่มีการแก้ไขในส่วนนี้ โครงสร้างดีอยู่แล้ว
-    await AuthService.init(); // ทำให้ isLoggedInSync() พร้อมใช้งาน
+    await AuthService.init();
     if (await AuthService.isLoggedIn()) {
       final login = await AuthService.getLoginData();
       final allergy = await ApiService.fetchAllergyIngredients();
@@ -157,13 +165,13 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       case 2: // My Recipes (protected)
         if (!_isLoggedIn) {
           final result = await Navigator.pushNamed(context, '/login');
-          if (result == true) didPopNext(); // ถ้าล็อกอินสำเร็จ ให้ refresh
+          if (result == true) didPopNext();
           return;
         }
         await Navigator.pushNamed(context, '/my_recipes');
         break;
 
-      case 3: // Profile หรือ Settings
+      case 3: // Profile / Settings
         final route = _isLoggedIn ? '/profile' : '/settings';
         await Navigator.pushNamed(context, route);
         break;
@@ -194,9 +202,9 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               index: _selectedIndex,
               children: [
                 _buildMainHomeView(),
-                const SizedBox.shrink(), // index 1 (Search)
-                const SizedBox.shrink(), // index 2 (My Recipes)
-                const SizedBox.shrink(), // index 3 (Profile/Settings)
+                const SizedBox.shrink(),
+                const SizedBox.shrink(),
+                const SizedBox.shrink(),
               ],
             ),
           ),
@@ -276,13 +284,11 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       separatorBuilder: (_, __) => const SizedBox(width: 16),
                       itemBuilder: (_, i) => IngredientCard(
                         ingredient: _ingredients[i],
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          '/search',
-                          arguments: {
-                            'ingredients': [_ingredients[i].name]
-                          },
-                        ),
+                        // ================== บรรทัดที่แก้ไข ==================
+                        // ลบ onTap ที่ override ออก เพื่อให้ IngredientCard
+                        // ใช้ Logic การกดเริ่มต้นของตัวเอง (ที่เราแก้ไปแล้ว)
+                        // onTap: () => _onIngredientTap(_ingredients[i]),
+                        // =================================================
                       ),
                     ),
             ),
@@ -302,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               title: title, actionText: 'ดูเพิ่มเติม', onAction: onAction),
           const SizedBox(height: 12),
           SizedBox(
-            height: 250,
+            height: _recipeStripHeight(context), // ✅ คำนวณอัตโนมัติ
             child: recipes.isEmpty
                 ? const Center(child: Text('ยังไม่มีสูตรอาหาร'))
                 : ListView.separated(
@@ -327,7 +333,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 2), // +space
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -338,7 +345,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
             onTap: onAction,
             child: Text(
               actionText,
-              style: theme.textTheme.titleSmall?.copyWith(
+              style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.primary,
                 fontWeight: FontWeight.bold,
               ),
@@ -422,5 +429,31 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
             Navigator.pushNamed(context, '/recipe_detail', arguments: r),
       ),
     );
+  }
+
+  // ================== ส่วนที่แก้ไข (ลบออก) ==================
+  // ลบฟังก์ชัน _onIngredientTap และ _hasResults ออกทั้งหมด
+  // เนื่องจากไม่ได้ใช้งานแล้ว
+  // ======================================================
+
+  // ======= HEIGHT HELPER: คำนวณความสูงแถวการ์ดแนวนอนแบบอัตโนมัติ =======
+  double _recipeStripHeight(BuildContext context) {
+    // ใช้ความกว้างของการ์ดแนวตั้งเป็นฐาน
+    const imageW = kRecipeCardVerticalWidth;
+    final ts = Theme.of(context).textTheme;
+    final scale = MediaQuery.textScaleFactorOf(context);
+
+    // Helper สำหรับคำนวณความสูงของ Text โดยดูจาก fontSize และ lineHeight
+    double lh(TextStyle s) => (s.height ?? 1.2) * (s.fontSize ?? 14);
+
+    final titleH = lh(ts.titleMedium!) * 2 * scale; // ชื่อ 2 บรรทัด
+    final metaH = lh(ts.bodyMedium!) * 2 * scale; // Meta 2 บรรทัด
+    const padding = 8 + 4 + 8 + 8; // padding ทั้งหมดของการ์ด
+
+    // รวมความสูงทั้งหมด +2 เพื่อ buffer ป้องกัน overflow
+    final h = imageW + titleH + metaH + padding + 2;
+
+    // Clamp ค่าความสูงเพื่อไม่ให้สูงเกินไปบนจอเล็ก
+    return h.clamp(322.0, 390.0).roundToDouble();
   }
 }

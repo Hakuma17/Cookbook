@@ -1,6 +1,5 @@
 // test/widget_test.dart
 import 'package:cookbook/screens/home_screen.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cookbook/main.dart';
@@ -17,7 +16,9 @@ void main() {
   testWidgets('App starts with SplashScreen smoke test',
       (WidgetTester tester) async {
     // 2. สร้าง MyApp ของเราขึ้นมา
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(MyApp(
+      initialFavoriteIds: <int>{},
+    ));
 
     // 3. รอให้ animation หรือ Future ทำงานเสร็จ (เช่น Timer ใน SplashScreen)
     // pumpAndSettle จะรอจนกว่าจะไม่มี frame ใหม่ๆ เกิดขึ้น

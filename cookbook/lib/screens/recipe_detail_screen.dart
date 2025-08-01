@@ -10,6 +10,10 @@ import 'package:cookbook/widgets/voice_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+// [NEW] ใช้ FavoriteStore เพื่อ sync กับการ์ดหน้าอื่น ๆ
+import 'package:provider/provider.dart';
+import '../stores/favorite_store.dart';
+
 import '../models/recipe_detail.dart';
 import '../models/comment.dart';
 import '../services/api_service.dart';
@@ -45,7 +49,12 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   /* ───── UI state ───── */
   int _currentPage = 0;
   bool _isLoggedIn = false;
-  bool _isFavorited = false;
+
+  // [CHANGED] แยก state เกี่ยวกับ "หัวใจ"
+  bool _isFavorited = false; // สถานะหัวใจที่หน้า detail
+  int _favCount = 0; // จำนวนหัวใจ ณ หน้า detail (ถ้ามี)
+  bool _favBusy = false; // กันกดซ้อนตอนยิง API
+
   int _currentServings = 1;
   List<Comment> _comments = [];
   int _userRating = 0;
@@ -99,9 +108,15 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
           mapped.firstWhere((c) => c.isMine, orElse: () => Comment.empty());
 
       if (mounted) {
+        // [CHANGED] กำหนดสถานะหัวใจเริ่มต้นจาก Store หรือจาก recipe (เผื่อหน้าอื่นอัปเดตมาก่อน)
+        final store = context.read<FavoriteStore>();
+        final storeFav = store.contains(widget.recipeId);
+
         setState(() {
           _isLoggedIn = isLoggedIn;
-          _isFavorited = recipe.isFavorited;
+          _isFavorited = storeFav || (recipe.isFavorited ?? false);
+          _favCount =
+              recipe.favoriteCount ?? 0; // เก็บเลขไว้แสดง (ถ้ามีการแสดงในหน้า)
           _currentServings = recipe.currentServings;
           _comments = mapped;
           _userRating = myComment.rating ?? 0;
@@ -281,13 +296,18 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: () => _toggleFavorite(!_isFavorited),
+                    // [CHANGED] กันกดซ้อน + เรียกไปยัง handler ใหม่
+                    onPressed:
+                        _favBusy ? null : () => _toggleFavorite(!_isFavorited),
                     icon: Icon(
                       _isFavorited ? Icons.bookmark : Icons.bookmark_border,
                       color: Colors.white,
                     ),
-                    label: const Text('เพิ่มเป็นสูตรโปรด',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    // [CHANGED] label ให้สอดคล้องกับสถานะ
+                    label: Text(
+                      _isFavorited ? 'เอาออกจากสูตรโปรด' : 'เพิ่มเป็นสูตรโปรด',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(0, 56),
                       shape: const StadiumBorder(),
@@ -411,6 +431,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   }
 
   /* ───── actions ───── */
+
+  // [CHANGED] รอผลจริงจาก API + อัปเดต Store กลาง + กันกดซ้อน
   Future<void> _toggleFavorite(bool fav) async {
     if (!_isLoggedIn) {
       final ok = await Navigator.pushNamed(context, '/login');
@@ -419,12 +441,32 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
       return;
     }
 
-    setState(() => _isFavorited = fav);
+    if (_favBusy) return;
+    setState(() => _favBusy = true);
+
     try {
-      await ApiService.toggleFavorite(widget.recipeId, fav);
+      final r = await ApiService.toggleFavorite(widget.recipeId, fav);
+
+      if (!mounted) return;
+      setState(() {
+        _isFavorited = r.isFavorited; // ← ใช้ผลจริง
+        _favCount = r.favoriteCount; // ← ถ้ามีการแสดงผลเลข ให้ใช้ค่านี้
+      });
+
+      // Sync กับการ์ดหน้าอื่น ๆ ทันที (สีหัวใจจะเปลี่ยน)
+      await context.read<FavoriteStore>().set(widget.recipeId, r.isFavorited);
+    } on UnauthorizedException {
+      if (!mounted) return;
+      _showSnack('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+      Navigator.pushNamed(context, '/login');
     } on ApiException catch (e) {
+      if (!mounted) return;
       _showSnack(e.message);
-      setState(() => _isFavorited = !fav);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('บันทึกเมนูโปรดไม่สำเร็จ');
+    } finally {
+      if (mounted) setState(() => _favBusy = false);
     }
   }
 

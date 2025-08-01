@@ -1,14 +1,20 @@
 // lib/screens/my_recipes_screen.dart
+//
+// ปรับกริดการ์ดให้เท่ากันทุกใบ + ลดพื้นที่ขาวล่าง
+// - ล็อค 2 คอลัมน์
+// - คำนวณ childAspectRatio ตามความกว้างการ์ดจริง (สอดคล้อง MyRecipeCard)
+// - ปรับช่องไฟ/ขอบให้พอดีตา
 
 import 'dart:async';
-
 import 'package:flutter/material.dart';
+
 import 'package:cookbook/services/auth_service.dart';
 import 'package:cookbook/services/api_service.dart';
 import 'package:cookbook/widgets/custom_bottom_nav.dart';
 import 'package:cookbook/widgets/my_recipe_card.dart';
 import 'package:cookbook/widgets/cart_recipe_card.dart';
 import 'package:cookbook/widgets/cart_ingredient_list_section.dart';
+
 import '../models/ingredient.dart';
 import '../models/recipe.dart';
 import '../models/cart_item.dart';
@@ -16,6 +22,12 @@ import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
 import '../widgets/allergy_warning_dialog.dart';
 import '../main.dart';
+
+/* ───────────── Grid constants ───────────── */
+const double _kGridHPad = 16.0; // ซ้าย/ขวา
+const double _kGridSpacing = 12.0; // ระยะห่างการ์ด
+const double _kHeaderHPad = 20.0; // padding หัวข้อ
+const int _kGridColumns = 2; // ล็อค 2 คอลัมน์
 
 class MyRecipesScreen extends StatefulWidget {
   final int initialTab;
@@ -26,37 +38,37 @@ class MyRecipesScreen extends StatefulWidget {
 }
 
 class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
-  // ────────── view/state ──────────
-  late int _selectedTab;
+  /* ────────── View/State ────────── */
+  late int _selectedTab; // 0=favorites, 1=cart
 
-  // State for Favorites Tab
+  // Favorites
   late Future<List<Recipe>> _futureFavorites;
 
-  // State for Cart Tab
+  // Cart
   List<CartItem> _cartItems = [];
   List<CartIngredient> _cartIngredients = [];
   bool _loadingCart = true;
 
-  // State for Allergy data
+  // Allergy
   List<Ingredient> _allergyList = [];
 
-  // ★ 1. เพิ่ม State สำหรับเก็บสถานะการล็อกอิน
+  // Login
   bool _isLoggedIn = false;
 
+  // Init
   late Future<void> _initFuture;
 
+  /* ────────── INIT ────────── */
   @override
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab.clamp(0, 1);
     _futureFavorites = Future.value(<Recipe>[]);
-    _initFuture = _initialize();
+    _initFuture = _initialize(); // โหลดรอบแรก
   }
 
-  // ★ 2. [แก้ไข] เพิ่มการดึงสถานะ isLoggedIn ใน initialize
   Future<void> _initialize({bool forceRefresh = false}) async {
     try {
-      // โหลดข้อมูลที่จำเป็นเสมอ (เช่น ข้อมูลแพ้ และสถานะล็อกอิน)
       final results = await Future.wait([
         AuthService.isLoggedIn(),
         ApiService.fetchAllergyIngredients(),
@@ -69,17 +81,16 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         });
       }
 
-      // โหลดข้อมูลตาม Tab ที่เลือก
       if (_selectedTab == 0) {
         await _loadFavorites();
       } else {
-        await _loadCartData();
+        await _loadCartData(force: forceRefresh);
       }
     } on UnauthorizedException {
       await _handleLogout();
     } on ApiException catch (e) {
       _showSnack(e.message);
-    } catch (e) {
+    } catch (_) {
       _showSnack('เกิดข้อผิดพลาดที่ไม่รู้จัก');
     }
   }
@@ -110,7 +121,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     });
   }
 
-  // ──────────── favorite ────────────
+  /* ────────── Favorites ────────── */
   Future<void> _loadFavorites() async {
     setState(() {
       _futureFavorites = ApiService.fetchFavorites();
@@ -118,9 +129,9 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     await _futureFavorites;
   }
 
-  // ──────────── cart ────────────
-  Future<void> _loadCartData() async {
-    if (_loadingCart && _cartItems.isNotEmpty) return;
+  /* ────────── Cart ────────── */
+  Future<void> _loadCartData({bool force = false}) async {
+    if (_loadingCart && _cartItems.isNotEmpty && !force) return;
     if (mounted) setState(() => _loadingCart = true);
 
     try {
@@ -139,10 +150,9 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     }
   }
 
-  // ★ 3. [แก้ไข] สร้างฟังก์ชันสำหรับจัดการการนำทางโดยเฉพาะ
+  /* ────────── Bottom Nav ────────── */
   void _onNavItemTapped(int index) {
     if (index == 2) {
-      // หน้าปัจจุบัน
       setState(() {
         _initFuture = _initialize(forceRefresh: true);
       });
@@ -157,8 +167,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         Navigator.pushReplacementNamed(context, '/search');
         break;
       case 3:
-        // หน้านี้ต้องล็อกอินอยู่แล้ว ดังนั้น _isLoggedIn ควรเป็น true เสมอ
-        // แต่เพื่อความปลอดภัย เรายังคงตรวจสอบอยู่
         final route = _isLoggedIn ? '/profile' : '/settings';
         Navigator.pushReplacementNamed(context, route);
         break;
@@ -174,7 +182,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     ));
   }
 
-  // ─────────── build ───────────
+  /* ────────── BUILD ────────── */
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -195,48 +203,51 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.symmetric(horizontal: _kHeaderHPad),
               child: Text(
                 'คลังของฉัน',
-                style: textTheme.headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 18),
             Row(
               children: [
                 _buildTabButton('สูตรโปรดของฉัน', 0, theme),
                 _buildTabButton('ตะกร้าวัตถุดิบ', 1, theme),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             Expanded(
               child: FutureBuilder(
-                  future: _initFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting &&
-                        _cartItems.isEmpty) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return Center(
-                          child: Text('เกิดข้อผิดพลาด: ${snapshot.error}'));
-                    }
+                future: _initFuture,
+                builder: (_, snap) {
+                  if (snap.connectionState == ConnectionState.waiting &&
+                      _cartItems.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snap.hasError) {
+                    return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+                  }
 
-                    return AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 250),
+                  return RefreshIndicator(
+                    onRefresh: () => _initialize(forceRefresh: true),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
                       child: _selectedTab == 0
                           ? _buildFavoritesView()
                           : _buildCartView(),
-                    );
-                  }),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         ),
       ),
-      // ★ 4. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไปใน CustomBottomNav
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: 2,
         onItemSelected: _onNavItemTapped,
@@ -245,6 +256,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
+  /* ────────── UI helpers ────────── */
   Widget _buildTabButton(String label, int index, ThemeData theme) {
     final isSelected = _selectedTab == index;
     return Expanded(
@@ -257,7 +269,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           });
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
@@ -282,6 +294,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
+  /* ────────── FAVORITES VIEW ────────── */
   Widget _buildFavoritesView() {
     return FutureBuilder<List<Recipe>>(
       future: _futureFavorites,
@@ -292,21 +305,36 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         if (snap.hasError) {
           return Center(
             child: Text(
-                'เกิดข้อผิดพลาด: ${snap.error is ApiException ? (snap.error as ApiException).message : snap.error}'),
+              'เกิดข้อผิดพลาด: ${snap.error is ApiException ? (snap.error as ApiException).message : snap.error}',
+            ),
           );
         }
+
         final list = snap.data ?? [];
         if (list.isEmpty) {
-          return const Center(child: Text('ยังไม่มีสูตรโปรด'));
+          return const AlwaysScrollableScrollPhysicsWrapper(
+            child: Center(child: Text('ยังไม่มีสูตรโปรด')),
+          );
         }
 
+        // ✅ ล็อค 2 คอลัมน์ + คำนวณสัดส่วนจริงให้การ์ด “เต็มพอดี” ไม่เหลือพื้นขาวล่าง
+        final bottomSafe = MediaQuery.of(context).padding.bottom;
+        final ratio = _calcCardAspectRatio(context);
+
         return GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 200,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            childAspectRatio: 0.74,
+          padding: EdgeInsets.fromLTRB(
+            _kGridHPad,
+            8,
+            _kGridHPad,
+            10 + bottomSafe, // NEW: ลดพื้นที่ขาวล่างลง
+          ),
+          physics: const AlwaysScrollableScrollPhysics(),
+          cacheExtent: 800,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: _kGridColumns,
+            mainAxisSpacing: _kGridSpacing,
+            crossAxisSpacing: _kGridSpacing,
+            childAspectRatio: ratio, // ~0.76–0.82 ตามจอ/ฟอนต์
           ),
           itemCount: list.length,
           itemBuilder: (_, i) {
@@ -314,7 +342,6 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
             final updatedRecipe = r.copyWith(
               hasAllergy: _checkIfRecipeHasAllergy(r),
             );
-
             return MyRecipeCard(
               recipe: updatedRecipe,
               onTap: () {
@@ -322,8 +349,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
                   _showAllergyDialog(updatedRecipe);
                   return;
                 }
-                Navigator.pushNamed(context, '/recipe_detail',
-                    arguments: updatedRecipe);
+                Navigator.pushNamed(
+                  context,
+                  '/recipe_detail',
+                  arguments: updatedRecipe,
+                );
               },
             );
           },
@@ -332,20 +362,54 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
+  /// คำนวณ childAspectRatio จาก “ความกว้างจริงของการ์ด”
+  /// สอดคล้องกับ MyRecipeCard: รูป 4:3 + ชื่อ 2 บรรทัด + meta 1 แถว + padding
+  double _calcCardAspectRatio(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final ts = Theme.of(context).textTheme;
+    final scale = MediaQuery.textScaleFactorOf(context);
+
+    // ความกว้างการ์ดจริง (2 คอลัมน์)
+    final cardW =
+        (size.width - (_kGridHPad * 2) - _kGridSpacing) / _kGridColumns;
+
+    // สูงส่วนรูป (4:3) — ต้องตรงกับ MyRecipeCard (AspectRatio 4/3)
+    final imageH = cardW * (3 / 4);
+
+    double lineH(TextStyle? s, double fallback) =>
+        ((s?.height ?? 1.22) * (s?.fontSize ?? fallback)) * scale;
+
+    // สูงเนื้อหาใต้รูป: ชื่อ 2 บรรทัด (titleMedium), meta 1 แถว (bodyMedium), padding ภายในการ์ด
+    final titleH = lineH(ts.titleMedium, 16) * 2;
+    final metaH = lineH(ts.bodyMedium, 14);
+    const innerPadding = 8 + 2 + 8; // fromLTRB(12,8,12,2) + meta bottom 8
+    final contentH = titleH + metaH + innerPadding;
+
+    final cardH = imageH + contentH;
+    final ratio = cardW / cardH;
+
+    // NEW: เผื่อกรณีปรับขนาดฟอนต์ระบบ → บีบให้อยู่ในช่วงที่ดูพอดี
+    return ratio.clamp(0.76, 0.84);
+  }
+
+  /* ────────── CART VIEW ────────── */
   Widget _buildCartView() {
     if (_loadingCart) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_cartItems.isEmpty) {
-      return const Center(child: Text('ยังไม่มีรายการในตะกร้า'));
+      return const AlwaysScrollableScrollPhysicsWrapper(
+        child: Center(child: Text('ยังไม่มีรายการในตะกร้า')),
+      );
     }
 
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            height: 240,
+            height: 256, // NEW: เผื่อชื่อ 2 บรรทัด ดูโปร่งไม่อัด
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.all(16),
@@ -358,15 +422,15 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           CartIngredientListSection(ingredients: _cartIngredients),
-          const SizedBox(height: 80),
+          const SizedBox(height: 72),
         ],
       ),
     );
   }
 
-  // ─────────── helpers ──────────
+  /* ────────── Helpers ────────── */
   bool _checkIfRecipeHasAllergy(Recipe recipe) {
     final allergyIds = _allergyList.map((e) => e.id).toSet();
     return allergyIds.isNotEmpty &&
@@ -404,7 +468,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
     try {
       await ApiService.updateCart(item.recipeId, newServings.toDouble());
-      await _loadCartData();
+      await _loadCartData(force: true);
     } on ApiException catch (e) {
       _showSnack('แก้ไขจำนวนไม่สำเร็จ: ${e.message}');
     }
@@ -432,7 +496,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
     try {
       await ApiService.removeCartItem(item.recipeId);
-      await _loadCartData();
+      await _loadCartData(force: true);
     } on ApiException catch (e) {
       _showSnack('ลบเมนูไม่สำเร็จ: ${e.message}');
     }
@@ -458,7 +522,9 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         child: ListView(
           children: favs
               .map((r) => ListTile(
-                  title: Text(r.name), onTap: () => Navigator.pop(_, r)))
+                    title: Text(r.name),
+                    onTap: () => Navigator.pop(_, r),
+                  ))
               .toList(),
         ),
       ),
@@ -473,7 +539,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
     try {
       await ApiService.addCartItem(selected.id, servings.toDouble());
-      await _loadCartData();
+      await _loadCartData(force: true);
       _showSnack('เพิ่ม "${selected.name}" ลงตะกร้าเรียบร้อย', isError: false);
     } on ApiException catch (e) {
       _showSnack('เพิ่มสูตรไม่สำเร็จ: ${e.message}');
@@ -481,7 +547,25 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   }
 }
 
-// ─────────────────── picker ──────────────────────────
+/* ให้สกอร์ลได้เสมอ เผื่อรายการน้อย */
+class AlwaysScrollableScrollPhysicsWrapper extends StatelessWidget {
+  final Widget child;
+  const AlwaysScrollableScrollPhysicsWrapper({super.key, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.of(context).size.height * .6,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+/* ─────────────────── PICKER ─────────────────── */
 class ServingsPicker extends StatelessWidget {
   final int initialServings;
   const ServingsPicker({super.key, required this.initialServings});
@@ -504,7 +588,7 @@ class ServingsPicker extends StatelessWidget {
               final isSelected = s == initialServings;
               return ListTile(
                 title: Text(
-                  '$s ที่',
+                  '$s คน',
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight:
                         isSelected ? FontWeight.bold : FontWeight.normal,

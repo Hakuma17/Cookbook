@@ -28,10 +28,8 @@ class _IngredientTableState extends State<IngredientTable> {
       return const SizedBox.shrink();
     }
 
-    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
 
-    // Logic การแสดงผล (คงเดิม)
     final scaleFactor = widget.currentServings / widget.baseServings;
     final displayList = _isExpanded
         ? widget.items
@@ -44,20 +42,17 @@ class _IngredientTableState extends State<IngredientTable> {
         // --- กล่องตารางวัตถุดิบ ---
         Container(
           padding: const EdgeInsets.all(16.0),
-          // ✅ 2. ใช้สไตล์จาก Theme
           decoration: BoxDecoration(
             border: Border.all(color: theme.dividerColor),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(
-            // ✅ 3. ใช้ for loop เพื่อสร้างรายการและเส้นคั่น ทำให้โค้ดสะอาดขึ้น
             children: [
               for (int i = 0; i < displayList.length; i++) ...[
                 _buildIngredientRow(
                   context: context,
                   item: displayList[i],
                   scaleFactor: scaleFactor,
-                  // ทำให้รายการสุดท้ายในโหมด preview ดูจางลง (เป็น UX ที่ดี)
                   isFaded:
                       !_isExpanded && i == displayList.length - 1 && canExpand,
                 ),
@@ -67,13 +62,12 @@ class _IngredientTableState extends State<IngredientTable> {
           ),
         ),
 
-        // --- ปุ่ม "ดูเพิ่มเติม" / "ย่อขนาด" ---
         if (canExpand) _buildExpandButton(theme),
       ],
     );
   }
 
-  /// ✅ 4. แยก UI ย่อยออกมาเป็น Helper Function และใช้ Theme
+  /// แถววัตถุดิบ (ชื่อ / ปริมาณ)
   Widget _buildIngredientRow({
     required BuildContext context,
     required IngredientQuantity item,
@@ -82,6 +76,12 @@ class _IngredientTableState extends State<IngredientTable> {
   }) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
+
+    // ✨ สร้างสไตล์ "มีเดียมแต่ไม่หนา" ไว้ใช้ซ้ำ
+    final TextStyle nameStyle = (textTheme.titleMedium ?? textTheme.bodyLarge!)
+        .copyWith(fontWeight: FontWeight.w400);
+    final TextStyle qtyStyle = (textTheme.titleMedium ?? textTheme.bodyLarge!)
+        .copyWith(fontWeight: FontWeight.w400);
 
     // คำนวณปริมาณตามจำนวนเสิร์ฟ
     final adjustedQuantity = item.quantity * scaleFactor;
@@ -96,25 +96,28 @@ class _IngredientTableState extends State<IngredientTable> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // --- ชื่อวัตถุดิบ ---
+        // --- ชื่อวัตถุดิบ (ไม่หนา) ---
         Expanded(
           flex: 3,
           child: Text(
             item.description.isNotEmpty ? item.description : item.name,
-            style: textTheme.bodyLarge?.copyWith(color: textColor),
+            style: nameStyle.copyWith(color: textColor), // ✨
           ),
         ),
         const SizedBox(width: 16),
-        // --- ปริมาณ + หน่วย ---
+        // --- ปริมาณ + หน่วย (ไม่หนา) ---
         Expanded(
           flex: 2,
           child: Text(
             '$quantityString ${item.unit}',
             textAlign: TextAlign.end,
+            style: qtyStyle.copyWith(color: textColor), // ✨
+            /* โค้ดเดิม (ตัวหนา)
             style: textTheme.bodyLarge?.copyWith(
               fontWeight: FontWeight.bold,
               color: textColor,
             ),
+            */
           ),
         ),
       ],
@@ -125,8 +128,9 @@ class _IngredientTableState extends State<IngredientTable> {
     return TextButton.icon(
       onPressed: () => setState(() => _isExpanded = !_isExpanded),
       icon: Icon(
-          _isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down),
-      label: Text(_isExpanded ? 'ย่อขนาด' : 'ดูเพิ่มเติม'),
+        _isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+      ),
+      label: const Text('ดูเพิ่มเติม'), // ข้อความนี้ไม่จำเป็นต้องหนา
       style: TextButton.styleFrom(
         foregroundColor: theme.colorScheme.primary,
         alignment: Alignment.centerLeft,

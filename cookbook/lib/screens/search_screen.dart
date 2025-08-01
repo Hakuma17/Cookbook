@@ -4,6 +4,10 @@ import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/material.dart';
 
+// ★★★ [NEW] ดึงค่า “ตัดคำภาษาไทย” จาก SettingsStore
+import 'package:provider/provider.dart';
+import '../stores/settings_store.dart';
+
 import '../models/ingredient.dart';
 import '../models/recipe.dart';
 import '../services/api_service.dart';
@@ -136,6 +140,11 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     try {
+      // ★★★ [NEW] ส่งค่าสวิตช์ “ตัดคำภาษาไทย” ไปยัง backend
+      // - ดีฟอลต์: ปิด (false) ตาม SettingsStore
+      final tokenize =
+          context.read<SettingsStore>().searchTokenizeEnabled; // true/false
+
       final res = await ApiService.searchRecipes(
         query: _searchQuery,
         page: page,
@@ -143,6 +152,7 @@ class _SearchScreenState extends State<SearchScreen> {
         sort: _sortOptions[_sortIndex].key,
         ingredientNames: _includeNames,
         excludeIngredientNames: _excludeNames,
+        tokenize: tokenize, // ✅ ส่งต่อให้ backend
       );
 
       if (myId != _reqId || !mounted) return;
@@ -497,6 +507,9 @@ class _SearchScreenState extends State<SearchScreen> {
             dot('ใช้ปุ่ม “กรอง” เพื่อเลือก/ยกเว้นวัตถุดิบ'),
             dot('แตะ ✕ เพื่อถอดฟิลเตอร์'),
             dot('แตะการ์ดสูตรเพื่อดูรายละเอียด'),
+            // ★★★ [NEW] ช่วยอธิบายโหมดค้นหาเมื่อเปิด/ปิดการตัดคำ
+            dot('หาก “ตัดคำภาษาไทย” ถูกปิด (ค่าเริ่มต้น): ใส่คำหลายคำโดยคั่นด้วยช่องว่างหรือเครื่องหมายจุลภาค เช่น "กุ้ง กระเทียม" หรือ "กุ้ง,กระเทียม" เพื่อค้นหาสูตรที่มีอย่างน้อยทั้งสองวัตถุดิบ'),
+            dot('หาก “ตัดคำภาษาไทย” ถูกเปิด: ระบบจะพยายามแยกคำอัตโนมัติจากประโยคยาว (ต้องใช้เวลาเล็กน้อย)'),
           ],
         ),
       ),

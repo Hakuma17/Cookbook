@@ -1,7 +1,13 @@
+// lib/widgets/cart_recipe_card.dart
 import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
 
-/// การ์ดสูตรในตะกร้า
+// ── ปรับค่าได้ง่าย ๆ ตรงนี้ ────────────────────────────
+const double kCartCardWidth = 196; // ความกว้างการ์ดในลิสต์แนวนอน
+const double kCartImageAspect = 1.44; // อัตราส่วนกว้าง/สูงของรูป (เดิม ~1.33)
+//   ↑ 1.44 จะเตี้ยกว่ารูปเดิมเล็กน้อย → เหลือที่ให้ "ชื่อ" มากขึ้น
+//     ถ้าอยากเตี้ยลงอีกลอง 1.48–1.52 ได้
+
 class CartRecipeCard extends StatelessWidget {
   final CartItem cartItem;
   final VoidCallback onTapEditServings;
@@ -14,86 +20,90 @@ class CartRecipeCard extends StatelessWidget {
     required this.onDelete,
   });
 
-  //  1. เปลี่ยนไปใช้ Named Route เพื่อความสอดคล้อง
   void _openDetail(BuildContext context) {
-    Navigator.pushNamed(
-      context,
-      '/recipe_detail',
-      arguments: cartItem.recipeId, // ส่ง ID ไปแทน Object
-    );
+    Navigator.pushNamed(context, '/recipe_detail',
+        arguments: cartItem.recipeId);
   }
 
   @override
   Widget build(BuildContext context) {
-    //  2. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final colorScheme = theme.colorScheme;
+    final cs = theme.colorScheme;
+    final ts = theme.textTheme;
 
     return SizedBox(
-      width: 180, // กำหนดความกว้างคงที่ เหมาะสำหรับ Horizontal ListView
+      width: kCartCardWidth,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // --- Card หลัก ---
           Card(
-            // Card จะใช้สไตล์จาก CardTheme ใน main.dart
-            margin: const EdgeInsets.only(top: 8, right: 8),
+            margin: EdgeInsets.zero,
+            elevation: 0,
+            color: cs.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: cs.outline, width: 1.6), // ✅ กรอบชัด
+            ),
+            clipBehavior: Clip.antiAlias,
             child: InkWell(
               onTap: () => _openDetail(context),
-              borderRadius:
-                  BorderRadius.circular(12), // ทำให้ splash effect โค้งตาม Card
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- รูปภาพ และ Badge จำนวนเสิร์ฟ ---
-                  SizedBox(
-                    height: 120,
-                    width: double.infinity,
+                  // ── รูปภาพเตี้ยลงเล็กน้อย ──
+                  AspectRatio(
+                    aspectRatio: kCartImageAspect, // ✅ ลดความสูงรูป
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        ClipRRect(
-                          borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(12)),
-                          child: Image.network(
-                            cartItem.imageUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: colorScheme.surfaceVariant,
-                              child: Icon(Icons.image_not_supported_outlined,
-                                  color: colorScheme.onSurfaceVariant),
-                            ),
-                          ),
-                        ),
+                        _buildImage(cartItem.imageUrl, cs),
                         Positioned(
                           bottom: 8,
                           right: 8,
                           child: InkWell(
                             onTap: onTapEditServings,
+                            borderRadius: BorderRadius.circular(20),
                             child: Chip(
+                              labelPadding:
+                                  const EdgeInsets.symmetric(horizontal: 10),
                               avatar: Icon(Icons.person,
-                                  size: 16,
-                                  color: colorScheme.onSecondaryContainer),
-                              label: Text('${cartItem.nServings} คน'),
-                              labelStyle: textTheme.labelSmall?.copyWith(
-                                  color: colorScheme.onSecondaryContainer),
-                              backgroundColor: colorScheme.secondaryContainer,
+                                  size: 16, color: cs.onSecondaryContainer),
+                              label: Text(
+                                '${cartItem.nServings.round()} คน',
+                                // ฟอนต์อ่านชัดขึ้น
+                                style: ts.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.05,
+                                  color: cs.onSecondaryContainer,
+                                ),
+                              ),
+                              backgroundColor: cs.secondaryContainer,
+                              side: BorderSide(
+                                color: cs.outlineVariant.withOpacity(.7),
+                              ),
                               visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  // --- ชื่อเมนู ---
+
+                  // ── ชื่อเมนู (ใหญ่ขึ้น + ไม่ overflow) ──
                   Padding(
-                    padding: const EdgeInsets.all(12.0),
+                    // ขยับให้มีลมหายใจ และไม่ชนขอบล่างของการ์ด
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                     child: Text(
                       cartItem.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: textTheme.titleSmall,
+                      style: ts.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        height: 1.22,
+                        fontSize: (ts.titleMedium?.fontSize ?? 16) + 1.0,
+                      ),
                     ),
                   ),
                 ],
@@ -101,21 +111,20 @@ class CartRecipeCard extends StatelessWidget {
             ),
           ),
 
-          // --- ปุ่มลบ ---
-          // 3. เปลี่ยนมาใช้ IconButton ที่จัดสไตล์ได้ง่ายกว่า
+          // ── ปุ่มลบ ──
           Positioned(
-            top: 0,
-            right: 0,
+            top: -6,
+            right: -6,
             child: IconButton(
-              icon: const Icon(Icons.close),
-              iconSize: 18,
               tooltip: 'ลบออกจากตะกร้า',
               onPressed: onDelete,
+              icon: const Icon(Icons.close, size: 16),
               style: IconButton.styleFrom(
-                backgroundColor: colorScheme.error,
-                foregroundColor: colorScheme.onError,
-                padding: const EdgeInsets.all(4),
+                backgroundColor: cs.error,
+                foregroundColor: cs.onError,
+                padding: const EdgeInsets.all(6),
                 visualDensity: VisualDensity.compact,
+                shape: const CircleBorder(),
               ),
             ),
           ),
@@ -123,61 +132,28 @@ class CartRecipeCard extends StatelessWidget {
       ),
     );
   }
-}
 
-// ✅ 4. Refactor _ServingsPicker ให้เป็น Widget สาธารณะและใช้ Theme
-// ⭐️ แนะนำ: ย้าย Widget นี้ไปไว้ในไฟล์ของตัวเอง (เช่น lib/widgets/servings_picker.dart)
-//    เพื่อให้หน้าจออื่น (เช่น MyRecipesScreen) สามารถเรียกใช้ได้โดยไม่ต้องมีโค้ดซ้ำซ้อน
-class ServingsPicker extends StatelessWidget {
-  final int initialServings;
-  const ServingsPicker({super.key, required this.initialServings});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final maxHeight = MediaQuery.of(context).size.height * 0.55;
-
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child:
-                  Text('เลือกจำนวนที่รับประทาน', style: textTheme.titleLarge),
-            ),
-            const Divider(height: 1),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: 10,
-                itemBuilder: (_, i) {
-                  final servings = i + 1;
-                  final isSelected = servings == initialServings;
-
-                  return ListTile(
-                    title: Text(
-                      '$servings คน',
-                      style: textTheme.titleMedium?.copyWith(
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.normal,
-                        color: isSelected ? theme.colorScheme.primary : null,
-                      ),
-                    ),
-                    trailing: isSelected
-                        ? Icon(Icons.check, color: theme.colorScheme.primary)
-                        : null,
-                    onTap: () => Navigator.of(context).pop(servings),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  Widget _buildImage(String url, ColorScheme cs) {
+    if (url.isNotEmpty) {
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, __, ___) => _fallbackImage(cs),
+      );
+    }
+    return _fallbackImage(cs);
   }
+
+  Widget _fallbackImage(ColorScheme cs) => Container(
+        color: cs.surfaceVariant,
+        alignment: Alignment.center,
+        child: Icon(Icons.image_not_supported_outlined,
+            size: 28, color: cs.onSurfaceVariant),
+      );
 }
+
+/* ───── โค้ดเวอร์ชันเดิม (เผื่อย้อนกลับ)
+  // SizedBox(height: 120) + ClipRRect ...
+  // หรือ AspectRatio: 4/3 (1.333) ที่รูปสูงกว่า
+──────────────────────────────────────── */

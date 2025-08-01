@@ -1,42 +1,16 @@
 // lib/utils/format_utils.dart
-
 import 'package:flutter/material.dart';
 
-/// แปลงตัวเลข เช่น 1000 → 1k, 2500000 → 2.5M
-String formatCount(int number) {
-  if (number >= 1000000) {
-    return '${(number / 1000000).toStringAsFixed(1).replaceAll('.0', '')}M';
-  } else if (number >= 1000) {
-    return '${(number / 1000).toStringAsFixed(1).replaceAll('.0', '')}k';
-  } else {
-    return number.toString();
+/// 950 → 950, 1,000 → 1.0K, 12,345 → 12.3K, 1,234,567 → 1.2M
+String formatCount(int? number) {
+  final n = number ?? 0;
+  if (n >= 1_000_000) {
+    return '${(n / 1_000_000).toStringAsFixed(1)}M';
+  } else if (n >= 1_000) {
+    return '${(n / 1_000).toStringAsFixed(1)}K';
   }
+  return n.toString();
 }
 
-/// คืน widget รูปภาพจาก URL ถ้ามี, ถ้าไม่มีให้ใช้รูป fallback แทน
-Widget safeImage(String? url,
-    {BoxFit fit = BoxFit.cover, double? width, double? height}) {
-  if (url == null || url.trim().isEmpty) {
-    return Image.asset(
-      'assets/images/default_recipe.jpg',
-      fit: fit,
-      width: width,
-      height: height,
-    );
-  }
-
-  return Image.network(
-    url,
-    fit: fit,
-    width: width,
-    height: height,
-    errorBuilder: (context, error, stackTrace) {
-      return Image.asset(
-        'assets/images/default_recipe.jpg',
-        fit: fit,
-        width: width,
-        height: height,
-      );
-    },
-  );
-}
+/// แปลงคะแนนเป็นทศนิยม 1 ตำแหน่ง รองรับค่า null
+String formatRating(double? rating) => (rating ?? 0).toStringAsFixed(1);

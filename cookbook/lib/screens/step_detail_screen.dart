@@ -94,12 +94,10 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
       await _tts.setPitch(_pitch);
 
       if (_thaiVoices.isNotEmpty) {
-        // Find the best voice based on user's gender preference
         final preferredVoice = _thaiVoices.firstWhere(
           (v) =>
               v['name'].toString().contains(_isFemaleVoice ? '-thc-' : '-thd-'),
-          orElse: () =>
-              _thaiVoices.first, // Fallback to the first available Thai voice
+          orElse: () => _thaiVoices.first,
         );
         await _tts
             .setVoice({'name': preferredVoice['name'], 'locale': 'th-TH'});
@@ -119,7 +117,6 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
   Future<void> _goToStep(int index) async {
     if (index < 0) return;
     if (index >= widget.steps.length) {
-      // Reached the end, pop the screen
       await _tts.stop();
       if (mounted) Navigator.pop(context);
       return;
@@ -152,7 +149,6 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
                 child: Center(child: CircularProgressIndicator()),
               );
             }
-            // Use StatefulBuilder to manage the state within the modal sheet
             return StatefulBuilder(
               builder: (BuildContext context, StateSetter setModalState) {
                 return _buildSettingsContent(context, setModalState);
@@ -168,12 +164,15 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
+
+    // ✨ สไตล์ “มีเดียมแต่ไม่หนา” ไว้ใช้ซ้ำ
+    final TextStyle? medium =
+        textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w400);
+
     final currentStep = widget.steps[_currentIndex];
 
-    // Logic to find the best image for the current step
     final imageUrl = (widget.imageUrls.length > _currentIndex &&
             widget.imageUrls[_currentIndex].trim().isNotEmpty)
         ? widget.imageUrls[_currentIndex]
@@ -184,7 +183,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('ขั้นตอนที่ ${_currentIndex + 1}'),
+        title: Text('ขั้นตอนที่ ${_currentIndex + 1}', style: medium), // ✨
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -197,12 +196,14 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
         children: [
           // --- Image Section ---
           SizedBox(
-            height: 250, // กำหนดความสูงที่เหมาะสม
+            height: 250,
             width: double.infinity,
             child: imageUrl != null
-                ? Image.network(imageUrl,
+                ? Image.network(
+                    imageUrl,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _buildPlaceholderImage())
+                    errorBuilder: (_, __, ___) => _buildPlaceholderImage(),
+                  )
                 : _buildPlaceholderImage(),
           ),
 
@@ -212,7 +213,8 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
               padding: const EdgeInsets.all(24.0),
               child: Text(
                 currentStep.description,
-                style: textTheme.bodyLarge?.copyWith(height: 1.5),
+                // ✨ เปลี่ยนเป็น titleMedium (มีเดียม) + ไม่หนา
+                style: medium?.copyWith(height: 1.5),
               ),
             ),
           ),
@@ -225,9 +227,12 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
               icon: Icon(_isSpeaking
                   ? Icons.stop_circle_outlined
                   : Icons.play_circle_outline),
-              label: Text(_isSpeaking
-                  ? 'กำลังอ่าน...'
-                  : (_hasSpoken ? 'อ่านซ้ำ' : 'ฟังเสียง')),
+              label: Text(
+                _isSpeaking
+                    ? 'กำลังอ่าน...'
+                    : (_hasSpoken ? 'อ่านซ้ำ' : 'ฟังเสียง'),
+                style: medium, // ✨
+              ),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 56),
               ),
@@ -264,7 +269,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
     );
   }
 
-  // 2. แยก UI ย่อยๆ ออกมาเป็น Helper และใช้ Theme
+  // Helpers
   Widget _buildPlaceholderImage() {
     return Image.asset('assets/images/default_recipe.png', fit: BoxFit.cover);
   }
@@ -273,6 +278,8 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
       BuildContext context, StateSetter setModalState) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
+    final TextStyle? medium =
+        textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w400); // ✨
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
@@ -280,9 +287,11 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('ตั้งค่าเสียงอ่าน', style: textTheme.titleLarge),
+          // ✨ หัวข้อใช้มีเดียม ไม่หนา
+          Text('ตั้งค่าเสียงอ่าน', style: medium),
           const SizedBox(height: 24),
-          Text('เสียงพูด', style: textTheme.titleSmall),
+
+          Text('เสียงพูด', style: medium), // ✨
           const SizedBox(height: 8),
           SegmentedButton<bool>(
             segments: const [
@@ -303,10 +312,9 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('ความเร็วในการอ่าน:', style: textTheme.titleSmall),
+              Text('ความเร็วในการอ่าน:', style: medium), // ✨
               Text('${(_speechRate * 2).toStringAsFixed(1)}x',
-                  style: textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+                  style: medium), // ✨
             ],
           ),
           Slider(
@@ -323,10 +331,8 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('ระดับเสียง (Pitch):', style: textTheme.titleSmall),
-              Text(_pitch.toStringAsFixed(1),
-                  style: textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+              Text('ระดับเสียง (Pitch):', style: medium), // ✨
+              Text(_pitch.toStringAsFixed(1), style: medium), // ✨
             ],
           ),
           Slider(
@@ -361,6 +367,9 @@ class _NavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final TextStyle? medium =
+        theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w400); // ✨
+
     return InkWell(
       onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(8),
@@ -378,7 +387,7 @@ class _NavButton extends StatelessWidget {
                     theme.colorScheme.onSurface, BlendMode.srcIn),
               ),
               const SizedBox(height: 4),
-              Text(label, style: theme.textTheme.labelMedium),
+              Text(label, style: medium), // ✨ ใช้มีเดียม ไม่หนา
             ],
           ),
         ),

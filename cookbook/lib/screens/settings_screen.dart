@@ -8,6 +8,10 @@ import 'package:cookbook/services/auth_service.dart';
 
 import '../widgets/custom_bottom_nav.dart';
 
+// [NEW] เพิ่ม provider + settings store
+import 'package:provider/provider.dart';
+import '../stores/settings_store.dart';
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -104,6 +108,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // [NEW] ป๊อปอัปยืนยันก่อนสลับ “การตัดคำภาษาไทย”
+  Future<bool?> _confirmToggleTokenize(BuildContext context, bool enable) {
+    final title = enable ? 'เปิดการตัดคำภาษาไทย?' : 'ปิดการตัดคำภาษาไทย?';
+    final msg = enable
+        ? 'เมื่อเปิด ระบบจะพยายามตัดคำภาษาไทยให้ละเอียดขึ้น ทำให้ค้นหาแม่นยำขึ้น แต่ความเร็วอาจลดลงเล็กน้อย'
+        : 'เมื่อปิด ระบบจะค้นหาแบบแยกคำด้วยช่องว่าง/จุลภาคเท่านั้น ทำงานเร็วขึ้น แต่คำไทยที่ติดกันอาจหาไม่เจอบางกรณี';
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ยืนยัน'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /* ───────────────────────── build ──────────────────────── */
   @override
   Widget build(BuildContext context) {
@@ -147,6 +176,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
+        // [NEW] การตั้งค่าการค้นหา (เปิด/ปิดตัดคำไทย)
+        _buildSearchSettingsCard(context),
+
+        const SizedBox(height: 12),
         Card(
           child: Column(
             children: [
@@ -198,6 +231,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
+        // [NEW] ให้ Guest ปรับการตั้งค่าการค้นหาได้เช่นกัน (เก็บไว้ในเครื่อง)
+        _buildSearchSettingsCard(context),
+
+        const SizedBox(height: 16),
         // ปุ่มเชิญชวนให้ล็อกอิน
         Card(
           color: theme.colorScheme.primaryContainer.withOpacity(0.5),
@@ -239,6 +276,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  // [NEW] การ์ด “การตั้งค่าการค้นหา” + สวิตช์ตัดคำไทย (ค่าเริ่มต้น: ปิด)
+  Widget _buildSearchSettingsCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final store = context.watch<SettingsStore>(); // โหลดอัตโนมัติจาก Provider
+    final enabled = store.searchTokenizeEnabled;
+
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(Icons.search, color: theme.colorScheme.primary),
+            title: const Text('การค้นหา'),
+            subtitle: Text(
+              'ตั้งค่าการค้นหาเมนูและวัตถุดิบของคุณ',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+          const Divider(height: 1),
+
+          // สวิตช์ตัดคำไทย (ค่าเริ่มต้นปิด — มาจาก SettingsStore)
+          SwitchListTile.adaptive(
+            title: const Text('ตัดคำภาษาไทย (ทดลอง)'),
+            subtitle: Text(
+              enabled
+                  ? 'เปิดการตัดคำ: ค้นหาไทยแม่นขึ้น แต่ความเร็วอาจลดลงเล็กน้อย'
+                  : 'ปิดการตัดคำ: แยกคำด้วยช่องว่าง/จุลภาค เร็วขึ้น',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            value: enabled,
+            onChanged: (next) async {
+              // ป๊อปอัปยืนยันก่อนสลับ
+              final ok = await _confirmToggleTokenize(context, next);
+              if (ok != true) return;
+
+              await context
+                  .read<SettingsStore>()
+                  .setSearchTokenizeEnabled(next);
+
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(next ? 'เปิดการตัดคำแล้ว' : 'ปิดการตัดคำแล้ว'),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }

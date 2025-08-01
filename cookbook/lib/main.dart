@@ -1,22 +1,29 @@
 // lib/main.dart
-
 // ------------------------------------------------------------
-// 2025‑07‑21  – stable build: theme polish + safer routing
+// 2025-07-26 – FavoriteStore provider + larger typography
+//               + force dark text colors (onSurface) app-wide
 // ------------------------------------------------------------
 import 'dart:async';
 import 'dart:developer';
 
-import 'package:cookbook/screens/change_password_screen.dart';
-import 'package:cookbook/screens/ingredient_filter_screen.dart';
+import 'package:cookbook/screens/change_password_screen.dart'
+    show ChangePasswordScreen;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
 
 // --- Services ---
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
+
+// --- Favorite store ---
+import 'stores/favorite_store.dart';
+
+// [NEW] Settings store (สวิตช์ตัดคำภาษาไทยในหน้า Settings)
+import 'stores/settings_store.dart';
 
 // --- Screens ---
 import 'screens/splash_screen.dart';
@@ -38,6 +45,7 @@ import 'screens/all_ingredients_screen.dart';
 import 'screens/allergy_screen.dart';
 import 'screens/step_detail_screen.dart';
 import 'screens/references_screen.dart';
+import 'screens/ingredient_filter_screen.dart';
 
 // --- Models & Widgets ---
 import 'models/recipe.dart';
@@ -46,37 +54,38 @@ import 'widgets/auth_guard.dart';
 import 'widgets/error_page.dart';
 
 /* ───────────── GLOBALS ───────────── */
-// ★ [ดีมาก] การสร้าง GlobalKey ทำให้สามารถเข้าถึง Navigator จากที่ไหนก็ได้ในแอป
-// เหมาะสำหรับใช้ใน Service ที่ต้องการสั่งเปลี่ยนหน้า เช่น บังคับ logout
 final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 final RouteObserver<ModalRoute<void>> routeObserver =
     RouteObserver<ModalRoute<void>>();
 
 /* ───────────── MAIN ───────────── */
 Future<void> main() async {
-  // การตั้งค่าพื้นฐานที่จำเป็นก่อนแอปจะรัน
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   await initializeDateFormatting('th_TH', null);
   await ApiService.init();
-  await AuthService.init(); // ★ เพิ่มการ init AuthService เพื่อโหลด cache
+  await AuthService.init();
 
-  // การใช้ runZonedGuarded สำหรับดักจับ Error ทั้งหมดที่ไม่ได้ถูก catch
-  // ช่วยป้องกันแอปแครช และสามารถจัดการ Error เฉพาะกรณีได้ เช่น UnauthorizedException
+  // preload favorite ids (ถ้า login อยู่)
+  Set<int> favoriteIds = {};
+  try {
+    if (await AuthService.isLoggedIn()) {
+      favoriteIds = (await ApiService.fetchFavoriteIds()).toSet();
+    }
+  } catch (_) {}
+
   runZonedGuarded(() {
     FlutterError.onError = (details) {
       log('Flutter framework error:',
           error: details.exception, stackTrace: details.stack);
     };
-    runApp(const MyApp());
+    runApp(MyApp(initialFavoriteIds: favoriteIds));
   }, (error, stack) {
     log('Uncaught zoned error:', error: error, stackTrace: stack);
 
-    // จัดการเมื่อ Session หมดอายุโดยเฉพาะ
     if (error is UnauthorizedException) {
-      AuthService.logout().then((_) {
-        navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
-      });
+      AuthService.logout().then((_) =>
+          navKey.currentState?.pushNamedAndRemoveUntil('/login', (_) => false));
       return;
     }
 
@@ -91,20 +100,18 @@ Future<void> main() async {
 
 /* ───────────── APP ───────────── */
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, required this.initialFavoriteIds});
+  final Set<int> initialFavoriteIds;
 
   @override
   Widget build(BuildContext context) {
-    //  การกำหนด Theme กลางไว้ที่นี่ ทำให้ทั้งแอปมีหน้าตาที่สอดคล้องกัน
-    // และง่ายต่อการแก้ไขในที่เดียว เป็น Best Practice ที่ยอดเยี่ยม
-
-    // — 1  brand palette
+    /* — palette — */
     const primaryColor = Color(0xFFFF9B05);
     const primaryContainerColor = Color(0xFFFCC09C);
     const onSurfaceColor = Color(0xFF0A2533);
     const onSurfaceVariantColor = Color(0xFF666666);
 
-    // — 2  base theme
+    /* — base theme — */
     final baseTheme = ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
@@ -125,12 +132,25 @@ class MyApp extends StatelessWidget {
       ),
     );
 
-    // — 3  component overrides
+    /* — enlarged typography (force dark text color) — */
+    final textTheme = GoogleFonts.itimTextTheme(baseTheme.textTheme).copyWith(
+      titleLarge: GoogleFonts.itim(
+          fontSize: 24, fontWeight: FontWeight.bold, color: onSurfaceColor),
+      titleMedium: GoogleFonts.itim(
+          fontSize: 20, fontWeight: FontWeight.w700, color: onSurfaceColor),
+      bodyLarge: GoogleFonts.itim(
+          fontSize: 18, fontWeight: FontWeight.w400, color: onSurfaceColor),
+      bodyMedium: GoogleFonts.itim(fontSize: 16, color: onSurfaceColor),
+      bodySmall: GoogleFonts.itim(fontSize: 14, color: onSurfaceColor),
+      labelLarge: GoogleFonts.itim(
+          fontSize: 14, fontWeight: FontWeight.w600, color: onSurfaceColor),
+      labelMedium: GoogleFonts.itim(fontSize: 12, color: onSurfaceColor),
+      labelSmall: GoogleFonts.itim(fontSize: 11, color: onSurfaceColor),
+    );
+
+    /* — component overrides — */
     final appTheme = baseTheme.copyWith(
-      textTheme: GoogleFonts.itimTextTheme(baseTheme.textTheme).apply(
-        bodyColor: onSurfaceColor,
-        displayColor: onSurfaceColor,
-      ),
+      textTheme: textTheme,
       appBarTheme: baseTheme.appBarTheme.copyWith(
         elevation: 1,
         centerTitle: true,
@@ -138,32 +158,28 @@ class MyApp extends StatelessWidget {
         foregroundColor: onSurfaceColor,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.black26,
-        titleTextStyle: GoogleFonts.itim(
-          textStyle: baseTheme.textTheme.titleLarge,
-          color: onSurfaceColor,
-          fontWeight: FontWeight.bold,
-        ),
+        titleTextStyle: textTheme.titleLarge,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           foregroundColor: Colors.white,
           backgroundColor: primaryColor,
-          minimumSize: const Size(0, 56), // ✔ safe‑width
+          minimumSize: const Size(0, 56),
           shape: const StadiumBorder(),
           padding: const EdgeInsets.symmetric(horizontal: 24),
           textStyle:
-              GoogleFonts.itim(fontSize: 16, fontWeight: FontWeight.bold),
+              GoogleFonts.itim(fontSize: 18, fontWeight: FontWeight.bold),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: onSurfaceColor,
-          minimumSize: const Size(0, 56), // ✔ safe‑width
+          minimumSize: const Size(0, 56),
           shape: const StadiumBorder(),
           side: BorderSide(color: onSurfaceColor, width: 1.5),
           padding: const EdgeInsets.symmetric(horizontal: 24),
           textStyle:
-              GoogleFonts.itim(fontSize: 16, fontWeight: FontWeight.bold),
+              GoogleFonts.itim(fontSize: 18, fontWeight: FontWeight.bold),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -209,33 +225,43 @@ class MyApp extends StatelessWidget {
         elevation: 8,
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
-        selectedLabelStyle: GoogleFonts.itim(fontWeight: FontWeight.bold),
-        unselectedLabelStyle: GoogleFonts.itim(),
+        selectedLabelStyle: GoogleFonts.itim(
+            fontWeight: FontWeight.bold, color: onSurfaceColor),
+        unselectedLabelStyle: GoogleFonts.itim(color: onSurfaceVariantColor),
       ),
       dialogTheme: DialogTheme(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
 
-    return MaterialApp(
-      title: 'Cooking Guide',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: navKey,
-      navigatorObservers: [routeObserver],
-      theme: appTheme,
-      initialRoute: '/splash',
-      onGenerateRoute: _onGenerateRoute,
-      onUnknownRoute: (_) => MaterialPageRoute(
-          builder: (_) => const ErrorPage(message: 'ไม่พบหน้าที่คุณเรียก')),
+    /* — providers & app — */
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => FavoriteStore(initialIds: initialFavoriteIds),
+        ),
+        // [NEW] SettingsStore provider (โหลดค่าดีฟอลต์: ปิดการตัดคำ)
+        ChangeNotifierProvider(
+          create: (_) => SettingsStore()..load(),
+        ),
+      ],
+      child: MaterialApp(
+        title: 'Cooking Guide',
+        debugShowCheckedModeBanner: false,
+        navigatorKey: navKey,
+        navigatorObservers: [routeObserver],
+        theme: appTheme,
+        initialRoute: '/splash',
+        onGenerateRoute: _onGenerateRoute,
+        onUnknownRoute: (_) => MaterialPageRoute(
+            builder: (_) => const ErrorPage(message: 'ไม่พบหน้าที่คุณเรียก')),
+      ),
     );
   }
 
   /* ───────────── ROUTING ───────────── */
-  // ★ [โครงสร้างดี] การใช้ onGenerateRoute ทำให้สามารถจัดการการนำทางและส่งข้อมูล
-  // ระหว่างหน้าทั้งหมดได้จากศูนย์กลางที่เดียว
   Route<dynamic>? _onGenerateRoute(RouteSettings settings) {
     final args = settings.arguments;
-
     switch (settings.name) {
       /* public */
       case '/splash':
@@ -307,20 +333,13 @@ class MyApp extends StatelessWidget {
         );
       case '/profile':
         return _material(const AuthGuard(child: ProfileScreen()), settings);
-
-      // ★ 1. [แก้ไข] เอา AuthGuard ออกจากหน้า Settings
-      // เพื่อให้ผู้ใช้ที่ยังไม่ล็อกอิน (Guest) สามารถเข้าถึงหน้านี้ได้โดยตรง
-      // จาก BottomNavigationBar ตามแผนที่เราวางไว้
       case '/settings':
         return _material(const SettingsScreen(), settings);
-
       case '/edit_profile':
         return _material(const AuthGuard(child: EditProfileScreen()), settings);
       case '/change_password':
         return _material(
-          const AuthGuard(child: ChangePasswordScreen()),
-          settings,
-        );
+            const AuthGuard(child: ChangePasswordScreen()), settings);
       case '/allergy':
         return _material(const AuthGuard(child: AllergyScreen()), settings);
       case '/references':
@@ -336,7 +355,6 @@ class MyApp extends StatelessWidget {
           ),
           settings,
         );
-
       default:
         return null;
     }

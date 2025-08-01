@@ -32,6 +32,49 @@ class UnauthorizedException extends ApiException {
   UnauthorizedException(String message) : super(message, statusCode: 401);
 }
 
+/// ★★★ [NEW] โครงสร้างผลลัพธ์ของการสลับเมนูโปรดจาก backend
+/// ใช้เพื่ออัปเดต UI/Store ตาม "ผลจริง" (ลดโอกาส desync จาก optimistic update)
+class FavoriteToggleResult {
+  final int recipeId;
+  final bool isFavorited;
+  final int favoriteCount;
+  final int? totalUserFavorites; // อาจไม่มี ถ้า backend ไม่ส่งมา
+
+  const FavoriteToggleResult({
+    required this.recipeId,
+    required this.isFavorited,
+    required this.favoriteCount,
+    this.totalUserFavorites,
+  });
+
+  /// helper แปลงจาก JSON ที่ได้กลับ (รองรับทั้งแบบห่อใน data และ flat)
+  factory FavoriteToggleResult.fromJson(dynamic json,
+      {required int fallbackRecipeId}) {
+    final Map d;
+    if (json is Map && json['data'] is Map) {
+      d = Map<String, dynamic>.from(json['data'] as Map);
+    } else if (json is Map) {
+      d = Map<String, dynamic>.from(json);
+    } else {
+      d = const {};
+    }
+    final rid = int.tryParse('${d['recipe_id'] ?? fallbackRecipeId}') ??
+        fallbackRecipeId;
+    final isFav = d['is_favorited'] == true || d['is_favorited'] == 1;
+    final favCnt = int.tryParse('${d['favorite_count'] ?? 0}') ?? 0;
+    final total = d['total_user_favorites'] == null
+        ? null
+        : int.tryParse('${d['total_user_favorites']}');
+
+    return FavoriteToggleResult(
+      recipeId: rid,
+      isFavorited: isFav,
+      favoriteCount: favCnt,
+      totalUserFavorites: total,
+    );
+  }
+}
+
 /// จัดการทุก API call กับ backend
 class ApiService {
   /* ───── http & session ───── */
@@ -185,11 +228,15 @@ class ApiService {
     return RecipeDetail.fromJson(json['data'] as Map<String, dynamic>);
   }
 
-  static Future<void> toggleFavorite(int recipeId, bool fav) async {
-    await _postAndProcess('toggle_favorite.php', {
+  /// ★★★ [CHANGED] เดิม: Future<void> → ตอนนี้คืนผลจริงจาก backend
+  /// ใช้ผลลัพธ์นี้ไปอัปเดต FavoriteStore ด้วย set(...), และลบการ์ดหน้า Favorites ได้ทันที
+  static Future<FavoriteToggleResult> toggleFavorite(
+      int recipeId, bool fav) async {
+    final json = await _postAndProcess('toggle_favorite.php', {
       'recipe_id': recipeId.toString(),
       'favorite': fav ? '1' : '0',
     });
+    return FavoriteToggleResult.fromJson(json, fallbackRecipeId: recipeId);
   }
 
   // ───────── COMMENT ─────────
@@ -306,6 +353,7 @@ class ApiService {
     String sort = 'latest',
     List<String>? ingredientNames,
     List<String>? excludeIngredientNames,
+    bool? tokenize, // ★★★ [NEW] ควบคุมการตัดคำ (null = ดีฟอลต์ปิด)
   }) async {
     final qp = <String, String>{
       'page': '$page',
@@ -316,6 +364,8 @@ class ApiService {
         'include': ingredientNames!.join(','),
       if (excludeIngredientNames?.isNotEmpty ?? false)
         'exclude': excludeIngredientNames!.join(','),
+      // ★★★ [NEW] ส่งค่า tokenize ไปหลังบ้าน (ดีฟอลต์ปิด)
+      'tokenize': (tokenize ?? false) ? '1' : '0',
     };
 
     final uri = Uri.parse('${baseUrl}search_recipes_unified.php')
@@ -361,6 +411,47 @@ class ApiService {
     final r = await _get(Uri.parse('${baseUrl}get_comments.php?id=$recipeId'));
     final json = _processResponse(r);
     return (json['data'] as List).map((e) => Comment.fromJson(e)).toList();
+  }
+
+  /// ใช้เช็คสถานะหัวใจรวดเร็ว ไม่ต้อง deserialize Recipe ทั้งก้อน
+  static Future<List<int>> fetchFavoriteIds() async {
+    // ถ้าหลังบ้านรองรับ only_ids=1 จะเร็วและเบาที่สุด
+    final uri = Uri.parse('${baseUrl}get_user_favorites.php')
+        .replace(queryParameters: {'only_ids': '1'});
+
+    final r = await _get(uri);
+    final json = _processResponse(r);
+
+    // 1) กรณีได้ { data: [1,2,3] }
+    final data = json['data'];
+    if (data is List) {
+      final ids = data
+          .map((e) {
+            if (e is int) return e;
+            if (e is String) return int.tryParse(e);
+            if (e is Map) {
+              final v = e['id'] ?? e['recipe_id'];
+              return v == null ? null : int.tryParse(v.toString());
+            }
+            return null;
+          })
+          .whereType<int>()
+          .where((i) => i > 0)
+          .toList();
+      return ids;
+    }
+
+    // 2) เผื่อบางเวอร์ชันส่ง { ids:[...] } / { favorite_ids:[...] } / { favorites:[...] }
+    final alt = json['ids'] ?? json['favorite_ids'] ?? json['favorites'];
+    if (alt is List) {
+      return alt
+          .map((v) => int.tryParse(v.toString()))
+          .whereType<int>()
+          .where((i) => i > 0)
+          .toList();
+    }
+
+    return <int>[];
   }
 
   // ───────── CART ─────────
