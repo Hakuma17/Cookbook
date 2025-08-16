@@ -1,15 +1,21 @@
 // lib/screens/settings_screen.dart
+//
+// 2025-08-10 – cohesive with recent app changes
+// - Uses AuthService + Named Routes
+// - Works for both Guest and Logged-in flows
+// - SettingsStore toggle for Thai tokenization (with confirm dialog)
+// - NEW: Theme mode picker (System / Light / Dark) powered by SettingsStore
+// - Pull-to-refresh on this screen
+// - BottomNav logic matches other screens
+// - Better error handling & retry
 
 import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:cookbook/services/api_service.dart';
-import 'package:flutter/material.dart';
 import 'package:cookbook/services/auth_service.dart';
-
 import '../widgets/custom_bottom_nav.dart';
-
-// [NEW] เพิ่ม provider + settings store
-import 'package:provider/provider.dart';
 import '../stores/settings_store.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -20,49 +26,48 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // 1. [แก้ไข] State ใหม่สำหรับรองรับทั้ง Guest และ User
   late Future<void> _initFuture;
+
   bool _isLoggedIn = false;
   String? _email;
   String? _errorMessage;
 
-  /* ───────────────────────── init ───────────────────────── */
+  bool _savingTokenize = false; // guard while persisting toggle
+
+  /* ───────────────── init ───────────────── */
   @override
   void initState() {
     super.initState();
     _initFuture = _initialize();
   }
 
-  //  2. [แก้ไข] ปรับปรุง Logic การโหลดข้อมูลใหม่ทั้งหมด
   Future<void> _initialize() async {
     try {
-      // ดึงสถานะล็อกอินก่อนเป็นอันดับแรก
       final loggedIn = await AuthService.isLoggedIn();
       if (!mounted) return;
 
       setState(() {
         _isLoggedIn = loggedIn;
+        _errorMessage = null;
       });
 
-      // ถ้าล็อกอินแล้ว ถึงจะไปดึงข้อมูลอีเมลต่อ
       if (loggedIn) {
-        final emailData = await AuthService.getEmail();
-        if (mounted) {
-          setState(() {
-            _email = emailData;
-          });
-        }
+        final email = await AuthService.getEmail();
+        if (!mounted) return;
+        setState(() => _email = email);
+      } else {
+        setState(() => _email = null);
       }
     } on UnauthorizedException {
       await _handleLogout();
     } on ApiException catch (e) {
       if (mounted) setState(() => _errorMessage = e.message);
-    } catch (e) {
+    } catch (_) {
       if (mounted) setState(() => _errorMessage = 'ไม่สามารถโหลดข้อมูลได้');
     }
   }
 
-  /* ───────────────────────── actions ────────────────────── */
+  /* ───────────── actions ───────────── */
   Future<void> _handleLogout() async {
     try {
       await AuthService.logout();
@@ -73,16 +78,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // 3. ฟังก์ชันสำหรับจัดการการนำทางของ BottomNav
   void _onNavItemTapped(int index) {
-    // หน้านี้ถูกมองว่าเป็น index 3
+    // Settings/Profile tab index = 3 (consistent with other screens)
     if (index == 3) {
       setState(() {
-        _initFuture = _initialize();
+        _initFuture = _initialize(); // ✅ ไม่คืน Future ออกไป
       });
       return;
     }
-
     switch (index) {
       case 0:
         Navigator.pushReplacementNamed(context, '/home');
@@ -91,24 +94,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Navigator.pushReplacementNamed(context, '/search');
         break;
       case 2:
-        // My Recipes ต้องล็อกอิน
-        if (!_isLoggedIn) {
-          Navigator.pushNamed(context, '/login');
-        } else {
+        if (_isLoggedIn) {
           Navigator.pushReplacementNamed(context, '/my_recipes');
+        } else {
+          Navigator.pushNamed(context, '/login');
         }
         break;
     }
   }
 
-  void _showSnack(String msg) {
+  void _showSnack(String msg, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: error ? Theme.of(context).colorScheme.error : null,
+      ),
     );
   }
 
-  // [NEW] ป๊อปอัปยืนยันก่อนสลับ “การตัดคำภาษาไทย”
   Future<bool?> _confirmToggleTokenize(BuildContext context, bool enable) {
     final title = enable ? 'เปิดการตัดคำภาษาไทย?' : 'ปิดการตัดคำภาษาไทย?';
     final msg = enable
@@ -133,17 +137,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /* ───────────────────────── build ──────────────────────── */
+  /* ───────────── build ───────────── */
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.canPop(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('การตั้งค่า'),
-        // ถ้าเป็น Guest จะไม่มีปุ่ม back อัตโนมัติ (เพราะเข้าจาก Tab Bar)
-        // ถ้าเป็น User ที่เข้ามาจากหน้า Profile จะมีปุ่ม back ให้
-        automaticallyImplyLeading: Navigator.canPop(context),
+        automaticallyImplyLeading: canPop,
       ),
-      //  4. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไป และเรียกใช้ฟังก์ชันใหม่
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: 3,
         onItemSelected: _onNavItemTapped,
@@ -151,44 +154,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: FutureBuilder<void>(
         future: _initFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (_errorMessage != null || snapshot.hasError) {
-            return Center(child: Text(_errorMessage ?? 'เกิดข้อผิดพลาด'));
+          if (_errorMessage != null || snap.hasError) {
+            final msg = _errorMessage ?? 'เกิดข้อผิดพลาด';
+            return _buildErrorState(msg);
           }
 
-          // 5. [แก้ไข] แสดงผล UI ตามสถานะ _isLoggedIn
-          return _isLoggedIn
-              ? _buildLoggedInView(context)
-              : _buildGuestView(context);
+          // Pull-to-refresh for consistency with other screens
+          return RefreshIndicator(
+            onRefresh: () {
+              final f = _initialize();
+              setState(() => _initFuture = f);
+              return f;
+            },
+            child: (_isLoggedIn)
+                ? _buildLoggedInView(context)
+                : _buildGuestView(context),
+          );
         },
       ),
     );
   }
 
-  ///  6. UI สำหรับผู้ใช้ที่ล็อกอินแล้ว (โค้ดส่วนใหญ่มาจากของเดิม)
+  /* ───────────── views ───────────── */
+
   Widget _buildLoggedInView(BuildContext context) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
     return ListView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16),
       children: [
-        // [NEW] การตั้งค่าการค้นหา (เปิด/ปิดตัดคำไทย)
-        _buildSearchSettingsCard(context),
-
+        _buildThemeCard(context), // ← NEW: Theme picker
+        const SizedBox(height: 12),
+        _buildSearchSettingsCard(context), // Thai tokenization
         const SizedBox(height: 12),
         Card(
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               ListTile(
                 leading: Icon(Icons.email_outlined,
                     color: theme.colorScheme.primary),
                 title: Text('อีเมล', style: textTheme.titleMedium),
-                subtitle:
-                    Text(_email ?? 'ไม่พบข้อมูล', style: textTheme.bodyMedium),
+                subtitle: Text(
+                  _email ?? 'ไม่พบข้อมูล',
+                  style: textTheme.bodyMedium,
+                ),
               ),
               const Divider(height: 1),
               ListTile(
@@ -223,38 +238,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  ///  7. UI สำหรับผู้เยี่ยมชม (Guest)
   Widget _buildGuestView(BuildContext context) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
     return ListView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16),
       children: [
-        // [NEW] ให้ Guest ปรับการตั้งค่าการค้นหาได้เช่นกัน (เก็บไว้ในเครื่อง)
-        _buildSearchSettingsCard(context),
-
+        _buildThemeCard(context), // ← NEW: Theme picker
+        const SizedBox(height: 12),
+        _buildSearchSettingsCard(context), // Thai tokenization
         const SizedBox(height: 16),
-        // ปุ่มเชิญชวนให้ล็อกอิน
         Card(
           color: theme.colorScheme.primaryContainer.withOpacity(0.5),
           elevation: 0,
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(24),
             child: Column(
               children: [
                 Text(
                   'เข้าร่วมกับเรา',
                   style: textTheme.titleLarge?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.bold),
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'เพื่อบันทึกสูตรโปรดและสร้างตะกร้าวัตถุดิบส่วนตัว',
                   textAlign: TextAlign.center,
-                  style: textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton(
@@ -266,8 +281,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        // เมนูที่ Guest สามารถเข้าถึงได้
         Card(
+          clipBehavior: Clip.antiAlias,
           child: ListTile(
             leading: Icon(Icons.info_outline, color: theme.colorScheme.primary),
             title: Text('ข้อมูลอ้างอิง', style: textTheme.titleMedium),
@@ -279,13 +294,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // [NEW] การ์ด “การตั้งค่าการค้นหา” + สวิตช์ตัดคำไทย (ค่าเริ่มต้น: ปิด)
+  /* ───────────── parts ───────────── */
+
+  // NEW: Theme Mode picker (System / Light / Dark)
+  Widget _buildThemeCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final store = context.watch<SettingsStore>();
+    final mode = store.themeMode;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(Icons.brightness_6, color: theme.colorScheme.primary),
+            title: const Text('ธีมแอป'),
+            subtitle: Text(
+              'เลือกโหมดการแสดงผลของแอป (สว่าง / มืด หรือ ตามระบบ)',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: SegmentedButton<ThemeMode>(
+              segments: const [
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  label: Text('ตามระบบ'),
+                  icon: Icon(Icons.brightness_auto),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  label: Text('สว่าง'),
+                  icon: Icon(Icons.light_mode),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  label: Text('มืด'),
+                  icon: Icon(Icons.dark_mode),
+                ),
+              ],
+              selected: {mode},
+              onSelectionChanged: (set) =>
+                  context.read<SettingsStore>().setThemeMode(set.first),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Thai tokenization card
   Widget _buildSearchSettingsCard(BuildContext context) {
     final theme = Theme.of(context);
-    final store = context.watch<SettingsStore>(); // โหลดอัตโนมัติจาก Provider
+    final store = context.watch<SettingsStore>();
     final enabled = store.searchTokenizeEnabled;
 
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           ListTile(
@@ -297,8 +364,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const Divider(height: 1),
-
-          // สวิตช์ตัดคำไทย (ค่าเริ่มต้นปิด — มาจาก SettingsStore)
           SwitchListTile.adaptive(
             title: const Text('ตัดคำภาษาไทย (ทดลอง)'),
             subtitle: Text(
@@ -308,25 +373,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
             ),
             value: enabled,
-            onChanged: (next) async {
-              // ป๊อปอัปยืนยันก่อนสลับ
-              final ok = await _confirmToggleTokenize(context, next);
-              if (ok != true) return;
+            onChanged: _savingTokenize
+                ? null
+                : (next) async {
+                    final ok = await _confirmToggleTokenize(context, next);
+                    if (ok != true) return;
 
-              await context
-                  .read<SettingsStore>()
-                  .setSearchTokenizeEnabled(next);
-
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(next ? 'เปิดการตัดคำแล้ว' : 'ปิดการตัดคำแล้ว'),
-                ),
-              );
-            },
+                    setState(() => _savingTokenize = true);
+                    try {
+                      await context
+                          .read<SettingsStore>()
+                          .setSearchTokenizeEnabled(next);
+                      if (!mounted) return;
+                      _showSnack(next ? 'เปิดการตัดคำแล้ว' : 'ปิดการตัดคำแล้ว');
+                    } catch (_) {
+                      if (!mounted) return;
+                      _showSnack('ไม่สามารถบันทึกการตั้งค่าได้', error: true);
+                    } finally {
+                      if (mounted) setState(() => _savingTokenize = false);
+                    }
+                  },
           ),
         ],
       ),
     );
   }
+
+  Widget _buildErrorState(String msg) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 60),
+              const SizedBox(height: 16),
+              Text(
+                msg,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _initFuture = _initialize();
+                  });
+                },
+                child: const Text('ลองอีกครั้ง'),
+              ),
+            ],
+          ),
+        ),
+      );
 }

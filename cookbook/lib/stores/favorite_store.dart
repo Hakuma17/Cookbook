@@ -1,50 +1,76 @@
+import 'dart:collection';
+import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
 class FavoriteStore extends ChangeNotifier {
   FavoriteStore({Set<int>? initialIds}) {
-    if (initialIds != null) _ids.addAll(initialIds);
+    if (initialIds != null) {
+      _ids.addAll(initialIds.where((e) => e > 0));
+    }
   }
 
   final Set<int> _ids = {};
 
+  // ---- Read-only helpers ----
+  UnmodifiableSetView<int> get ids => UnmodifiableSetView(_ids);
+  int get length => _ids.length;
+  bool get isEmpty => _ids.isEmpty;
+  bool get isNotEmpty => _ids.isNotEmpty;
+
   bool contains(int id) => _ids.contains(id);
 
-  /// ใช้ในกรณี "สั่งให้เป็นค่า X ตามผลจริงจากเซิร์ฟเวอร์"
-  /// เช่น r.isFavorited จาก ApiService.toggleFavorite(...) เพื่อกัน desync
+  /// เซ็ตสถานะตามผลจริงจากเซิร์ฟเวอร์
   Future<void> set(int id, bool isFavorited) async {
-    // คงพฤติกรรมให้ชัดเจน: isFavorited=true → add, false → remove
-    if (isFavorited) {
-      _ids.add(id);
-    } else {
-      _ids.remove(id);
-    }
-    notifyListeners();
+    if (id <= 0) return;
+    final changed = isFavorited ? _ids.add(id) : _ids.remove(id);
+    if (changed) notifyListeners();
   }
 
-  /// toggle เดิม (คงไว้เพื่อเข้ากับโค้ดที่เรียกใช้เดิม)
-  /// หมายเหตุ: ฟังก์ชันนี้ "เชื่อค่าที่ส่งเข้ามา" (shouldFav) โดยไม่ได้ตรวจสอบกับเซิร์ฟเวอร์
-  /// แนะนำให้ใช้ร่วมกับผลจริงจาก backend หรือเปลี่ยนมาเรียก set(...) แทนในจุดที่ต้องการความแม่นยำ
+  /// toggle ตามค่าที่ส่งเข้ามา (ไว้เข้ากับโค้ดเดิม)
   Future<void> toggle(int id, bool shouldFav) async {
-    if (shouldFav) {
-      _ids.add(id);
-    } else {
-      _ids.remove(id);
-    }
-    notifyListeners();
+    if (id <= 0) return;
+    final changed = shouldFav ? _ids.add(id) : _ids.remove(id);
+    if (changed) notifyListeners();
   }
 
-  /// แทนที่รายการทั้งหมด (เช่น หลังล็อกอินเสร็จ แล้ว preload favorite ids)
+  /// แทนที่ทั้งหมดด้วยเซ็ตใหม่
   Future<void> replace(Set<int> ids) async {
+    final next = ids.where((e) => e > 0).toSet();
+    if (const SetEquality<int>().equals(_ids, next))
+      return; // ไม่เปลี่ยน ไม่ต้อง notify
     _ids
       ..clear()
-      ..addAll(ids);
+      ..addAll(next);
     notifyListeners();
   }
 
-  // ★★★ [NEW] ล้างรายการทั้งหมดเวลา logout / เปลี่ยนบัญชี
+  /// แทนที่ทั้งหมดจาก Iterable (สะดวกกับ .map/.where)
+  Future<void> replaceWith(Iterable<int> ids) async {
+    await replace(ids.toSet());
+  }
+
+  /// ลบหลายรายการรวดเดียว
+  Future<void> removeMany(Iterable<int> ids) async {
+    bool changed = false;
+    for (final id in ids) {
+      if (id <= 0) continue;
+      changed |= _ids.remove(id);
+    }
+    if (changed) notifyListeners();
+  }
+
+  /// ล้างทั้งหมด (เช่น ตอน logout)
   Future<void> clear() async {
     if (_ids.isEmpty) return;
     _ids.clear();
     notifyListeners();
+  }
+
+  /// (ทางเลือก) ใช้กับผลลัพธ์จาก ApiService.toggleFavorite(...)
+  Future<void> applyServerResult(dynamic result) async {
+    // รองรับอ็อบเจกต์ที่มี field recipeId/isFavorited (เช่น FavoriteToggleResult)
+    final rid = result.recipeId as int? ?? 0;
+    final fav = result.isFavorited as bool? ?? false;
+    await set(rid, fav);
   }
 }

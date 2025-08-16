@@ -3,7 +3,6 @@
 // Service จัดการสถานะการล็อกอิน + คุกกี้ + SharedPreferences
 //
 import 'dart:async';
-
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 
@@ -21,7 +20,7 @@ class AuthService {
   static final Future<SharedPreferences> _prefs =
       SharedPreferences.getInstance();
 
-  /* ───── in‑memory cache (sync read) ───── */
+  /* ───── in-memory cache (sync read) ───── */
   static bool _cachedLoggedIn = false; // ค่าเริ่มจะ false จนกว่าจะ init
   static bool _cacheInitialized = false;
 
@@ -92,6 +91,18 @@ class AuthService {
         profileImage: d['path_imgProfile'] ?? '',
         email: d['email'] ?? '',
       );
+
+  /// ใช้หลังจากเปลี่ยนโปรไฟล์ในหน้า EditProfile ให้ข้อมูลตรงกับที่เก็บไว้
+  static Future<void> updateLocalProfile({
+    String? profileName,
+    String? profileImage,
+    String? email,
+  }) async {
+    final p = await _prefs;
+    if (profileName != null) await p.setString(_kProfileName, profileName);
+    if (profileImage != null) await p.setString(_kProfileImage, profileImage);
+    if (email != null) await p.setString(_kEmail, email.trim());
+  }
 
   static Future<void> logout() async {
     final p = await _prefs;

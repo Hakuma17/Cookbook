@@ -31,6 +31,17 @@ class MyRecipeCard extends StatelessWidget {
   // final int? favoriteCountOverride; // ถ้าต้องการบังคับยอดจากภายนอก
   // ─────────────────────────────────────────────────────────
 
+  // ─────────────────────────────────────────────────────────
+  // ✅ [NEW] พารามิเตอร์สำหรับ “โหมดเลือกหลายรายการ”
+  // - ไม่ส่ง/ปล่อยดีฟอลต์ → พฤติกรรมเดิมทั้งหมด
+  // - หากส่ง selectionMode=true → onTap จะกลายเป็น onSelectToggle
+  //   และจะแสดงติ๊กมุมขวาบน + กรอบเปลี่ยนสีเมื่อ selected=true
+  final bool selectionMode; // อยู่ในโหมดเลือกหรือไม่
+  final bool selected; // ใบนี้ถูกเลือกอยู่ไหม
+  final VoidCallback? onSelectToggle; // แตะเพื่อเลือก/ยกเลิกเลือก
+  final VoidCallback? onLongPress; // กดค้างเพื่อ “เข้าโหมดเลือก”
+  // ─────────────────────────────────────────────────────────
+
   const MyRecipeCard({
     super.key,
     required this.recipe,
@@ -38,6 +49,12 @@ class MyRecipeCard extends StatelessWidget {
     // this.onHeartTap,               // ← เปิดหัวใจ: ยกเลิกคอมเมนต์เมื่อพร้อมใช้งาน
     // this.isFavoritedOverride,      // ← (ตัวเลือก)
     // this.favoriteCountOverride,    // ← (ตัวเลือก)
+
+    // [NEW] selection mode defaults
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectToggle,
+    this.onLongPress,
   });
 
   @override
@@ -50,6 +67,10 @@ class MyRecipeCard extends StatelessWidget {
     // final bool isFav = isFavoritedOverride ?? (recipe.isFavorited ?? false);
     // final int favCount = favoriteCountOverride ?? (recipe.favoriteCount ?? 0);
 
+    // [NEW] สีกรอบเปลี่ยนตามสถานะเลือก
+    final borderColor =
+        selected ? cs.primary : cs.outlineVariant.withOpacity(0.95);
+
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
@@ -57,80 +78,119 @@ class MyRecipeCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: cs.outlineVariant.withOpacity(0.95),
+          color: borderColor, // [NEW]
           width: 1.25,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // [NEW] ถ้าอยู่ในโหมดเลือก ให้แตะเพื่อ toggle เลือกแทนการเปิดรายละเอียด
+        onTap: selectionMode ? onSelectToggle : onTap,
+        // [NEW] กดค้างเพื่อ “เข้าโหมดเลือก”
+        onLongPress: onLongPress,
+        child: Stack(
           children: [
-            // รูปสูงเท่ากันทุกใบ
-            AspectRatio(
-              aspectRatio: 4 / 3,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _buildImage(recipe.imageUrl),
-                  if (recipe.hasAllergy) _AllergyBadge(),
-                ],
-              ),
+            // ───────── เนื้อการ์ดเดิม ─────────
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // รูปสูงเท่ากันทุกใบ
+                AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _buildImage(recipe.imageUrl),
+                      if (recipe.hasAllergy) _AllergyBadge(),
+                    ],
+                  ),
+                ),
+                // ชื่อ
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+                  child: Text(
+                    recipe.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      height: 1.22,
+                    ),
+                  ),
+                ),
+
+                // ─────────────────────────────────────────────────────────
+                // META ZONE
+                // ─────────────────────────────────────────────────────────
+
+                // (A) เวอร์ชันเดิม: ดาวอย่างเดียว (แสดงผลปัจจุบัน)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: _MetaStarOnly(
+                    rating: recipe.averageRating,
+                    reviewCount: recipe.reviewCount,
+                  ),
+                ),
+
+                // ─────────────────────────────────────────────────────────
+                // ⭐ [OPTIONAL] ช่องหัวใจ (ปิดไว้ก่อน)
+                //
+                // หากต้องการ “เปิดใช้งานหัวใจ” ในการ์ดนี้:
+                // 1) คอมเมนต์บล็อก _MetaStarOnly ด้านบน (A)
+                // 2) ยกเลิกคอมเมนต์บล็อกด้านล่าง (B)
+                // 3) (ตัวเลือก) ส่ง onHeartTap / isFavoritedOverride / favoriteCountOverride
+                //    มายังการ์ดนี้เพื่อควบคุมการทำงาน (หรือปล่อยให้ใช้ค่าใน recipe)
+                //
+                // หมายเหตุ: ถ้าต้องการ “เด้งเลขทันที + ยิง API ให้อัตโนมัติ”
+                // แนะนำใช้คลาส MyRecipeCardHeart ด้านล่าง ซึ่งทำ Optimistic UI ให้เรียบร้อย
+                //
+                // (B) เวอร์ชันใหม่: ดาว + หัวใจ (ยกเลิกคอมเมนต์เพื่อใช้งาน)
+                /*
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: _MetaStarPlusHeart(
+                    rating: recipe.averageRating,
+                    reviewCount: recipe.reviewCount,
+                    favoriteCount: favCount,
+                    isFavorited: isFav,
+                    onHeartTap: onHeartTap, // ถ้า null = ดูอย่างเดียว
+                  ),
+                ),
+                */
+                // ─────────────────────────────────────────────────────────
+              ],
             ),
-            // ชื่อ
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
-              child: Text(
-                recipe.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  height: 1.22,
+
+            // ───────── [NEW] ติ๊กถูกมุมขวาบน เมื่ออยู่ในโหมดเลือก ─────────
+            if (selectionMode)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  decoration: BoxDecoration(
+                    color: selected ? cs.primary : cs.surface,
+                    border: Border.all(
+                      color: selected ? cs.primary : cs.outlineVariant,
+                      width: 1.1,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    selected ? Icons.check : Icons.radio_button_unchecked,
+                    size: 18,
+                    color: selected ? cs.onPrimary : cs.onSurfaceVariant,
+                  ),
                 ),
               ),
-            ),
-
-            // ─────────────────────────────────────────────────────────
-            // META ZONE
-            // ─────────────────────────────────────────────────────────
-
-            // (A) เวอร์ชันเดิม: ดาวอย่างเดียว (แสดงผลปัจจุบัน)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: _MetaStarOnly(
-                rating: recipe.averageRating,
-                reviewCount: recipe.reviewCount,
-              ),
-            ),
-
-            // ─────────────────────────────────────────────────────────
-            // ⭐ [OPTIONAL] ช่องหัวใจ (ปิดไว้ก่อน)
-            //
-            // หากต้องการ “เปิดใช้งานหัวใจ” ในการ์ดนี้:
-            // 1) คอมเมนต์บล็อก _MetaStarOnly ด้านบน (A)
-            // 2) ยกเลิกคอมเมนต์บล็อกด้านล่าง (B)
-            // 3) (ตัวเลือก) ส่ง onHeartTap / isFavoritedOverride / favoriteCountOverride
-            //    มายังการ์ดนี้เพื่อควบคุมการทำงาน (หรือปล่อยให้ใช้ค่าใน recipe)
-            //
-            // หมายเหตุ: ถ้าต้องการ “เด้งเลขทันที + ยิง API ให้อัตโนมัติ”
-            // แนะนำใช้คลาส MyRecipeCardHeart ด้านล่าง ซึ่งทำ Optimistic UI ให้เรียบร้อย
-            //
-            // (B) เวอร์ชันใหม่: ดาว + หัวใจ (ยกเลิกคอมเมนต์เพื่อใช้งาน)
-            /*
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: _MetaStarPlusHeart(
-                rating: recipe.averageRating,
-                reviewCount: recipe.reviewCount,
-                favoriteCount: favCount,
-                isFavorited: isFav,
-                onHeartTap: onHeartTap, // ถ้า null = ดูอย่างเดียว
-              ),
-            ),
-            */
-            // ─────────────────────────────────────────────────────────
           ],
         ),
       ),
@@ -152,11 +212,22 @@ class MyRecipeCardHeart extends StatefulWidget {
   /// ถ้าไม่ส่ง (null) จะใช้ handler ภายในที่ทำ Optimistic UI ให้
   final VoidCallback? onHeartTap;
 
+  // [NEW] (ตัวเลือก) รองรับโหมดเลือกเหมือน MyRecipeCard
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback? onSelectToggle;
+  final VoidCallback? onLongPress;
+
   const MyRecipeCardHeart({
     super.key,
     required this.recipe,
     this.onTap,
     this.onHeartTap,
+    // [NEW] defaults
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectToggle,
+    this.onLongPress,
   });
 
   @override
@@ -234,6 +305,9 @@ class _MyRecipeCardHeartState extends State<MyRecipeCardHeart> {
     final textTheme = theme.textTheme;
     final cs = theme.colorScheme;
 
+    final borderColor =
+        widget.selected ? cs.primary : cs.outlineVariant.withOpacity(0.95);
+
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
@@ -241,50 +315,89 @@ class _MyRecipeCardHeartState extends State<MyRecipeCardHeart> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: cs.outlineVariant.withOpacity(0.95),
+          color: borderColor, // [NEW]
           width: 1.25,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: widget.onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // [NEW] รองรับโหมดเลือก
+        onTap: widget.selectionMode ? widget.onSelectToggle : widget.onTap,
+        onLongPress: widget.onLongPress,
+        child: Stack(
           children: [
-            AspectRatio(
-              aspectRatio: 4 / 3,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _buildImage(widget.recipe.imageUrl),
-                  if (widget.recipe.hasAllergy) _AllergyBadge(),
-                ],
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _buildImage(widget.recipe.imageUrl),
+                      if (widget.recipe.hasAllergy) _AllergyBadge(),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+                  child: Text(
+                    widget.recipe.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      height: 1.22,
+                    ),
+                  ),
+                ),
+                // META: ดาว + หัวใจ (แถวเดียวแบบชิด ๆ)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: _MetaStarPlusHeart(
+                    rating: widget.recipe.averageRating,
+                    reviewCount: widget.recipe.reviewCount,
+                    favoriteCount: _favCount, // [CHANGED] ใช้ state ภายใน
+                    isFavorited: _isFav, // [CHANGED] ใช้ state ภายใน
+                    onHeartTap:
+                        _busy ? null : _toggleFavorite, // [NEW] กดแล้วเด้งทันที
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
-              child: Text(
-                widget.recipe.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  height: 1.22,
+
+            // [NEW] ติ๊กถูกมุมขวาบน เมื่ออยู่ในโหมดเลือก
+            if (widget.selectionMode)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  decoration: BoxDecoration(
+                    color: widget.selected ? cs.primary : cs.surface,
+                    border: Border.all(
+                      color: widget.selected ? cs.primary : cs.outlineVariant,
+                      width: 1.1,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    widget.selected
+                        ? Icons.check
+                        : Icons.radio_button_unchecked,
+                    size: 18,
+                    color: widget.selected ? cs.onPrimary : cs.onSurfaceVariant,
+                  ),
                 ),
               ),
-            ),
-            // META: ดาว + หัวใจ (แถวเดียวแบบชิด ๆ)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: _MetaStarPlusHeart(
-                rating: widget.recipe.averageRating,
-                reviewCount: widget.recipe.reviewCount,
-                favoriteCount: _favCount, // [CHANGED] ใช้ state ภายใน
-                isFavorited: _isFav, // [CHANGED] ใช้ state ภายใน
-                onHeartTap:
-                    _busy ? null : _toggleFavorite, // [NEW] กดแล้วเด้งทันที
-              ),
-            ),
           ],
         ),
       ),

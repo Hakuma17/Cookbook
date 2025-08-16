@@ -1,72 +1,154 @@
 // lib/stores/settings_store.dart
 //
-// Store กลางสำหรับ “การตั้งค่าแอป” โดยเฉพาะสวิตช์การค้นหาแบบตัดคำภาษาไทย
-// - ใช้ SharedPreferences เก็บค่าไว้ในเครื่อง
-// - ค่าเริ่มต้น (ดีฟอลต์) ของการตัดคำ = ปิด (false)
-// - เรียก load() ครั้งเดียวตอนบูตแอป เพื่อดึงค่าจากเครื่องขึ้นมา
+// Store กลางสำหรับ “การตั้งค่าแอป”
+// - เก็บสวิตช์ "ตัดคำภาษาไทย" สำหรับการค้นหา (ดีฟอลต์: ปิด)
+// - เก็บโหมดธีมของแอป (ThemeMode): system/light/dark (ดีฟอลต์: system)
+// - ใช้ SharedPreferences เพื่อคงค่านอกเหนือรันไทม์
 //
 // การใช้งาน (ตัวอย่างใน main.dart):
 //   ChangeNotifierProvider(
 //     create: (_) => SettingsStore()..load(),
-//     child: const MyApp(),
+//     child: MyApp(...),
 //   )
 //
-// การอ่านค่าในหน้า/วิดเจ็ต:
-//   context.watch<SettingsStore>().searchTokenizeEnabled
+// ใน MaterialApp ให้ใช้ค่า themeMode จาก store:
+//   Consumer<SettingsStore>(
+//     builder: (_, s, __) => MaterialApp(
+//       theme: appLight,
+//       darkTheme: appDark,
+//       themeMode: s.themeMode,
+//       ...
+//     ),
+//   )
 //
-// การสลับค่า:
-//   context.read<SettingsStore>().setSearchTokenizeEnabled(true/false)
+// ในหน้า SettingsScreen เพิ่มตัวเลือก ThemeMode:
+//   final store = context.watch<SettingsStore>();
+//   RadioListTile<ThemeMode>(
+//     value: ThemeMode.light,
+//     groupValue: store.themeMode,
+//     onChanged: (m) => context.read<SettingsStore>().setThemeMode(m!),
+//   )
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsStore extends ChangeNotifier {
-  // ─────────────────────────────────────────────────────────
-  // Keys สำหรับ SharedPreferences
-  // ─────────────────────────────────────────────────────────
+  /* ───────────────────────── Keys & Defaults ───────────────────────── */
   static const String _kSearchTokenizeKey = 'search_tokenize_enabled';
+  static const bool _kDefaultTokenize = false;
 
-  // ─────────────────────────────────────────────────────────
-  // State ภายใน (ค่าเริ่มต้น = ปิด)
-  // ─────────────────────────────────────────────────────────
-  bool _searchTokenizeEnabled = false; // ✅ ดีฟอลต์ปิด
+  static const String _kThemeModeKey =
+      'theme_mode'; // 'system' | 'light' | 'dark'
+  static const ThemeMode _kDefaultThemeMode = ThemeMode.system;
+
+  /* ───────────────────────── State ───────────────────────── */
+  bool _searchTokenizeEnabled = _kDefaultTokenize; // ดีฟอลต์: ปิด
   bool get searchTokenizeEnabled => _searchTokenizeEnabled;
 
-  bool _loaded = false; // ไว้เช็กว่ามีการ load() แล้วหรือยัง
+  ThemeMode _themeMode = _kDefaultThemeMode; // ดีฟอลต์: system
+  ThemeMode get themeMode => _themeMode;
+
+  bool _loaded = false;
   bool get isLoaded => _loaded;
 
-  // ─────────────────────────────────────────────────────────
-  // โหลดค่าจาก SharedPreferences (เรียกครั้งเดียวตอนเริ่มแอป)
-  // ─────────────────────────────────────────────────────────
+  /* ───────────────────────── Prefs cache ───────────────────────── */
+  SharedPreferences? _sp;
+  Future<SharedPreferences> _prefs() async =>
+      _sp ??= await SharedPreferences.getInstance();
+
+  /* ───────────────────────── Load ───────────────────────── */
+  /// โหลดค่าจากเครื่อง (ควรเรียกครั้งเดียวตอนบูตแอป)
   Future<void> load() async {
-    final sp = await SharedPreferences.getInstance();
+    if (_loaded) return; // กันโหลดซ้ำ
+    final sp = await _prefs();
+
+    // ค่าตัดคำภาษาไทย (ดีฟอลต์ปิด)
     _searchTokenizeEnabled =
-        sp.getBool(_kSearchTokenizeKey) ?? false; // ← ดีฟอลต์ปิด
+        sp.getBool(_kSearchTokenizeKey) ?? _kDefaultTokenize;
+
+    // โหมดธีม (ดีฟอลต์ system)
+    final modeStr = sp.getString(_kThemeModeKey) ?? 'system';
+    _themeMode = _parseThemeMode(modeStr);
+
     _loaded = true;
     notifyListeners();
   }
 
-  // ─────────────────────────────────────────────────────────
-  // สลับสวิตช์ “ตัดคำภาษาไทย”
-  // - อัปเดตค่าในหน่วยความจำ + บันทึกลง SharedPreferences
-  // - แจ้ง UI ผ่าน notifyListeners()
-  // ─────────────────────────────────────────────────────────
+  /* ───────────────────────── Search tokenize ───────────────────────── */
   Future<void> setSearchTokenizeEnabled(bool enabled) async {
-    if (_searchTokenizeEnabled == enabled) return;
+    if (_searchTokenizeEnabled == enabled) return; // ไม่เปลี่ยนก็ไม่ต้อง notify
     _searchTokenizeEnabled = enabled;
-    notifyListeners();
-    final sp = await SharedPreferences.getInstance();
+    notifyListeners(); // อัปเดต UI ก่อน
+    final sp = await _prefs();
     await sp.setBool(_kSearchTokenizeKey, enabled);
   }
 
-  // ─────────────────────────────────────────────────────────
-  // (ออปชัน) เคลียร์ค่าทุกอย่างของ Settings ภายในเครื่อง
-  // ใช้ในกรณีต้องการรีเซ็ตเป็นค่าโรงงาน
-  // ─────────────────────────────────────────────────────────
+  Future<void> toggleSearchTokenize() =>
+      setSearchTokenizeEnabled(!searchTokenizeEnabled);
+
+  /* ───────────────────────── Theme mode ───────────────────────── */
+  Future<void> setThemeMode(ThemeMode mode) async {
+    if (_themeMode == mode) return;
+    _themeMode = mode;
+    notifyListeners(); // ให้ MaterialApp rebuild ด้วย themeMode ใหม่
+    final sp = await _prefs();
+    await sp.setString(_kThemeModeKey, _stringifyThemeMode(mode));
+  }
+
+  /// สลับโหมดแบบวน: system → light → dark → system ...
+  Future<void> cycleThemeMode() async {
+    final next = switch (_themeMode) {
+      ThemeMode.system => ThemeMode.light,
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.system,
+    };
+    await setThemeMode(next);
+  }
+
+  /* ───────────────────────── Reset ───────────────────────── */
+  /// รีเซ็ตกลับค่าโรงงานทั้งหมดของ Settings
   Future<void> resetToDefault() async {
-    _searchTokenizeEnabled = false; // ค่าโรงงาน = ปิด
-    notifyListeners();
-    final sp = await SharedPreferences.getInstance();
+    bool changed = false;
+
+    if (_searchTokenizeEnabled != _kDefaultTokenize) {
+      _searchTokenizeEnabled = _kDefaultTokenize;
+      changed = true;
+    }
+    if (_themeMode != _kDefaultThemeMode) {
+      _themeMode = _kDefaultThemeMode;
+      changed = true;
+    }
+
+    if (changed) notifyListeners();
+
+    final sp = await _prefs();
     await sp.remove(_kSearchTokenizeKey);
+    await sp.remove(_kThemeModeKey);
+  }
+
+  /* ───────────────────────── Helpers ───────────────────────── */
+  ThemeMode _parseThemeMode(String s) {
+    switch (s) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      case 'system':
+      default:
+        return ThemeMode.system;
+    }
+  }
+
+  String _stringifyThemeMode(ThemeMode m) {
+    switch (m) {
+      case ThemeMode.light:
+        return 'light';
+      case ThemeMode.dark:
+        return 'dark';
+      case ThemeMode.system:
+      default:
+        return 'system';
+    }
   }
 }

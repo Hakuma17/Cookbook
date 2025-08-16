@@ -100,16 +100,24 @@ class Recipe {
       return <int>[];
     }
 
+    // [Compat] บาง endpoint อาจให้ id เป็น 'id' แทน 'recipe_id'
+    final rid = j.containsKey('recipe_id') ? j['recipe_id'] : j['id'];
+
     final rawImagePath = j['image_path'];
     final imgPath = (rawImagePath != null && rawImagePath.toString().isNotEmpty)
         ? rawImagePath.toString()
         : null;
 
+    // [Compat] บาง endpoint อาจใช้คีย์ 'image' / 'thumbnail' แทน 'image_url'
+    final imageUrl = _toString(
+      j['image_url'] ?? j['image'] ?? j['thumbnail'],
+    );
+
     return Recipe(
-      id: _toInt(j['recipe_id']),
+      id: _toInt(rid),
       name: _toString(j['name'], fallback: 'ไม่มีชื่อสูตร'),
       imagePath: imgPath,
-      imageUrl: _toString(j['image_url']),
+      imageUrl: imageUrl,
       prepTime: _toInt(j['prep_time']),
       averageRating: _toDouble(j['average_rating']),
       reviewCount: _toInt(j['review_count']),

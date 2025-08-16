@@ -1,10 +1,21 @@
+// lib/screens/new_password_screen.dart
+//
+// 2025-08-12 – UI polish for large typography
+//   • ใช้ titleMedium/bodyLarge ตามธีมใหม่ใน main.dart
+//   • เพิ่ม spacing และ contentPadding ช่องกรอกรหัส
+//   • ไอคอนแสดง/ซ่อนรหัสใหญ่ขึ้น
+//   • แถบความแข็งแรงหนา/โค้งมนขึ้น อ่านง่ายขึ้น
+//   • คง logic reset_token (ทางเลือก B) ไว้เหมือนเดิมผ่าน ApiService
+//
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // haptics
 import '../services/api_service.dart';
 
-/// หน้าตั้งรหัสผ่านใหม่: รับ email + otp จากหน้าก่อนหน้า
+/// หน้าตั้งรหัสผ่านใหม่: รับ email + otp (ที่ฝั่ง API แมปเป็น reset_token แล้ว)
 class NewPasswordScreen extends StatefulWidget {
   final String email;
-  final String otp;
+  final String
+      otp; // ← ชื่อ param เดิมคงไว้ได้ เพราะ ApiService ส่งเป็น reset_token ให้เอง
   const NewPasswordScreen({
     super.key,
     required this.email,
@@ -12,35 +23,86 @@ class NewPasswordScreen extends StatefulWidget {
   });
 
   @override
-  _NewPasswordScreenState createState() => _NewPasswordScreenState();
+  State<NewPasswordScreen> createState() => _NewPasswordScreenState();
 }
 
 class _NewPasswordScreenState extends State<NewPasswordScreen> {
-  // ✅ ใช้ GlobalKey<FormState> เพื่อจัดการ validation
+  /* ── form & controllers ─────────────────────────────────── */
   final _formKey = GlobalKey<FormState>();
-  // Controllers สำหรับกรอกรหัสผ่านใหม่และยืนยันรหัสผ่าน
   final _pass1Ctrl = TextEditingController();
   final _pass2Ctrl = TextEditingController();
 
-  bool _obscure1 = true; // สลับการมองเห็นรหัสผ่านช่องแรก
-  bool _obscure2 = true; // สลับการมองเห็นรหัสผ่านช่องสอง
-  bool _isLoading = false; // แสดงสถานะกำลังส่งข้อมูล
-  String? _errorMsg; // ข้อความแสดงข้อผิดพลาด
+  final _pass1Focus = FocusNode();
+  final _pass2Focus = FocusNode();
+
+  bool _obscure1 = true;
+  bool _obscure2 = true;
+  bool _isLoading = false;
+  String? _errorMsg;
+
+  // ★ Realtime: ฟังการพิมพ์รหัสผ่านใหม่ แล้วอัปเดตแถบความแข็งแรงทันที
+  void _onPass1Changed() {
+    if (mounted) setState(() {});
+  }
+
+  // ประเมินความแข็งแรงรหัสผ่าน (0..1)
+  double get _strength => _calcStrength(_pass1Ctrl.text);
+
+  @override
+  void initState() {
+    super.initState();
+    _pass1Ctrl.addListener(_onPass1Changed); // ★ realtime meter
+  }
 
   @override
   void dispose() {
+    _pass1Ctrl.removeListener(_onPass1Changed); // ★ cleanup
     _pass1Ctrl.dispose();
     _pass2Ctrl.dispose();
+    _pass1Focus.dispose();
+    _pass2Focus.dispose();
     super.dispose();
   }
 
-  /* ───────── submit reset ───────── */
-  /// ✅ 1. ปรับปรุง Error Handling และ Validation
+  /* ── helpers ───────────────────────────────────────────── */
+  void _showSnack(String msg, {bool isError = true}) {
+    if (!mounted) return;
+    final cs = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? cs.error : Colors.green.shade600,
+      ));
+  }
+
+  // โลจิกให้คะแนน: ยาว≥8, ยาว≥12, มี A-Z, มี a-z, มีตัวเลข, มีอักขระพิเศษ → รวม 6 คะแนน
+  double _calcStrength(String p) {
+    if (p.isEmpty) return 0.0;
+    int score = 0;
+    if (p.length >= 8) score++;
+    if (p.length >= 12) score++;
+    if (RegExp(r'[A-Z]').hasMatch(p)) score++;
+    if (RegExp(r'[a-z]').hasMatch(p)) score++;
+    if (RegExp(r'\d').hasMatch(p)) score++;
+    if (RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-\\/\[\]=+;]').hasMatch(p)) score++;
+    return (score / 6).clamp(0.0, 1.0);
+  }
+
+  String? _validateNew(String? v) {
+    final p = (v ?? '').trim();
+    if (p.isEmpty) return 'กรุณากรอกรหัสผ่าน';
+    if (p.length < 8) return 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
+    if (!RegExp(r'(?=.*[A-Za-z])(?=.*\d)').hasMatch(p)) {
+      return 'ต้องมีทั้งตัวอักษรและตัวเลขอย่างน้อยอย่างละ 1';
+    }
+    return null;
+  }
+
+  /* ── submit ────────────────────────────────────────────── */
   Future<void> _submitNewPassword() async {
-    // 1. Validate Form ก่อน
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // 2. ตรวจสอบว่ารหัสผ่านใหม่และยืนยันรหัสผ่านตรงกัน
     if (_pass1Ctrl.text != _pass2Ctrl.text) {
       setState(() => _errorMsg = 'รหัสผ่านใหม่และการยืนยันไม่ตรงกัน');
       return;
@@ -54,62 +116,58 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
     try {
       final res = await ApiService.resetPassword(
         widget.email,
-        widget.otp,
-        _pass1Ctrl.text,
+        widget.otp, // ← ส่งต่อให้ ApiService แมปเป็น reset_token
+        _pass1Ctrl.text.trim(),
       );
 
       if (res['success'] == true) {
-        // เมื่อสำเร็จ, แสดง Dialog และเมื่อกดปุ่มจะเคลียร์ Stack แล้วไปหน้า Login
+        HapticFeedback.lightImpact();
+        _pass1Ctrl.clear();
+        _pass2Ctrl.clear();
         if (mounted) await _showSuccessDialog();
       } else {
         setState(
-            () => _errorMsg = res['message'] ?? 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
+          () => _errorMsg = res['message'] ?? 'เกิดข้อผิดพลาดที่ไม่รู้จัก',
+        );
       }
     } on ApiException catch (e) {
       setState(() => _errorMsg = e.message);
-    } catch (e) {
+    } catch (_) {
       setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /* ───────── dialog สำเร็จ ───────── */
-  /// ✅ 2. ปรับปรุง Dialog ให้ใช้ Theme และ Navigation ที่ถูกต้อง
   Future<void> _showSuccessDialog() async {
     final theme = Theme.of(context);
+    final tt = theme.textTheme;
     return showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => Dialog(
+      builder: (_) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 28, vertical: 36), // ★ ใหญ่ขึ้น
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            // ไอคอนติ๊กถูกในวงกลม
             CircleAvatar(
-              radius: 36,
+              radius: 40, // ★ ใหญ่ขึ้น
               backgroundColor: Colors.green.shade600,
-              child: const Icon(Icons.check, color: Colors.white, size: 40),
+              child: const Icon(Icons.check, color: Colors.white, size: 44),
             ),
-            const SizedBox(height: 16),
-            // หัวข้อ “สำเร็จ”
-            Text('สำเร็จ', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            // คำอธิบาย
+            const SizedBox(height: 18),
+            Text('สำเร็จ', style: tt.titleLarge),
+            const SizedBox(height: 10),
             Text(
               'รหัสผ่านของคุณถูกเปลี่ยนเรียบร้อยแล้ว\nกรุณาเข้าสู่ระบบอีกครั้งด้วยรหัสผ่านใหม่',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
+              style: tt.bodyLarge?.copyWith(height: 1.6), // ★ bodyLarge
             ),
-            const SizedBox(height: 24),
-            // ปุ่ม “ดำเนินการต่อ”
+            const SizedBox(height: 26),
             ElevatedButton(
-              onPressed: () {
-                // เคลียร์ Stack ทั้งหมดแล้วไปหน้า Login
-                Navigator.of(context)
-                    .pushNamedAndRemoveUntil('/login', (_) => false);
-              },
+              onPressed: () => Navigator.of(context)
+                  .pushNamedAndRemoveUntil('/login', (_) => false),
               child: const Text('ดำเนินการต่อ'),
             ),
           ]),
@@ -118,105 +176,143 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
     );
   }
 
-  /* ──────────── build ──────────── */
+  /* ── build ─────────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    // ✅ 3. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
+    final tt = theme.textTheme;
+
+    // คำอธิบาย/สีตาม strength (คำนวณใน build เพื่อให้สดใหม่)
+    final s = _strength;
+    Color barColor;
+    String label;
+    if (s >= 0.75) {
+      barColor = theme.colorScheme.primary;
+      label = 'แข็งแรง';
+    } else if (s >= 0.5) {
+      barColor = Colors.orange;
+      label = 'ปานกลาง';
+    } else if (s > 0.0) {
+      barColor = theme.colorScheme.error;
+      label = 'อ่อน';
+    } else {
+      barColor = theme.colorScheme.surfaceVariant;
+      label = '—';
+    }
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
-      // ✅ 4. เปลี่ยนมาใช้ AppBar มาตรฐาน
-      appBar: AppBar(
-        title: const Text('ตั้งรหัสผ่านใหม่'),
-      ),
+      appBar: AppBar(title: const Text('ตั้งรหัสผ่านใหม่')),
       body: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding:
+              const EdgeInsets.fromLTRB(24, 28, 24, 32), // ★ padding ใหญ่ขึ้น
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 'สร้างรหัสผ่านใหม่ที่แตกต่างจากรหัสผ่านเดิมเพื่อความปลอดภัย',
-                style: textTheme.bodyLarge?.copyWith(
+                style: tt.bodyLarge?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
-                ),
+                ), // ★ bodyLarge
               ),
-              const SizedBox(height: 24),
-              // แสดง error ถ้ามี
+              const SizedBox(height: 26),
+
               if (_errorMsg != null) ...[
                 Text(
                   _errorMsg!,
-                  style: textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.error),
                   textAlign: TextAlign.center,
+                  style: tt.bodyLarge // ★ ใหญ่ขึ้น
+                      ?.copyWith(color: theme.colorScheme.error),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
               ],
-              // ช่องรหัสผ่านใหม่
-              Text(
-                'รหัสผ่านใหม่',
-                style:
-                    textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
+
+              // รหัสผ่านใหม่
+              Text('รหัสผ่านใหม่',
+                  style: tt.titleMedium // ★ ใหญ่ขึ้น
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
               TextFormField(
                 controller: _pass1Ctrl,
+                focusNode: _pass1Focus,
+                style: tt.bodyLarge, // ★ ตัวพิมพ์ใหญ่ขึ้น
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) => _pass2Focus.requestFocus(),
                 obscureText: _obscure1,
                 autocorrect: false,
                 enableSuggestions: false,
                 decoration: InputDecoration(
-                  hintText: 'กรอกรหัสผ่านใหม่อย่างน้อย 6 ตัว',
+                  hintText: 'อย่างน้อย 8 ตัว มีตัวอักษรและตัวเลข',
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 18), // ★
                   suffixIcon: IconButton(
+                    tooltip: _obscure1 ? 'แสดงรหัสผ่าน' : 'ซ่อนรหัสผ่าน',
+                    iconSize: 24, // ★
                     icon: Icon(
                         _obscure1 ? Icons.visibility_off : Icons.visibility),
                     onPressed: () => setState(() => _obscure1 = !_obscure1),
                   ),
                 ),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'กรุณากรอกรหัสผ่าน';
-                  if (v.length < 6) return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-                  return null;
-                },
+                validator: _validateNew,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
 
-              // ช่องยืนยันรหัสผ่าน
-              Text(
-                'ยืนยันรหัสผ่านใหม่',
-                style:
-                    textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+              // ★ Realtime + ลื่นขึ้นด้วยอนิเมชัน
+              _PasswordStrengthBar(
+                strength: s,
+                label: 'ความแข็งแรงรหัสผ่าน: $label',
+                color: barColor,
               ),
-              const SizedBox(height: 8),
+
+              const SizedBox(height: 26),
+
+              // ยืนยันรหัสผ่านใหม่
+              Text('ยืนยันรหัสผ่านใหม่',
+                  style: tt.titleMedium // ★ ใหญ่ขึ้น
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
               TextFormField(
                 controller: _pass2Ctrl,
+                focusNode: _pass2Focus,
+                style: tt.bodyLarge, // ★
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) =>
+                    _isLoading ? null : _submitNewPassword(),
                 obscureText: _obscure2,
                 autocorrect: false,
                 enableSuggestions: false,
                 decoration: InputDecoration(
                   hintText: 'กรอกรหัสผ่านใหม่อีกครั้ง',
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 18), // ★
                   suffixIcon: IconButton(
+                    tooltip: _obscure2 ? 'แสดงรหัสผ่าน' : 'ซ่อนรหัสผ่าน',
+                    iconSize: 24, // ★
                     icon: Icon(
                         _obscure2 ? Icons.visibility_off : Icons.visibility),
                     onPressed: () => setState(() => _obscure2 = !_obscure2),
                   ),
                 ),
                 validator: (v) {
-                  if (v == null || v.isEmpty) return 'กรุณายืนยันรหัสผ่าน';
+                  final t = (v ?? '').trim();
+                  if (t.isEmpty) return 'กรุณายืนยันรหัสผ่าน';
+                  if (t != _pass1Ctrl.text.trim()) {
+                    return 'ยืนยันรหัสผ่านไม่ตรงกัน';
+                  }
                   return null;
                 },
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 34),
 
-              // ปุ่ม “อัปเดตรหัสผ่าน”
               ElevatedButton(
                 onPressed: _isLoading ? null : _submitNewPassword,
                 child: _isLoading
                     ? const SizedBox(
-                        height: 24,
-                        width: 24,
+                        height: 26, // ★
+                        width: 26, // ★
                         child: CircularProgressIndicator(
                             strokeWidth: 3, color: Colors.white),
                       )
@@ -226,9 +322,50 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
           ),
         ),
       ),
-      // ❌ 5. ลบ Bottom Nav Bar ออก
-      // ในหน้านี้ ผู้ใช้ควรมีทางเลือกแค่ "ตั้งรหัสผ่าน" หรือ "ย้อนกลับ" เท่านั้น
-      // bottomNavigationBar: CustomBottomNav(...)
+    );
+  }
+}
+
+/* ───────────────── Password strength indicator ───────────────── */
+class _PasswordStrengthBar extends StatelessWidget {
+  final double strength; // 0..1
+  final String label;
+  final Color color;
+  const _PasswordStrengthBar({
+    required this.strength,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ★ แถบหนาและโค้งมนขึ้น
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: strength),
+            duration: const Duration(milliseconds: 200),
+            builder: (_, v, __) => LinearProgressIndicator(
+              value: v == 0 ? null : v.clamp(0.06, 1.0),
+              minHeight: 10, // ★ หนาขึ้น
+              color: color,
+              backgroundColor: cs.surfaceVariant,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: tt.bodyLarge // ★ ใหญ่ขึ้น
+              ?.copyWith(color: cs.onSurfaceVariant),
+        ),
+      ],
     );
   }
 }

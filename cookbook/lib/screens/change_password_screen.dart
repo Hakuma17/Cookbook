@@ -1,11 +1,9 @@
 // lib/screens/change_password_screen.dart
 
-import 'dart:async';
-// import 'dart:io'; // 🗑️ ลบออก ไม่ได้ใช้แล้ว
-
 import 'package:cookbook/services/api_service.dart';
 import 'package:cookbook/services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // haptics
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -20,26 +18,39 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _newPassCtrl = TextEditingController();
   final _confirmPassCtrl = TextEditingController();
 
+  // focus
+  final _oldFocus = FocusNode();
+  final _newFocus = FocusNode();
+  final _confirmFocus = FocusNode();
+
   bool _obscureOld = true;
   bool _obscureNew = true;
   bool _obscureConfirm = true;
   bool _loading = false;
 
+  // ★ Realtime: คอยฟังการพิมพ์รหัสใหม่แล้ว setState เพื่ออัปเดตแถบ
+  void _onNewPassChanged() {
+    if (mounted) setState(() {});
+  }
+
+  // ความแข็งแรง 0..1
+  double get _strength => _calcStrength(_newPassCtrl.text);
+
   @override
   void initState() {
     super.initState();
-    // ❌ 1. ลบการเช็คสิทธิ์ออกจาก initState
-    // การป้องกัน Route ควรทำที่ระดับ Router (เช่น ใช้ AuthGuard) ไม่ใช่ในหน้าจอเอง
-    // WidgetsBinding.instance.addPostFrameCallback(
-    //   (_) => AuthService.checkAndRedirectIfLoggedOut(context),
-    // );
+    _newPassCtrl.addListener(_onNewPassChanged); // ★ realtime meter
   }
 
   @override
   void dispose() {
     _oldPassCtrl.dispose();
+    _newPassCtrl.removeListener(_onNewPassChanged); // ★ cleanup
     _newPassCtrl.dispose();
     _confirmPassCtrl.dispose();
+    _oldFocus.dispose();
+    _newFocus.dispose();
+    _confirmFocus.dispose();
     super.dispose();
   }
 
@@ -47,6 +58,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   void _showSnack(String msg, {bool isError = true}) {
     if (!mounted) return;
     final theme = Theme.of(context);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
       backgroundColor:
@@ -61,14 +73,51 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
   }
 
+  // ประเมินความแข็งแรง (0..1) : ยาว/ตัวใหญ่/ตัวเล็ก/ตัวเลข/พิเศษ
+  double _calcStrength(String p) {
+    if (p.isEmpty) return 0.0;
+    int score = 0;
+    if (p.length >= 8) score++;
+    if (p.length >= 12) score++;
+    if (RegExp(r'[A-Z]').hasMatch(p)) score++;
+    if (RegExp(r'[a-z]').hasMatch(p)) score++;
+    if (RegExp(r'\d').hasMatch(p)) score++;
+    if (RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-\\/\[\]=+;]').hasMatch(p)) score++;
+    return (score / 6).clamp(0.0, 1.0);
+  }
+
+  // แปลงค่า strength → label/สี (ไว้ใช้ซ้ำ)
+  (String label, Color color) _strengthInfo(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final s = _strength;
+    if (s >= 0.75) return ('แข็งแรง', cs.primary);
+    if (s >= 0.50) return ('ปานกลาง', Colors.orange);
+    if (s > 0.0) return ('อ่อน', cs.error);
+    return ('—', cs.surfaceVariant);
+  }
+
+  String? _validateNewPassword(String? v) {
+    final p = (v ?? '').trim();
+    if (p.isEmpty) return 'กรุณากรอกรหัสผ่าน';
+    if (p.length < 8) return 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
+    if (!RegExp(r'(?=.*[A-Za-z])(?=.*\d)').hasMatch(p)) {
+      return 'ต้องมีทั้งตัวอักษรและตัวเลขอย่างน้อยอย่างละ 1';
+    }
+    if (_oldPassCtrl.text.trim().isNotEmpty && p == _oldPassCtrl.text.trim()) {
+      return 'รหัสผ่านใหม่ต้องไม่เหมือนรหัสผ่านเดิม';
+    }
+    return null;
+  }
+
   /* ───────────────── main action ───────────────── */
-  /// ✅ 2. ปรับปรุง Error Handling ให้รองรับ Custom Exception
   Future<void> _changePassword() async {
     if (!_formKey.currentState!.validate()) return;
     if (_newPassCtrl.text.trim() != _confirmPassCtrl.text.trim()) {
       _showSnack('รหัสผ่านใหม่กับยืนยันไม่ตรงกัน');
       return;
     }
+
+    FocusScope.of(context).unfocus();
 
     setState(() => _loading = true);
     try {
@@ -78,18 +127,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       );
 
       if (res['success'] == true) {
+        HapticFeedback.lightImpact();
         _oldPassCtrl.clear();
         _newPassCtrl.clear();
         _confirmPassCtrl.clear();
         _showSnack('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว', isError: false);
-        // อาจจะ pop กลับไปหน้าก่อนหน้า
         if (mounted) Navigator.of(context).pop();
       } else {
         _showSnack(res['message'] ?? 'เกิดข้อผิดพลาด');
       }
     } on UnauthorizedException catch (e) {
       _showSnack(e.message);
-      _handleLogout(); // Session หมดอายุ, บังคับ Logout
+      _handleLogout();
     } on ApiException catch (e) {
       _showSnack(e.message);
     } catch (e) {
@@ -102,57 +151,86 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   /* ───────────────── build ───────────────── */
   @override
   Widget build(BuildContext context) {
-    // ✅ 3. ลบการคำนวณ Responsive ทั้งหมด และใช้ Theme แทน
+    final (label, color) = _strengthInfo(context);
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('เปลี่ยนรหัสผ่าน'),
-        // centerTitle: true, // ถูกกำหนดใน Theme หลักแล้ว
-      ),
+      appBar: AppBar(title: const Text('เปลี่ยนรหัสผ่าน')),
       body: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.stretch, // ทำให้ปุ่มยืดเต็มความกว้าง
-            children: [
-              _PasswordTextField(
-                // ✅ 4. ใช้ Widget ที่ Refactor แล้ว
-                label: 'รหัสผ่านปัจจุบัน',
-                controller: _oldPassCtrl,
-                obscureText: _obscureOld,
-                onToggleObscure: () =>
-                    setState(() => _obscureOld = !_obscureOld),
-              ),
-              const SizedBox(height: 20),
-              _PasswordTextField(
-                label: 'รหัสผ่านใหม่',
-                controller: _newPassCtrl,
-                obscureText: _obscureNew,
-                onToggleObscure: () =>
-                    setState(() => _obscureNew = !_obscureNew),
-              ),
-              const SizedBox(height: 20),
-              _PasswordTextField(
-                label: 'ยืนยันรหัสผ่านใหม่',
-                controller: _confirmPassCtrl,
-                obscureText: _obscureConfirm,
-                onToggleObscure: () =>
-                    setState(() => _obscureConfirm = !_obscureConfirm),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _loading ? null : _changePassword,
-                child: _loading
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 3),
-                      )
-                    : const Text('ยืนยันการเปลี่ยนรหัสผ่าน'),
-              ),
-            ],
+          child: AutofillGroup(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _PasswordTextField(
+                  label: 'รหัสผ่านปัจจุบัน',
+                  controller: _oldPassCtrl,
+                  obscureText: _obscureOld,
+                  onToggleObscure: () =>
+                      setState(() => _obscureOld = !_obscureOld),
+                  focusNode: _oldFocus,
+                  textInputAction: TextInputAction.next,
+                  onSubmitted: (_) => _newFocus.requestFocus(),
+                  autofillHints: const [AutofillHints.password],
+                ),
+                const SizedBox(height: 20),
+                _PasswordTextField(
+                  label: 'รหัสผ่านใหม่',
+                  controller: _newPassCtrl,
+                  obscureText: _obscureNew,
+                  onToggleObscure: () =>
+                      setState(() => _obscureNew = !_obscureNew),
+                  focusNode: _newFocus,
+                  textInputAction: TextInputAction.next,
+                  onSubmitted: (_) => _confirmFocus.requestFocus(),
+                  autofillHints: const [AutofillHints.newPassword],
+                  validatorOverride: _validateNewPassword,
+                ),
+                const SizedBox(height: 10),
+
+                // ★ Realtime strength meter
+                _PasswordStrengthBar(
+                  strength: _strength,
+                  label: label,
+                  color: color,
+                ),
+
+                const SizedBox(height: 20),
+                _PasswordTextField(
+                  label: 'ยืนยันรหัสผ่านใหม่',
+                  controller: _confirmPassCtrl,
+                  obscureText: _obscureConfirm,
+                  onToggleObscure: () =>
+                      setState(() => _obscureConfirm = !_obscureConfirm),
+                  focusNode: _confirmFocus,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _loading ? null : _changePassword(),
+                  autofillHints: const [AutofillHints.newPassword],
+                  validatorOverride: (v) {
+                    final t = (v ?? '').trim();
+                    if (t.isEmpty) return 'กรุณากรอกยืนยันรหัสผ่าน';
+                    if (t != _newPassCtrl.text.trim()) {
+                      return 'ยืนยันรหัสผ่านไม่ตรงกัน';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _loading ? null : _changePassword,
+                  child: _loading
+                      ? const SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 3),
+                        )
+                      : const Text('ยืนยันการเปลี่ยนรหัสผ่าน'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -160,14 +238,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 }
 
-/// ✅ 5. แยก Password Field ออกมาเป็น Widget ของตัวเองเพื่อความสะอาด
-/// Widget นี้จะดึงสไตล์จาก Theme โดยตรง ทำให้โค้ดเรียกใช้สั้นและสะอาด
+/// TextField สำหรับรหัสผ่าน
 class _PasswordTextField extends StatelessWidget {
   const _PasswordTextField({
     required this.label,
     required this.controller,
     required this.obscureText,
     required this.onToggleObscure,
+    this.focusNode,
+    this.textInputAction,
+    this.onSubmitted,
+    this.autofillHints,
+    this.validatorOverride,
   });
 
   final String label;
@@ -175,37 +257,104 @@ class _PasswordTextField extends StatelessWidget {
   final bool obscureText;
   final VoidCallback onToggleObscure;
 
+  final FocusNode? focusNode;
+  final TextInputAction? textInputAction;
+  final ValueChanged<String>? onSubmitted;
+  final List<String>? autofillHints;
+  final String? Function(String?)? validatorOverride;
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final txt = theme.textTheme;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: Theme.of(context)
-              .textTheme
-              .titleSmall
-              ?.copyWith(fontWeight: FontWeight.bold),
+          style: txt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         TextFormField(
           controller: controller,
+          focusNode: focusNode,
+          textInputAction: textInputAction,
+          onFieldSubmitted: onSubmitted,
+          keyboardType: TextInputType.visiblePassword,
+          autofillHints: autofillHints,
           obscureText: obscureText,
+          obscuringCharacter: '•',
           autocorrect: false,
           enableSuggestions: false,
+          enableIMEPersonalizedLearning: false,
+          smartDashesType: SmartDashesType.disabled,
+          smartQuotesType: SmartQuotesType.disabled,
+          style: txt.bodyLarge,
           decoration: InputDecoration(
-            // ไม่ต้องกำหนด Border, Padding, หรือ FillColor เพราะ Theme หลักจัดการให้แล้ว
+            isDense: false,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+            hintStyle: txt.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+            ),
             suffixIcon: IconButton(
+              tooltip: obscureText ? 'แสดงรหัสผ่าน' : 'ซ่อนรหัสผ่าน',
+              iconSize: 22,
               icon: Icon(obscureText ? Icons.visibility_off : Icons.visibility),
               onPressed: onToggleObscure,
             ),
           ),
-          validator: (v) {
-            if (v == null || v.trim().isEmpty) return 'กรุณากรอกรหัสผ่าน';
-            if (v.trim().length < 6)
-              return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-            return null;
-          },
+          validator: validatorOverride ??
+              (v) {
+                if (v == null || v.trim().isEmpty) return 'กรุณากรอกรหัสผ่าน';
+                if (v.trim().length < 6) {
+                  return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+                }
+                return null;
+              },
+        ),
+      ],
+    );
+  }
+}
+
+/* ─────────── Password strength indicator ─────────── */
+class _PasswordStrengthBar extends StatelessWidget {
+  final double strength; // 0..1
+  final String label;
+  final Color color;
+  const _PasswordStrengthBar({
+    required this.strength,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ให้เปลี่ยนค่าแถบลื่น ๆ เมื่อพิมพ์
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: strength),
+          duration: const Duration(milliseconds: 180),
+          builder: (_, v, __) => LinearProgressIndicator(
+            value: v == 0 ? null : v.clamp(0.05, 1.0),
+            minHeight: 6,
+            color: color,
+            backgroundColor: cs.surfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'ความแข็งแรงรหัสผ่าน: $label',
+          style: Theme.of(context)
+              .textTheme
+              .labelMedium
+              ?.copyWith(color: cs.onSurfaceVariant),
         ),
       ],
     );

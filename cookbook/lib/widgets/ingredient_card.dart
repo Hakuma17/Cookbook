@@ -1,101 +1,171 @@
+// lib/widgets/ingredient_card.dart
 import 'package:flutter/material.dart';
-import '../models/ingredient.dart';
-import '../services/api_service.dart';
-
-// ★★★ [NEW] อ่านค่าสวิตช์ “ตัดคำภาษาไทย” จาก SettingsStore
 import 'package:provider/provider.dart';
+
+import '../models/ingredient.dart';
+import '../models/ingredient_group.dart';
+import '../models/recipe.dart';
+import '../services/api_service.dart';
 import '../stores/settings_store.dart';
+import '../utils/safe_image.dart';
+import 'empty_result_dialog.dart';
 
-// [CACHE] จำผลว่ามีเมนูจากวัตถุดิบนั้น ๆ ไหม เพื่อลดดีเลย์ครั้งถัดไป
+// ===== Cache & Config ===================================================
+
+// จำผลว่ามีสูตรจากวัตถุดิบ/กลุ่มนั้น ๆ ไหม (กันยิงซ้ำ ๆ)
 final Map<String, bool> _ingredientExistenceCache = {};
+final Map<String, bool> _groupExistenceCache = {};
 
-// [TIMEOUT] จำกัดเวลาพรีเช็ค เพื่อไม่ให้ผู้ใช้รอเกินไป
+// จำกัดเวลาพรีเช็ค (ไม่ให้ผู้ใช้รอนานก่อนนำทาง)
 const Duration _precheckTimeout = Duration(milliseconds: 1200);
 
+// อัตราส่วนรูป 4:3 ใช้ร่วมหลายหน้า
+const double kIngredientImageAspectRatio = 4 / 3;
+
+// ===== Main Card ========================================================
+
 class IngredientCard extends StatelessWidget {
-  final Ingredient ingredient; // ข้อมูลวัตถุดิบแต่ละอัน
-  final VoidCallback? onTap; // ฟังก์ชันตอนกดการ์ด (optional)
-  final double? width; // ความกว้างของการ์ด (ถ้าไม่กำหนด จะ auto)
+  /// รองรับได้ทั้ง “วัตถุดิบเดี่ยว” และ “กลุ่มวัตถุดิบ” (ต้องส่งอย่างใดอย่างหนึ่ง)
+  final Ingredient? ingredient;
+  final IngredientGroup? group;
+
+  /// ถ้าส่ง onTap มา จะ override พฤติกรรม default
+  final VoidCallback? onTap;
+
+  /// บางหน้าควบคุมความกว้างเองได้ (ปกติปล่อยให้ parent layout ทำงาน)
+  final double? width;
 
   const IngredientCard({
     super.key,
-    required this.ingredient,
+    this.ingredient,
+    this.group,
     this.onTap,
     this.width,
-  });
+  }) : assert(
+          (ingredient != null) ^ (group != null),
+          'IngredientCard ต้องรับ ingredient หรือ group อย่างใดอย่างหนึ่ง',
+        );
 
-  // ฟังก์ชัน clamp ค่าระหว่าง min–max (ใช้ใน responsive)
+  // คำนวณความสูงกล่องชื่อ 2 บรรทัด (ตามสไตล์จริง)
+  static double titleBoxHeightOf(BuildContext context) {
+    final theme = Theme.of(context);
+    final scale = MediaQuery.textScaleFactorOf(context);
+    final s =
+        (theme.textTheme.titleMedium ?? const TextStyle(fontSize: 16)).copyWith(
+      height: 1.15,
+    );
+    final lineH = (s.fontSize ?? 16) * (s.height ?? 1.2) * scale;
+    return lineH * 2;
+  }
+
   double _clamp(double v, double min, double max) =>
       v < min ? min : (v > max ? max : v);
 
   @override
   Widget build(BuildContext context) {
-    // คำนวณขนาดการ์ดตามหน้าจอ
     final scrW = MediaQuery.of(context).size.width;
-    final cardW = width ?? _clamp(scrW * 0.28, 96, 140); // 28% ของหน้าจอ
-    final fontSize = _clamp(cardW * 0.13, 12, 16); // ฟอนต์ 13% ของ cardW
-
-    // เตรียม URL รูปภาพ (ต่อ baseUrl ถ้าไม่ใช่ http)
-    final imgUrl = ingredient.imageUrl.isNotEmpty
-        ? (ingredient.imageUrl.startsWith('http')
-            ? ingredient.imageUrl
-            : '${ApiService.baseUrl}${ingredient.imageUrl}')
-        : '';
+    final cardW = width ?? _clamp(scrW * 0.28, 96, 140);
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final titleBase =
+        (theme.textTheme.titleMedium ?? const TextStyle(fontSize: 16))
+            .copyWith(height: 1.15, color: cs.onSurface);
+    final titleBoxH = IngredientCard.titleBoxHeightOf(context);
 
-    // สร้างการ์ดวัตถุดิบ (ขนาดและสไตล์)
+    final bool isGroupCard = group != null;
+
+    // ชื่อ display (พยายามใช้ที่ “อ่านง่าย” ก่อน)
+    final String displayName = isGroupCard
+        ? ([
+            group!.displayName,
+            group!.groupName, // บางโมเดลตั้งชื่อโชว์ไว้ใน groupName
+            group!.name,
+          ].firstWhere(
+            (s) => (s?.trim().isNotEmpty ?? false),
+            orElse: () => group!.name,
+          )!)
+            .trim()
+        : ([
+            ingredient!.displayName,
+            ingredient!.name,
+          ].firstWhere(
+            (s) => (s?.trim().isNotEmpty ?? false),
+            orElse: () => ingredient!.name,
+          )!)
+            .trim();
+
+    // URL รูป (ถ้าเว้นว่างและเป็น "กลุ่ม" → ใช้ asset เป็นภาพหลักทันที)
+    final String rawUrl = isGroupCard
+        ? (group!.coverUrl?.trim().isNotEmpty == true
+            ? group!.coverUrl!
+            : (group!.imageUrl ?? ''))
+        : (ingredient!.imageUrl ?? '');
+    final bool hasRemoteImage = rawUrl.trim().isNotEmpty;
+
+    // จำนวนสูตรบนการ์ด (เฉพาะกลุ่ม)
+    final int recipeCount =
+        (group?.recipeCount ?? group?.totalRecipes ?? 0).clamp(0, 1 << 31);
+
     return SizedBox(
-      width: cardW, // กำหนดความกว้างการ์ด
+      width: cardW,
       child: Card(
-        clipBehavior: Clip.antiAlias, // ตัดมุมภาพให้นุ่ม
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap ??
-              () =>
-                  _handleTap(context), // ถ้าไม่ได้ส่ง onTap → ใช้ auto-precheck
+              () => isGroupCard
+                  ? _handleTapGroup(context)
+                  : _handleTapIngredient(context),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // แสดงรูปภาพวัตถุดิบ
-              Expanded(
-                child: AspectRatio(
-                  aspectRatio: 1, // ทำให้รูปเป็นสี่เหลี่ยมจัตุรัส
-                  child: imgUrl.isEmpty
-                      ? Image.asset(
-                          'assets/images/default_ingredients.png',
-                          fit: BoxFit.cover,
-                        )
-                      : Image.network(
-                          imgUrl,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (c, child, prog) => prog == null
-                              ? child
-                              : _loader(cs), // แสดง loader ระหว่างโหลด
-                          errorBuilder: (_, __, ___) => Image.asset(
-                            'assets/images/default_ingredients.png', // fallback ถ้าโหลดไม่สำเร็จ
-                            fit: BoxFit.cover,
-                          ),
-                        ),
+              // รูป 4:3 (SafeImage หรือ Asset fallback สำหรับกลุ่ม)
+              AspectRatio(
+                aspectRatio: kIngredientImageAspectRatio,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (isGroupCard && !hasRemoteImage)
+                      // กลุ่มที่ไม่มีรูป → ใช้รูป default_group เป็น "ภาพหลัก"
+                      Image.asset(
+                        'assets/images/default_group.png',
+                        fit: BoxFit.cover,
+                      )
+                    else
+                      SafeImage(
+                        url: rawUrl,
+                        fit: BoxFit.cover,
+                        // ถ้าโหลดรูปพัง → fallback ตามชนิด
+                        fallbackAsset: isGroupCard
+                            ? 'assets/images/default_group.png'
+                            : 'assets/images/default_ingredients.png',
+                      ),
+
+                    // มุมซ้ายบน: ป้าย "สูตร N" — ย้ายมุมซ้ายแทนไอคอนเดิม
+                    if (isGroupCard && recipeCount > 0)
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: _RecipeCountBadge(count: recipeCount),
+                      ),
+                  ],
                 ),
               ),
 
-              // แสดงชื่อวัตถุดิบ
+              // ชื่อ (คงไว้สองบรรทัด)
               Padding(
                 padding: const EdgeInsets.all(8.0),
-                child: Text(
-                  ingredient.displayName?.trim().isNotEmpty == true
-                      ? ingredient
-                          .displayName! // ถ้ามี displayName ให้แสดงแทน name
-                      : ingredient.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis, // ตัดข้อความถ้ายาวเกิน
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: fontSize,
-                    color: cs.onSurface, // ใช้สีจากธีม
-                    height: 1.15, // ระยะห่างบรรทัด
+                child: SizedBox(
+                  height: titleBoxH,
+                  child: Center(
+                    child: Text(
+                      displayName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: titleBase,
+                    ),
                   ),
                 ),
               ),
@@ -106,72 +176,110 @@ class IngredientCard extends StatelessWidget {
     );
   }
 
-  // วิดเจ็ตโหลดภาพระหว่าง loading
-  Widget _loader(ColorScheme scheme) => Container(
-        color: scheme.surfaceVariant, // สีพื้นหลังระหว่างโหลด
-        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
+  // ===== Tap handlers ====================================================
 
-  // ถ้าไม่ได้ส่ง onTap → ใช้อันนี้แทน (ตรวจวัตถุดิบก่อน navigate)
-  Future<void> _handleTap(BuildContext context) async {
-    // ★★★ [NEW] แจ้ง backend ว่าปัจจุบันเปิด/ปิด “ตัดคำภาษาไทย” อยู่หรือไม่
-    //     - ดีฟอลต์: ปิด (ดู SettingsStore.initial ค่า false)
-    final tokenize =
-        context.read<SettingsStore>().searchTokenizeEnabled; // true/false
+  // วัตถุดิบเดี่ยว: พรีเช็คก่อน ถ้าไม่มีสูตรให้เด้ง dialog (ยกเลิกไม่ทำอะไร)
+  Future<void> _handleTapIngredient(BuildContext context) async {
+    final tokenize = context.read<SettingsStore>().searchTokenizeEnabled;
+    final nameForSearch = ingredient!.name.trim();
 
-    // [FIX][UX] ใช้ชื่อที่ “แสดงผล” ถ้ามี เพื่อกันเคส alias ภาษาไทย
-    // ================== บรรทัดที่แก้ไข ==================
-    final nameForSearch = ingredient.name.trim();
-    // =================================================
-
-    // [CACHE] ถ้าเคยรู้ผลแล้ว ตอบสนองทันที
     final cached = _ingredientExistenceCache[nameForSearch];
     if (cached != null) {
       if (!context.mounted) return;
       if (cached) {
-        // มีเมนู → ไปหน้า Search ทันที
         Navigator.pushNamed(context, '/search', arguments: {
           'ingredients': [nameForSearch]
         });
       } else {
-        // ไม่มีเมนู → แจ้งทันที
         await _showNoResultDialog(context, nameForSearch);
       }
       return;
     }
 
-    // [TIMEOUT] ถ้าพรีเช็คช้าเกินไป จะ "พาเข้า Search" เพื่อไม่ให้ผู้ใช้รอ/หงุดหงิด
     bool? hasAny;
     try {
       hasAny = await _precheckHasAny(nameForSearch, tokenize)
           .timeout(_precheckTimeout, onTimeout: () => null);
     } catch (_) {
-      hasAny = null; // error = ไม่บล็อกผู้ใช้
+      hasAny = null;
     }
 
     if (!context.mounted) return;
 
     if (hasAny == true) {
-      _ingredientExistenceCache[nameForSearch] = true; // [CACHE]
+      _ingredientExistenceCache[nameForSearch] = true;
       Navigator.pushNamed(context, '/search', arguments: {
         'ingredients': [nameForSearch]
       });
       return;
     }
-
     if (hasAny == false) {
-      _ingredientExistenceCache[nameForSearch] = false; // [CACHE]
+      _ingredientExistenceCache[nameForSearch] = false;
       await _showNoResultDialog(context, nameForSearch);
       return;
     }
 
-    // hasAny == null (timeout/exception) → อย่าบล็อก นำทางให้ค้นต่อ
+    // เช็คไม่ทันเวลา/พลาด → นำทางไปก่อน
     Navigator.pushNamed(context, '/search', arguments: {
       'ingredients': [nameForSearch]
     });
   }
 
-  // [FALLBACK] พรีเช็ค 2 จังหวะ: include → ถ้าไม่พบลอง q
+  // กลุ่มวัตถุดิบ: ใช้ apiGroupValue ถ้ามี (แม็ปตรงกับ backend)
+  Future<void> _handleTapGroup(BuildContext context) async {
+    final groupValue = (group!.apiGroupValue?.trim().isNotEmpty == true)
+        ? group!.apiGroupValue!.trim()
+        : group!.name.trim();
+
+    final cached = _groupExistenceCache[groupValue];
+    if (cached != null) {
+      if (!context.mounted) return;
+      if (cached) {
+        Navigator.pushNamed(context, '/search',
+            arguments: {'group': groupValue});
+      } else {
+        await _showNoGroupResultDialog(context, _friendlyGroupName());
+      }
+      return;
+    }
+
+    bool? hasAny;
+    try {
+      final List<Recipe> list = await ApiService.fetchRecipesByGroup(
+        group: groupValue,
+        page: 1,
+        limit: 1,
+        sort: 'latest',
+      ).timeout(_precheckTimeout, onTimeout: () => const <Recipe>[]);
+      hasAny = list.isNotEmpty;
+    } catch (_) {
+      hasAny = null; // ถ้าเช็คพลาด → อนุญาตให้นำทางไปก่อน
+    }
+
+    if (!context.mounted) return;
+
+    if (hasAny == true) {
+      _groupExistenceCache[groupValue] = true;
+      Navigator.pushNamed(context, '/search', arguments: {'group': groupValue});
+      return;
+    }
+    if (hasAny == false) {
+      _groupExistenceCache[groupValue] = false;
+      await _showNoGroupResultDialog(context, _friendlyGroupName());
+      return;
+    }
+
+    Navigator.pushNamed(context, '/search', arguments: {'group': groupValue});
+  }
+
+  String _friendlyGroupName() => (group!.displayName?.trim().isNotEmpty == true
+      ? group!.displayName!.trim()
+      : (group!.groupName?.trim().isNotEmpty == true
+          ? group!.groupName!.trim()
+          : group!.name.trim()));
+
+  // ===== Prechecks =======================================================
+
   Future<bool?> _precheckHasAny(String name, bool tokenize) async {
     try {
       final r1 = await ApiService.searchRecipes(
@@ -188,43 +296,49 @@ class IngredientCard extends StatelessWidget {
       );
       return _hasResults(r2);
     } catch (_) {
-      return null; // ให้ผู้ใช้ไปดูในหน้า Search แทน (ไม่บล็อก)
+      return null;
     }
   }
+
+  // ===== Dialogs =========================================================
 
   Future<void> _showNoResultDialog(BuildContext context, String name) async {
     await showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('ยังไม่พบสูตรที่ใช้วัตถุดิบนี้'),
-        content: Text('วัตถุดิบ: $name'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ปิด'),
-          ),
-          // [UX] เสนอ “ลองค้นหา” ต่อได้ทันที
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              if (!context.mounted) return;
-              Navigator.pushNamed(context, '/search', arguments: {
-                'ingredients': [name]
-              });
-            },
-            child: const Text('ลองค้นหา'),
-          ),
-        ],
+      builder: (_) => EmptyResultDialog(
+        subject: name, // ไม่ต้องเติมคำว่า "กลุ่ม"
+        onProceed: () {
+          if (!context.mounted) return;
+          Navigator.pushNamed(context, '/search', arguments: {
+            'ingredients': [name]
+          });
+        },
       ),
     );
   }
 
-  // ฟังก์ชันเช็คว่ามีผลลัพธ์จาก API หรือไม่
-  bool _hasResults(dynamic r) {
-    // [FIX] กัน false-negative: รองรับทั้ง SearchResponse, Map, List
-    if (r == null) return false;
+  Future<void> _showNoGroupResultDialog(
+      BuildContext context, String displayName) async {
+    await showDialog(
+      context: context,
+      builder: (_) => EmptyResultDialog(
+        subject: displayName, // แสดงชื่ออ่านง่าย เช่น กุ้งทะเล
+        onProceed: () {
+          if (!context.mounted) return;
+          final groupValue = (group!.apiGroupValue?.trim().isNotEmpty == true)
+              ? group!.apiGroupValue!.trim()
+              : group!.name.trim();
+          Navigator.pushNamed(context, '/search',
+              arguments: {'group': groupValue});
+        },
+      ),
+    );
+  }
 
-    // กรณีเป็น SearchResponse (ที่ ApiService คืน)
+  // ===== Utils ===========================================================
+
+  bool _hasResults(dynamic r) {
+    if (r == null) return false;
     try {
       final recs = (r as dynamic).recipes;
       if (recs is List && recs.isNotEmpty) return true;
@@ -233,11 +347,7 @@ class IngredientCard extends StatelessWidget {
           (r as dynamic).count;
       if (t is num && t > 0) return true;
     } catch (_) {}
-
-    // กรณีเป็น List ตรง ๆ
     if (r is List) return r.isNotEmpty;
-
-    // กรณีเป็น Map JSON ตรง ๆ { data:[...], total:... }
     if (r is Map) {
       final total = r['total'] ?? r['totalCount'] ?? r['count'];
       if (total is num && total > 0) return true;
@@ -246,7 +356,45 @@ class IngredientCard extends StatelessWidget {
         if (v is List && v.isNotEmpty) return true;
       }
     }
-
     return false;
+  }
+}
+
+// ===== Badge ============================================================
+
+/// ป้ายจำนวนสูตร: "สูตร N"
+class _RecipeCountBadge extends StatelessWidget {
+  const _RecipeCountBadge({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Semantics(
+      label: 'จำนวนสูตร $count สูตร',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: cs.primary,
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: [
+            BoxShadow(
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(.12),
+            ),
+          ],
+        ),
+        child: Text(
+          'สูตร $count',
+          style: TextStyle(
+            fontSize: 11,
+            height: 1.0,
+            fontWeight: FontWeight.w800,
+            color: cs.onPrimary,
+          ),
+        ),
+      ),
+    );
   }
 }

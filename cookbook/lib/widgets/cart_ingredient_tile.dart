@@ -3,87 +3,84 @@ import '../models/cart_ingredient.dart';
 
 class CartIngredientTile extends StatelessWidget {
   final CartIngredient ingredient;
-
   const CartIngredientTile({super.key, required this.ingredient});
 
-  // Helper สำหรับจัดรูปแบบตัวเลขทศนิยม
-  String _formatQuantity(double quantity) {
-    if (quantity == quantity.roundToDouble()) {
-      return quantity.toInt().toString();
-    }
-    return quantity.toStringAsFixed(2);
-  }
+  // จัดรูปแบบจำนวนให้สวย (จำนวนเต็มไม่โชว์จุดทศนิยม)
+  String _formatQuantity(double q) =>
+      (q == q.roundToDouble()) ? q.toInt().toString() : q.toStringAsFixed(2);
 
   @override
   Widget build(BuildContext context) {
-    // 1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final colorScheme = theme.colorScheme;
+    final text = theme.textTheme;
+    final cs = theme.colorScheme;
 
     final quantityText = _formatQuantity(ingredient.quantity);
     final unitText = ingredient.unit;
 
-    // 2. เปลี่ยนมาใช้ Card -> ListTile ซึ่งเป็นโครงสร้างที่เหมาะสมและจัดการง่าย
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6.0),
-      // Card จะใช้สไตล์จาก CardTheme ใน main.dart โดยอัตโนมัติ
       child: ListTile(
-        // --- ส่วนรูปภาพ ---
+        // รูปตัวอย่างวัตถุดิบ
         leading: ClipRRect(
-          borderRadius: BorderRadius.circular(8.0),
+          borderRadius: BorderRadius.circular(8),
           child: Image.network(
             ingredient.imageUrl,
             width: 56,
             height: 56,
             fit: BoxFit.cover,
-            // แสดง Placeholder ขณะโหลดรูป
+            // ขณะโหลดรูป
             loadingBuilder: (context, child, progress) {
               if (progress == null) return child;
               return Container(
                 width: 56,
                 height: 56,
-                color: colorScheme.surfaceVariant,
-                child: const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2)),
+                color: cs.surfaceVariant,
+                alignment: Alignment.center,
+                child: const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               );
             },
-            // แสดง Placeholder เมื่อโหลดรูปไม่สำเร็จ
-            errorBuilder: (_, __, ___) {
-              return Container(
-                width: 56,
-                height: 56,
-                color: colorScheme.surfaceVariant,
-                child: Icon(Icons.image_not_supported_outlined,
-                    color: colorScheme.onSurfaceVariant),
-              );
-            },
+            // โหลดพลาด → แสดงไอคอนแทน
+            errorBuilder: (_, __, ___) => Container(
+              width: 56,
+              height: 56,
+              color: cs.surfaceVariant,
+              alignment: Alignment.center,
+              child: Icon(Icons.image_not_supported_outlined,
+                  color: cs.onSurfaceVariant),
+            ),
           ),
         ),
-        // --- ชื่อวัตถุดิบ ---
+
+        // ชื่อวัตถุดิบ: “ไม่หนา” แต่ขนาดเดิม (titleMedium)
         title: Text(
           ingredient.name,
-          style: textTheme.titleMedium,
+          style: text.titleMedium?.copyWith(fontWeight: FontWeight.w400),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        // --- ปริมาณ + หน่วย ---
-        trailing: RichText(
-          text: TextSpan(
-            //  3. ใช้สไตล์จาก Theme ส่วนกลาง
-            style: textTheme.bodyMedium,
+
+        // จำนวน + หน่วย: “ไม่หนา” แต่ขนาดเดิม (bodyMedium)
+        trailing: Text.rich(
+          TextSpan(
+            style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w400),
             children: [
+              TextSpan(text: quantityText), // ตัวเลข (ไม่หนา)
               TextSpan(
-                text: quantityText,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              TextSpan(
+                // เว้นวรรค + หน่วย
                 text: ' $unitText',
-                style: TextStyle(color: colorScheme.onSurfaceVariant),
+                style: TextStyle(color: cs.onSurfaceVariant),
               ),
             ],
           ),
+          textAlign: TextAlign.right,
         ),
+
+        // ช่องไฟภายใน tile
         contentPadding:
             const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
       ),

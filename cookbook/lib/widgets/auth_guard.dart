@@ -10,37 +10,46 @@ class AuthGuard extends StatefulWidget {
 }
 
 class _AuthGuardState extends State<AuthGuard> {
+  // ★ Added: สถานะตรวจสอบและผลลัพธ์การล็อกอิน
+  bool _checked = false;
+  bool _ok = false;
+  bool _redirected = false;
+
   @override
   void initState() {
     super.initState();
-    _checkAuth();
-  }
+    // ★ Changed: ย้ายลอจิกตรวจ auth มาอยู่ใน post-frame เพื่อกันการเด้งซ้อน/หน้าวาบ
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final ok = await AuthService.isLoggedIn();
+      if (!mounted) return;
+      setState(() {
+        _checked = true;
+        _ok = ok;
+      });
 
-  Future<void> _checkAuth() async {
-    final isLoggedIn = await AuthService.isLoggedIn();
-    if (!isLoggedIn && mounted) {
-      // ใช้ addPostFrameCallback เพื่อให้แน่ใจว่า build เสร็จแล้วก่อน navigate
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!ok && !_redirected) {
+        _redirected = true;
+        // ใช้ addPostFrameCallback เพื่อให้แน่ใจว่า build เสร็จแล้วก่อน navigate
         Navigator.of(context)
             .pushNamedAndRemoveUntil('/login', (route) => false);
-      });
-    }
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: AuthService.isLoggedIn(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.done &&
-            snapshot.data == true) {
-          return widget.child;
-        }
-        // ระหว่างรอ หรือถ้าไม่ได้ Login, แสดง Loading เพื่อรอ Redirect
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
-      },
-    );
+    // ★ Changed: เลิกใช้ FutureBuilder ที่ทำให้เกิดการ build ซ้ำ/แฟลช UI
+    // ระหว่างรอยืนยันผล -> แสดงเปล่า ๆ กันหน้าวาบ
+    if (!_checked) {
+      return const SizedBox.shrink();
+    }
+
+    // ล็อกอินแล้ว -> แสดงเนื้อหา
+    if (_ok) {
+      return widget.child;
+    }
+
+    // ยังไม่ล็อกอินและกำลัง redirect -> ไม่ต้องเรนเดอร์อะไร (กันวาบ)
+    return const SizedBox.shrink();
   }
 }

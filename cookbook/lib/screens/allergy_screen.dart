@@ -6,9 +6,13 @@
 //   • ปรับปรุงการจัดการ Error ให้รองรับ Custom Exception จาก ApiService
 //   • แก้ไข Logic ของ "Undo" ให้ถูกต้อง และปรับ "Add" ให้เป็น Optimistic UI
 //
+// ★ 2025-08-10 – รองรับ “แพ้แบบกลุ่ม” ให้สอดคล้อง backend ใหม่
+//   • โหลดสรุปกลุ่มจาก get_allergy_list.php (field: groups)
+//   • แสดงส่วน “กลุ่มที่แพ้” เป็นชิป ลบได้ครั้งเดียวทั้งกลุ่ม (removeAllergyGroup)
+//   • เพิ่มเมนู “ลบทั้งกลุ่มนี้” จากรายการวัตถุดิบ (long-press / more menu)
+//   • คงพฤติกรรมเดิมการลบทีละรายการไว้ และคอมเมนต์ [OLD] ในส่วนที่เปลี่ยน
 
 import 'dart:async';
-// import 'dart:io'; // 🗑️ ลบออก ไม่ได้ใช้แล้ว
 import 'package:flutter/material.dart';
 
 import '../models/ingredient.dart';
@@ -31,7 +35,16 @@ class _AllergyScreenState extends State<AllergyScreen> {
   bool _loading = true;
 
   final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
   Timer? _debounce;
+
+  String? _errorMessage;
+
+  // ★ NEW: กลุ่มที่ผู้ใช้แพ้ (สรุปจาก backend)
+  //    โครงสร้างดิบจาก ApiService.fetchAllergyGroups():
+  //    [{ group_name, representative_ingredient_id }]
+  List<_GroupSummary> _groups = [];
+  final Set<int> _removingGroupRepIds = {};
 
   @override
   void initState() {
@@ -44,6 +57,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
   void dispose() {
     _debounce?.cancel();
     _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -51,18 +65,50 @@ class _AllergyScreenState extends State<AllergyScreen> {
   /// ✅ 2. ปรับปรุง Error Handling ให้รองรับ Custom Exception
   Future<void> _loadAllergyList() async {
     if (!mounted) return;
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _errorMessage = null; // reset error ก่อนโหลดใหม่
+    });
 
     try {
-      final list = await ApiService.fetchAllergyIngredients();
-      if (mounted) {
-        setState(() {
-          _allergyList = list;
-          _filteredList = _applyFilter(list, _searchCtrl.text);
-        });
-      }
+      // [OLD]
+      // final list = await ApiService.fetchAllergyIngredients();
+
+      // [NEW] โหลด “รายการเดี่ยว” + “สรุปกลุ่ม”
+      final results = await Future.wait([
+        ApiService.fetchAllergyIngredients(), // 0: รายการเดี่ยว
+        ApiService.fetchAllergyGroups(), // 1: สรุปกลุ่ม (ชื่อกลุ่ม + rep_id)
+      ]);
+
+      final list = results[0] as List<Ingredient>;
+      final rawGroups = results[1] as List<Map<String, dynamic>>;
+
+      // ผูกภาพตัวแทนของกลุ่มจาก rep_id กับรายการเดี่ยว ถ้าหาเจอ
+      final imageById = {for (final i in list) i.id: (i.imageUrl ?? '')};
+      final nameById = {for (final i in list) i.id: (i.displayName ?? i.name)};
+
+      final groups = rawGroups.map((g) {
+        final rep = (g['representative_ingredient_id'] is int)
+            ? g['representative_ingredient_id'] as int
+            : int.tryParse('${g['representative_ingredient_id'] ?? 0}') ?? 0;
+        final gn = (g['group_name'] ?? '').toString();
+        final img = imageById[rep];
+        final repName = nameById[rep];
+        return _GroupSummary(
+          groupName: gn,
+          representativeIngredientId: rep,
+          representativeImageUrl: (img != null && img.isNotEmpty) ? img : null,
+          representativeName: repName,
+        );
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _allergyList = _sorted(list);
+        _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+        _groups = groups;
+      });
     } on UnauthorizedException {
-      // ถ้า Session หมดอายุ ให้บังคับ Logout และไปหน้า Login
       await AuthService.logout();
       if (mounted) {
         Navigator.of(context)
@@ -70,8 +116,11 @@ class _AllergyScreenState extends State<AllergyScreen> {
       }
     } on ApiException catch (e) {
       _showError(e.message);
+      if (mounted) setState(() => _errorMessage = e.message);
     } catch (e) {
-      _showError('เกิดข้อผิดพลาดที่ไม่รู้จัก: $e');
+      final m = 'เกิดข้อผิดพลาดที่ไม่รู้จัก: $e';
+      _showError(m);
+      if (mounted) setState(() => _errorMessage = m);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -88,13 +137,15 @@ class _AllergyScreenState extends State<AllergyScreen> {
       _filteredList.removeWhere((e) => e.id == ing.id);
     });
 
+    // กัน SnackBar ซ้อน
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     // แสดง SnackBar พร้อมปุ่ม Undo
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('ลบ “${ing.name}” แล้ว'),
         action: SnackBarAction(
           label: 'เลิกทำ',
-          onPressed: () => _undoRemove(ing), // เรียกฟังก์ชัน Undo
+          onPressed: () => _undoRemove(ing),
         ),
       ),
     );
@@ -102,10 +153,11 @@ class _AllergyScreenState extends State<AllergyScreen> {
     // เรียก API เพื่อลบข้อมูลจริงในเบื้องหลัง
     ApiService.removeAllergy(ing.id).catchError((_) {
       _showError('เกิดข้อผิดพลาด: ไม่สามารถลบ "${ing.name}" ได้');
-      // ถ้าลบไม่สำเร็จ ให้เพิ่มกลับเข้ามาใน List (Rollback)
+      // Rollback
       if (mounted) {
         setState(() {
           _allergyList.add(ing);
+          _allergyList = _sorted(_allergyList);
           _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
         });
       }
@@ -114,10 +166,59 @@ class _AllergyScreenState extends State<AllergyScreen> {
     });
   }
 
+  // ★ NEW: ลบ “ทั้งกลุ่ม” อิงจาก representative_ingredient_id
+  Future<void> _removeAllergyGroup(_GroupSummary g) async {
+    if (_removingGroupRepIds.contains(g.representativeIngredientId)) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ลบทั้งกลุ่ม'),
+        content: Text(
+            'ต้องการลบกลุ่ม “${g.groupName}” ออกจากรายการแพ้ทั้งหมดใช่หรือไม่?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ยกเลิก')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('ลบ')),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    // Optimistic UI: เอาชิปกลุ่มออกก่อน
+    setState(() {
+      _removingGroupRepIds.add(g.representativeIngredientId);
+      _groups.removeWhere(
+          (x) => x.representativeIngredientId == g.representativeIngredientId);
+    });
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('ลบกลุ่ม “${g.groupName}” แล้ว')),
+    );
+
+    try {
+      await ApiService.removeAllergyGroup([g.representativeIngredientId]);
+      // หลังลบจริง โหลดทั้งหน้าใหม่เพื่อให้รายการเดี่ยวตรงกับกลุ่ม
+      await _loadAllergyList();
+    } catch (_) {
+      _showError('เกิดข้อผิดพลาด: ไม่สามารถลบกลุ่ม “${g.groupName}” ได้');
+      // Rollback เฉพาะชิปกลุ่ม (รายการเดี่ยวจะรีเฟรชอยู่ดี)
+      setState(() => _groups.add(g));
+    } finally {
+      setState(() => _removingGroupRepIds.remove(g.representativeIngredientId));
+    }
+  }
+
   Future<void> _undoRemove(Ingredient ing) async {
     // เมื่อกด Undo, ต้องเพิ่มกลับเข้าไปใน List และยิง API เพื่อเพิ่มกลับเข้าไปใน DB ด้วย
     setState(() {
       _allergyList.add(ing);
+      _allergyList = _sorted(_allergyList);
       _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
     });
     try {
@@ -141,16 +242,16 @@ class _AllergyScreenState extends State<AllergyScreen> {
     );
 
     if (picked != null && !_allergyList.any((e) => e.id == picked.id)) {
-      // Optimistic UI: เพิ่มใน UI ทันที ไม่ต้องรอ API และไม่ต้อง reload ทั้ง List
       setState(() {
         _allergyList.add(picked);
+        _allergyList = _sorted(_allergyList);
         _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
       });
       try {
         await ApiService.addAllergy(picked.id);
+        // เคสใช้งานทั่วไป: ถ้าอยาก “เพิ่มทั้งกลุ่ม” ให้ผู้ใช้กดค้างที่รายการแล้วเลือกเมนู
       } catch (e) {
         _showError('เกิดข้อผิดพลาด: ไม่สามารถเพิ่ม "${picked.name}" ได้');
-        // ถ้าเพิ่มไม่สำเร็จ, ให้ลบออกจาก UI (Rollback)
         setState(() {
           _allergyList.removeWhere((e) => e.id == picked.id);
           _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
@@ -159,7 +260,45 @@ class _AllergyScreenState extends State<AllergyScreen> {
     }
   }
 
-  /* ─── search filter (คงเดิม) ─────────────────────────── */
+  // ★ NEW: เมนูจากรายการเดี่ยว → เลือกลบทั้งกลุ่ม (อิงชื่อเดียวกันบน backend)
+  void _showItemActions(Ingredient ing) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('ลบเฉพาะรายการนี้'),
+              onTap: () {
+                Navigator.pop(context);
+                _removeAllergy(ing);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.groups_outlined),
+              title: const Text('ลบทั้งกลุ่มนี้'),
+              subtitle: const Text('ลบทุกวัตถุดิบที่ชื่อกลุ่มเดียวกัน'),
+              onTap: () async {
+                Navigator.pop(context);
+                // ใช้ ingredient_id เดียวกันเป็นตัวแทน (backend จะขยายเป็นกลุ่มตามชื่อ)
+                final g = _GroupSummary(
+                  groupName: ing.displayName ?? ing.name,
+                  representativeIngredientId: ing.id,
+                  representativeImageUrl: ing.imageUrl,
+                  representativeName: ing.displayName ?? ing.name,
+                );
+                await _removeAllergyGroup(g);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /* ─── search filter (คงเดิม + ขยายเงื่อนไข) ──────────────────── */
   void _onSearchChanged() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
@@ -170,10 +309,28 @@ class _AllergyScreenState extends State<AllergyScreen> {
     });
   }
 
+  // ★ Changed: ค้นหาทั้ง name และ displayName (ถ้ามี)
   List<Ingredient> _applyFilter(List<Ingredient> src, String q) {
     final query = q.trim().toLowerCase();
     if (query.isEmpty) return List.from(src);
-    return src.where((i) => i.name.toLowerCase().contains(query)).toList();
+    return src.where((i) {
+      final n = i.name.toLowerCase();
+      final d = (i.displayName ?? '').toLowerCase();
+      return n.contains(query) || d.contains(query);
+    }).toList();
+  }
+
+  // ★ Added: ช่วยจัดเรียงชื่อ A→Z (ใช้ displayName ถ้ามี)
+  List<Ingredient> _sorted(List<Ingredient> src) {
+    final list = List<Ingredient>.from(src);
+    list.sort((a, b) {
+      final ka = (a.displayName?.isNotEmpty == true ? a.displayName! : a.name)
+          .toLowerCase();
+      final kb = (b.displayName?.isNotEmpty == true ? b.displayName! : b.name)
+          .toLowerCase();
+      return ka.compareTo(kb);
+    });
+    return list;
   }
 
   void _showError(String msg) {
@@ -181,38 +338,81 @@ class _AllergyScreenState extends State<AllergyScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  // ★ Added: ซ่อนคีย์บอร์ดสะดวก ๆ
+  void _unfocus() {
+    if (_searchFocus.hasFocus) _searchFocus.unfocus();
+  }
+
   /* ─── build ───────────────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    // ✅ 5. ลบการคำนวณ Responsive ทิ้งทั้งหมด และใช้ Theme จาก Context
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('วัตถุดิบที่แพ้')),
+      appBar: AppBar(
+        title: const Text('วัตถุดิบที่แพ้'),
+        actions: [
+          // [OLD] ไม่มีเมนู
+          // [NEW] ปุ่มช่วยเหลือสั้น ๆ
+          IconButton(
+            tooltip: 'วิธีจัดการกลุ่ม',
+            icon: const Icon(Icons.help_outline),
+            onPressed: () => _showGroupHelp(context),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         tooltip: 'เพิ่มวัตถุดิบที่แพ้',
         onPressed: _onAddAllergy,
         child: const Icon(Icons.add),
       ),
-      body: Column(
-        children: [
-          /* ─── search bar ─── */
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: const InputDecoration(
-                hintText: 'ค้นหาวัตถุดิบที่แพ้…',
-                prefixIcon: Icon(Icons.search),
+      body: GestureDetector(
+        onTap: _unfocus,
+        behavior: HitTestBehavior.translucent,
+        child: Column(
+          children: [
+            /* ─── search bar ─── */
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                focusNode: _searchFocus,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _unfocus(),
+                decoration: InputDecoration(
+                  hintText: 'ค้นหาวัตถุดิบที่แพ้…',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: (_searchCtrl.text.isNotEmpty)
+                      ? IconButton(
+                          tooltip: 'ล้างคำค้นหา',
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() =>
+                                _filteredList = _applyFilter(_allergyList, ''));
+                            _unfocus();
+                          },
+                        )
+                      : null,
+                ),
               ),
             ),
-          ),
-          /* ─── list / empty / loading ─── */
-          Expanded(
-            child: _buildBody(theme, textTheme),
-          ),
-        ],
+
+            // ★ NEW: ส่วน “กลุ่มที่แพ้” (สรุปจาก backend)
+            if (_groups.isNotEmpty)
+              _AllergyGroupsSection(
+                groups: _groups,
+                removingRepIds: _removingGroupRepIds,
+                onRemoveGroup: _removeAllergyGroup,
+              ),
+
+            /* ─── list / empty / loading ─── */
+            Expanded(
+              child: _buildBody(theme, textTheme),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -221,63 +421,120 @@ class _AllergyScreenState extends State<AllergyScreen> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
+
+    // ★ Added: แสดง retry UI เมื่อมี error
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_errorMessage!, textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: _loadAllergyList,
+              icon: const Icon(Icons.refresh),
+              label: const Text('ลองอีกครั้ง'),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (_allergyList.isEmpty) {
-      // เช็คจาก List หลัก
       return _buildEmptyState(textTheme);
     }
-    // แสดงผลว่าไม่พบจากการค้นหา
     if (_searchCtrl.text.isNotEmpty && _filteredList.isEmpty) {
-      return const Center(child: Text('ไม่พบผลการค้นหา'));
+      return Center(child: Text('ไม่พบผลการค้นหา “${_searchCtrl.text}”'));
     }
 
     return RefreshIndicator(
       onRefresh: _loadAllergyList,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(
-            16, 8, 16, 80), // เพิ่ม padding ด้านล่างเผื่อ FAB
-        itemCount: _filteredList.length,
-        itemBuilder: (_, i) {
-          final ing = _filteredList[i];
-          final isRemoving = _removingIds.contains(ing.id);
+      child: Scrollbar(
+        child: ListView.builder(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+          itemCount: _filteredList.length,
+          itemBuilder: (_, i) {
+            final ing = _filteredList[i];
+            final isRemoving = _removingIds.contains(ing.id);
 
-          return Dismissible(
-            key: ValueKey(ing.id),
-            direction: DismissDirection.endToStart,
-            background: Container(
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 20),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.error,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.delete, color: Colors.white),
-            ),
-            onDismissed: (_) => _removeAllergy(ing),
-            child: Card(
-              elevation: 1.5,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              child: ListTile(
-                leading: CircleAvatar(
-                  radius: 24,
-                  backgroundImage: NetworkImage(ing.imageUrl),
-                  onBackgroundImageError: (_, __) {}, // จัดการ error ของรูปภาพ
+            return Dismissible(
+              key: ValueKey(ing.id),
+              direction: DismissDirection.endToStart,
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.error,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                title: Text(ing.name, style: textTheme.titleMedium),
-                subtitle: (ing.displayName?.isNotEmpty ?? false)
-                    ? Text(ing.displayName!)
-                    : null,
-                trailing: isRemoving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : null,
+                child: const Icon(Icons.delete, color: Colors.white),
               ),
-            ),
-          );
-        },
+              onDismissed: (_) => _removeAllergy(ing),
+              child: Semantics(
+                label: 'วัตถุดิบที่แพ้ ${ing.name}',
+                child: Card(
+                  elevation: 1.5,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  margin: const EdgeInsets.symmetric(vertical: 6),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      radius: 24,
+                      backgroundImage: _avatarProvider(ing.imageUrl),
+                      onBackgroundImageError: (_, __) {},
+                    ),
+                    title: Text(ing.name, style: textTheme.titleMedium),
+                    subtitle: (ing.displayName?.isNotEmpty ?? false)
+                        ? Text(ing.displayName!)
+                        : null,
+                    trailing: isRemoving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : PopupMenuButton<String>(
+                            tooltip: 'ตัวเลือก',
+                            onSelected: (key) {
+                              if (key == 'remove_one') {
+                                _removeAllergy(ing);
+                              } else if (key == 'remove_group') {
+                                _showItemActions(ing);
+                              }
+                            },
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(
+                                value: 'remove_one',
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(Icons.delete_outline),
+                                  title: Text('ลบเฉพาะรายการนี้'),
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: 'remove_group',
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(Icons.groups_outlined),
+                                  title: Text('ลบทั้งกลุ่มนี้'),
+                                  subtitle:
+                                      Text('ลบทุกวัตถุดิบที่ชื่อกลุ่มเดียวกัน'),
+                                ),
+                              ),
+                            ],
+                          ),
+                    // [OLD]
+                    // trailing: IconButton(
+                    //   tooltip: 'ลบออกจากรายการแพ้',
+                    //   icon: const Icon(Icons.delete_outline),
+                    //   onPressed: () => _removeAllergy(ing),
+                    // ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -294,6 +551,120 @@ class _AllergyScreenState extends State<AllergyScreen> {
           const SizedBox(height: 8),
           Text('คุณสามารถเพิ่มได้โดยกดปุ่มบวก',
               style: textTheme.bodyMedium?.copyWith(color: Colors.grey[600])),
+        ],
+      ),
+    );
+  }
+
+  // ★ Added: ตัวช่วยเลือกรูปรองรับ URL ว่าง → asset fallback
+  ImageProvider _avatarProvider(String? url) {
+    if (url == null || url.isEmpty) {
+      return const AssetImage('assets/images/default_ingredient.png');
+    }
+    return NetworkImage(url);
+  }
+
+  void _showGroupHelp(BuildContext ctx) {
+    final tt = Theme.of(ctx).textTheme;
+    showModalBottomSheet(
+      context: ctx,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('จัดการแบบกลุ่ม', style: tt.titleLarge),
+            const SizedBox(height: 12),
+            Text(
+                'คุณสามารถลบทั้งกลุ่มได้จากส่วน “กลุ่มที่แพ้” หรือกดที่จุดสามจุดของแต่ละรายการแล้วเลือก “ลบทั้งกลุ่มนี้”.',
+                style: tt.bodyMedium),
+            const SizedBox(height: 8),
+            Text(
+                'การลบแบบกลุ่มจะลบวัตถุดิบทั้งหมดที่อยู่ในกลุ่มชื่อเดียวกันให้โดยอัตโนมัติ.',
+                style: tt.bodyMedium),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ──────────────────────────────
+ * Internal view models / widgets
+ * ────────────────────────────── */
+
+class _GroupSummary {
+  final String groupName;
+  final int representativeIngredientId;
+  final String? representativeImageUrl;
+  final String? representativeName;
+
+  const _GroupSummary({
+    required this.groupName,
+    required this.representativeIngredientId,
+    this.representativeImageUrl,
+    this.representativeName,
+  });
+}
+
+class _AllergyGroupsSection extends StatelessWidget {
+  final List<_GroupSummary> groups;
+  final Set<int> removingRepIds;
+  final Future<void> Function(_GroupSummary) onRemoveGroup;
+
+  const _AllergyGroupsSection({
+    required this.groups,
+    required this.removingRepIds,
+    required this.onRemoveGroup,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (groups.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('กลุ่มที่แพ้',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: groups.map((g) {
+              final busy =
+                  removingRepIds.contains(g.representativeIngredientId);
+              return InputChip(
+                label: Text(g.groupName),
+                avatar: g.representativeImageUrl != null
+                    ? CircleAvatar(
+                        backgroundImage:
+                            NetworkImage(g.representativeImageUrl!))
+                    : const CircleAvatar(child: Icon(Icons.groups)),
+                onDeleted: busy ? null : () => onRemoveGroup(g),
+                deleteIcon: busy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.close),
+                side: BorderSide(color: cs.error),
+                backgroundColor: cs.errorContainer.withOpacity(.15),
+                labelStyle: TextStyle(
+                    color: cs.onErrorContainer, fontWeight: FontWeight.w600),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
         ],
       ),
     );

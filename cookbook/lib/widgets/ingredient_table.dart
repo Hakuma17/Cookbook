@@ -22,6 +22,14 @@ class IngredientTable extends StatefulWidget {
 class _IngredientTableState extends State<IngredientTable> {
   bool _isExpanded = false;
 
+  // ★ Added: util ตัดศูนย์ทศนิยมเกินจำเป็น (0.50 → 0.5, 2.00 → 2)
+  String _trimZeros(String s) {
+    if (!s.contains('.')) return s;
+    s = s.replaceFirstMapped(RegExp(r'([.]\d*?)0+$'), (m) => m.group(1)!);
+    s = s.replaceFirst(RegExp(r'[.]$'), '');
+    return s;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.items.isEmpty || widget.baseServings <= 0) {
@@ -85,9 +93,11 @@ class _IngredientTableState extends State<IngredientTable> {
 
     // คำนวณปริมาณตามจำนวนเสิร์ฟ
     final adjustedQuantity = item.quantity * scaleFactor;
+
+    // ★ Changed: ตัดศูนย์ทศนิยมเกินจำเป็น
     final quantityString = adjustedQuantity % 1 == 0
         ? adjustedQuantity.toInt().toString()
-        : adjustedQuantity.toStringAsFixed(2);
+        : _trimZeros(adjustedQuantity.toStringAsFixed(2));
 
     final textColor = isFaded
         ? colorScheme.onSurface.withOpacity(0.5)
@@ -125,12 +135,14 @@ class _IngredientTableState extends State<IngredientTable> {
   }
 
   Widget _buildExpandButton(ThemeData theme) {
+    // ★ Changed: ปรับข้อความตามสถานะ (ดูทั้งหมด/ย่อ)
+    final label = _isExpanded ? 'ย่อ' : 'ดูทั้งหมด';
     return TextButton.icon(
       onPressed: () => setState(() => _isExpanded = !_isExpanded),
       icon: Icon(
         _isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
       ),
-      label: const Text('ดูเพิ่มเติม'), // ข้อความนี้ไม่จำเป็นต้องหนา
+      label: Text(label), // ข้อความนี้ไม่จำเป็นต้องหนา
       style: TextButton.styleFrom(
         foregroundColor: theme.colorScheme.primary,
         alignment: Alignment.centerLeft,

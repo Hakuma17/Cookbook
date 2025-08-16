@@ -25,7 +25,6 @@ class Comment extends Equatable {
 
   /* ───────────────────────── factory ───────────────────────── */
 
-  /// 1. เปลี่ยนมาใช้ JsonParser จากส่วนกลาง
   factory Comment.fromJson(Map<String, dynamic> json) {
     return Comment(
       userId: JsonParser.parseInt(json['user_id']),
@@ -54,7 +53,7 @@ class Comment extends Equatable {
 
   /* ───────────────────────── helpers ───────────────────────── */
 
-  /// 2. ปรับปรุง copyWith ให้รองรับการตั้งค่าเป็น null
+  /// รองรับตั้งค่าเป็น null ด้วย ValueGetter
   Comment copyWith({
     ValueGetter<int?>? userId,
     ValueGetter<String?>? profileName,
@@ -90,7 +89,7 @@ class Comment extends Equatable {
   /// มีเนื้อความจริง ๆ ให้แสดงผล
   bool get hasContent => comment != null && comment!.trim().isNotEmpty;
 
-  ///  3. เพิ่ม props สำหรับ Equatable
+  /// Equatable props
   @override
   List<Object?> get props => [
         userId,

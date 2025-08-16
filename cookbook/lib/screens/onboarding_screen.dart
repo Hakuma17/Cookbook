@@ -1,22 +1,7 @@
+// lib/screens/onboarding_screen.dart
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 
-// ✅ 1. ย้ายการจัดการ SharedPreferences ไปไว้ใน AuthService
-// import 'package:shared_preferences/shared_preferences.dart';
-
-// ✅ 2. เปลี่ยนไปใช้ Named Routes เพื่อความสอดคล้อง
-// import 'home_screen.dart';
-// import 'welcome_screen.dart';
-
-/* ────────────────────────────────────────────────────────────────────────── */
-/* สี / สไตล์แบรนด์ (ถูกลบออกไป เพราะจะใช้ Theme จาก context แทน)             */
-/* ────────────────────────────────────────────────────────────────────────── */
-// const _brand = Color(0xFFFFC08D);
-// ...
-
-/* ────────────────────────────────────────────────────────────────────────── */
-/* โมเดลข้อมูลของแต่ละสไลด์ (โครงสร้างดีอยู่แล้ว คงเดิม)                       */
-/* ────────────────────────────────────────────────────────────────────────── */
 class _FeatureIntroPageData {
   final String title;
   final String? subtitleAccent;
@@ -38,9 +23,6 @@ class _StepCalloutData {
   const _StepCalloutData(this.number, this.text, {this.bulletColor});
 }
 
-/* ────────────────────────────────────────────────────────────────────────── */
-/* OnboardingScreen                                                          */
-/* ────────────────────────────────────────────────────────────────────────── */
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -78,21 +60,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  /* ────────────────────────── DATA: เพจต่าง ๆ ────────────────────────── */
   List<_FeatureIntroPageData> _buildPages() {
     return [
       _FeatureIntroPageData(
         title: 'ค้นหาสูตรอาหารได้ตรงใจ',
         subtitleAccent: 'พิมพ์คำค้น + กรองเฉพาะวัตถุดิบที่อยากใช้',
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/onboarding/ob_search.png'),
+            _IllustrationImage('assets/onboarding/ob_search.png'),
       ),
       _FeatureIntroPageData(
         title: 'ค้นหาสูตรด้วยภาพถ่ายวัตถุดิบ',
         subtitleAccent: 'ถ่ายรูปวัตถุดิบในครัว แล้วเราช่วยแนะนำเมนู',
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/onboarding/ob_scan.png'),
-        steps: const [
+            _IllustrationImage('assets/onboarding/ob_scan.png'),
+        steps: [
           _StepCalloutData(1, 'กดไอคอนกล้องในแถบค้นหา'),
           _StepCalloutData(2, 'ถ่ายรูปหรือเลือกจากคลังภาพ'),
           _StepCalloutData(3, 'ดูสูตรอาหารที่แนะนำ'),
@@ -102,114 +83,128 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         title: 'จัดการรายการแพ้อาหาร',
         subtitleAccent: 'เราจะช่วยเตือนและกรองสูตรที่ไม่เหมาะกับคุณ',
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/onboarding/ob_allergy.png'),
+            _IllustrationImage('assets/onboarding/ob_allergy.png'),
       ),
       _FeatureIntroPageData(
         title: 'สร้างคลังสูตรของฉัน',
         subtitleAccent: 'บันทึกสูตรที่ชอบ เพิ่มสูตรของคุณเอง',
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/onboarding/ob_myrecipes.png'),
+            _IllustrationImage('assets/onboarding/ob_myrecipes.png'),
       ),
       _FeatureIntroPageData(
         title: 'พร้อมอร่อยไปกับเราแล้วหรือยัง?',
         subtitleAccent: null,
         illustrationBuilder: (_) =>
-            const _IllustrationImage('assets/onboarding/ob_ready.png'),
+            _IllustrationImage('assets/onboarding/ob_ready.png'),
       ),
     ];
   }
 
-  /* ────────────────────────── ACTIONS ────────────────────────── */
   bool get _isLastPage => _index == _pages.length - 1;
 
   void _next() {
     if (_isLastPage) {
-      _finish(wantsToSignUp: !_loggedIn); // ถ้ายังไม่ล็อกอินถือว่าอยากสมัคร
+      _finish(wantsToSignUp: !_loggedIn);
     } else {
       _pc.nextPage(
-          duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     }
   }
 
-  void _skip() {
-    _finish(wantsToSignUp: false);
-  }
+  void _skip() => _finish(wantsToSignUp: false);
 
-  /// ✅ 3. ปรับปรุง `_finish` ให้เรียกใช้ Service และ Named Routes
   Future<void> _finish({required bool wantsToSignUp}) async {
-    // ย้ายการบันทึกค่า "เคยเห็น Onboarding แล้ว" ไปไว้ที่ Service
     await AuthService.setOnboardingComplete();
     if (!mounted) return;
 
-    String destinationRoute;
-    if (wantsToSignUp) {
-      destinationRoute = '/welcome'; // ไปหน้า Welcome/Register/Login
-    } else {
-      // ถ้ากดข้าม หรือเป็นผู้ใช้ที่เคย login แล้ว ให้ไปหน้า Home
-      destinationRoute = _loggedIn ? '/home' : '/welcome';
-    }
+    final destinationRoute =
+        wantsToSignUp ? '/welcome' : (_loggedIn ? '/home' : '/welcome');
 
     Navigator.of(context).pushReplacementNamed(destinationRoute);
   }
 
-  /* ────────────────────────── UI BUILD ────────────────────────── */
   @override
   Widget build(BuildContext context) {
-    // ✅ 4. ใช้ Theme จาก context
     final theme = Theme.of(context);
     final isLast = _isLastPage;
     final mainButtonLabel = isLast
         ? (_loggedIn ? 'เริ่มใช้งาน' : 'สมัครสมาชิก / เข้าสู่ระบบ')
         : 'ต่อไป';
-    final secondaryButtonLabel = 'ข้าม';
+
+    final bottomSafe = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            Expanded(
-              child: PageView.builder(
-                controller: _pc,
-                itemCount: _pages.length,
-                onPageChanged: (i) => setState(() => _index = i),
-                itemBuilder: (context, i) => _FeatureIntroPage(_pages[i]),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _Dots(
-              count: _pages.length,
-              index: _index,
-              activeColor: theme.colorScheme.primary,
-              inactiveColor: theme.colorScheme.surfaceVariant,
-            ),
-            const SizedBox(height: 24),
-            // ✅ 5. ปรับปรุงปุ่มให้ดึงสไตล์จาก Theme
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: _loadingLogin ? null : _next,
-                      child: Text(mainButtonLabel),
-                    ),
+            Column(
+              children: [
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pc,
+                    physics: _loadingLogin
+                        ? const NeverScrollableScrollPhysics()
+                        : null,
+                    itemCount: _pages.length,
+                    onPageChanged: (i) => setState(() => _index = i),
+                    itemBuilder: (context, i) => _FeatureIntroPage(_pages[i]),
                   ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: OutlinedButton(
-                      onPressed: _loadingLogin ? null : _skip,
-                      child: Text(secondaryButtonLabel),
-                    ),
+                ),
+                const SizedBox(height: 16),
+                _Dots(
+                  count: _pages.length,
+                  index: _index,
+                  activeColor: theme.colorScheme.primary,
+                  inactiveColor: theme.colorScheme.surfaceVariant,
+                  onDotTap: (i) => _pc.animateToPage(
+                    i,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOut,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 24),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(32, 0, 32, 16 + bottomSafe),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: _loadingLogin ? null : _next,
+                          child: Text(mainButtonLabel),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: OutlinedButton(
+                          onPressed: _loadingLogin ? null : _skip,
+                          child: const Text('ข้าม'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 32),
+
+            // overlay ระหว่างเช็คสถานะล็อกอินครั้งแรก
+            if (_loadingLogin)
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: true,
+                  child: Container(
+                    color: theme.colorScheme.surface.withOpacity(0.4),
+                    alignment: Alignment.center,
+                    child: const CircularProgressIndicator(),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -217,9 +212,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────── */
-/* วิดเจ็ตเพจย่อย (ปรับปรุงให้ Responsive และใช้ Theme)                      */
-/* ────────────────────────────────────────────────────────────────────────── */
+/* ───────────── Pages ───────────── */
+
 class _FeatureIntroPage extends StatelessWidget {
   final _FeatureIntroPageData data;
   const _FeatureIntroPage(this.data);
@@ -234,31 +228,33 @@ class _FeatureIntroPage extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
       child: Column(
         children: [
-          // ส่วนของข้อความ
-          Text(data.title,
+          Semantics(
+            header: true,
+            child: Text(
+              data.title,
               textAlign: TextAlign.center,
               style: textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.bold)),
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+          ),
           if (data.subtitleAccent != null) ...[
             const SizedBox(height: 12),
-            Text(data.subtitleAccent!,
-                textAlign: TextAlign.center,
-                style: textTheme.titleMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                )),
+            Text(
+              data.subtitleAccent!,
+              textAlign: TextAlign.center,
+              style: textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
           const SizedBox(height: 24),
-
-          // ส่วนของรูปภาพ (ให้ยืดหยุ่นตามพื้นที่ที่เหลือ)
           Expanded(
             child: FractionallySizedBox(
               widthFactor: 0.9,
               child: data.illustrationBuilder(context),
             ),
           ),
-
-          // ส่วนของขั้นตอน (ถ้ามี)
           if (showSteps) ...[
             const SizedBox(height: 24),
             _StepCalloutList(data.steps!),
@@ -269,30 +265,30 @@ class _FeatureIntroPage extends StatelessWidget {
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────── */
-/* รูปประกอบ                                                                  */
-/* ────────────────────────────────────────────────────────────────────────── */
 class _IllustrationImage extends StatelessWidget {
   final String asset;
   const _IllustrationImage(this.asset);
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(asset, fit: BoxFit.contain, errorBuilder: (_, __, ___) {
-      return Container(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        alignment: Alignment.center,
-        child: Text('ไม่สามารถโหลดรูปภาพได้',
-            style: TextStyle(
-                color: Theme.of(context).colorScheme.onSecondaryContainer)),
-      );
-    });
+    return Image.asset(
+      asset,
+      fit: BoxFit.contain,
+      errorBuilder: (_, __, ___) {
+        final cs = Theme.of(context).colorScheme;
+        return Container(
+          color: cs.secondaryContainer,
+          alignment: Alignment.center,
+          child: Text(
+            'ไม่สามารถโหลดรูปภาพได้',
+            style: TextStyle(color: cs.onSecondaryContainer),
+          ),
+        );
+      },
+    );
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────── */
-/* Step Callouts                                                             */
-/* ────────────────────────────────────────────────────────────────────────── */
 class _StepCalloutList extends StatelessWidget {
   final List<_StepCalloutData> steps;
   const _StepCalloutList(this.steps);
@@ -324,14 +320,18 @@ class _StepCallout extends StatelessWidget {
           CircleAvatar(
             radius: 12,
             backgroundColor: color.withOpacity(0.15),
-            child: Text('${data.number}',
-                style: theme.textTheme.labelSmall
-                    ?.copyWith(color: color, fontWeight: FontWeight.bold)),
+            child: Text(
+              '${data.number}',
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: color, fontWeight: FontWeight.bold),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(data.text,
-                style: theme.textTheme.bodyMedium?.copyWith(height: 1.3)),
+            child: Text(
+              data.text,
+              style: theme.textTheme.bodyMedium?.copyWith(height: 1.3),
+            ),
           ),
         ],
       ),
@@ -339,19 +339,19 @@ class _StepCallout extends StatelessWidget {
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────── */
-/* จุดบอกหน้าสไลด์                                                            */
-/* ────────────────────────────────────────────────────────────────────────── */
 class _Dots extends StatelessWidget {
   final int count;
   final int index;
   final Color activeColor;
-  final Color inactiveColor; // รับสี Inactive จากภายนอก
+  final Color inactiveColor;
+  final ValueChanged<int>? onDotTap;
+
   const _Dots({
     required this.count,
     required this.index,
     required this.activeColor,
     required this.inactiveColor,
+    this.onDotTap,
   });
 
   @override
@@ -360,15 +360,23 @@ class _Dots extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(count, (i) {
         final isActive = i == index;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: isActive ? 12 : 8,
-          height: isActive ? 12 : 8,
-          decoration: BoxDecoration(
-            color: isActive ? activeColor : inactiveColor,
-            shape: BoxShape.circle,
+        return Semantics(
+          label: 'สไลด์ที่ ${i + 1} จาก $count',
+          selected: isActive,
+          button: true,
+          child: GestureDetector(
+            onTap: onDotTap == null ? null : () => onDotTap!(i),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              width: isActive ? 12 : 8,
+              height: isActive ? 12 : 8,
+              decoration: BoxDecoration(
+                color: isActive ? activeColor : inactiveColor,
+                shape: BoxShape.circle,
+              ),
+            ),
           ),
         );
       }),

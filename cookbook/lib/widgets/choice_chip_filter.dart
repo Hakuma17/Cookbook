@@ -9,16 +9,35 @@ class FilterOption {
   const FilterOption(this.label, this.key);
 }
 
+/// โหมดการแสดงผลของ ChoiceChipFilter
+/// - single: ชิปตัวเลือกแบบเลือกได้ครั้งละ 1 รายการ (เดิม)
+/// - group: แสดงชิปกลุ่มวัตถุดิบ 2 กลุ่ม (ต้องมี / ไม่เอา) พร้อมปุ่มลบ
+enum ChipFilterMode { single, group }
+
 class ChoiceChipFilter extends StatefulWidget {
+  /// ใช้ในโหมด single (เดิม)
   final List<FilterOption> options;
   final int initialIndex;
   final void Function(int index, String key)? onChanged;
+
+  /// ใช้ในโหมด group (ใหม่)
+  final ChipFilterMode mode;
+  final List<String> includeGroups;
+  final List<String> excludeGroups;
+  final void Function(List<String> includeGroups, List<String> excludeGroups)?
+      onGroupsChanged;
+  final bool deletable;
 
   const ChoiceChipFilter({
     super.key,
     required this.options,
     this.initialIndex = 0,
     this.onChanged,
+    this.mode = ChipFilterMode.single,
+    this.includeGroups = const [],
+    this.excludeGroups = const [],
+    this.onGroupsChanged,
+    this.deletable = true,
   });
 
   @override
@@ -31,55 +50,51 @@ class _ChoiceChipFilterState extends State<ChoiceChipFilter> {
   @override
   void initState() {
     super.initState();
-    _selectedIndex = widget.initialIndex.clamp(0, widget.options.length - 1);
+    _selectedIndex = widget.initialIndex
+        .clamp(0, widget.options.isEmpty ? 0 : widget.options.length - 1);
   }
 
-  // ทำให้ค่าจาก parent sync ลงชิปได้ตลอด
+  // ทำให้ค่าจาก parent sync ลงชิปได้ตลอด (เฉพาะโหมด single)
   @override
   void didUpdateWidget(covariant ChoiceChipFilter oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // ถ้า parent เปลี่ยน initialIndex
-    if (widget.initialIndex != oldWidget.initialIndex) {
-      setState(() {
-        _selectedIndex =
-            widget.initialIndex.clamp(0, widget.options.length - 1);
-      });
-    }
+    if (widget.mode == ChipFilterMode.single) {
+      // ถ้า parent เปลี่ยน initialIndex
+      if (widget.initialIndex != oldWidget.initialIndex) {
+        setState(() {
+          _selectedIndex = widget.initialIndex
+              .clamp(0, widget.options.isEmpty ? 0 : widget.options.length - 1);
+        });
+      }
 
-    // ถ้า parent เปลี่ยนจำนวน options (เช่น ภาษาที่ต่างกัน) ★B
-    if (widget.options.length != oldWidget.options.length &&
-        _selectedIndex >= widget.options.length) {
-      setState(() => _selectedIndex = 0);
+      // ถ้า parent เปลี่ยนจำนวน options (เช่น ภาษาที่ต่างกัน) ★B
+      if (widget.options.length != oldWidget.options.length &&
+          _selectedIndex >= widget.options.length) {
+        setState(() => _selectedIndex = 0);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
+    if (widget.mode == ChipFilterMode.group) {
+      return _buildGroupMode(context);
+    }
 
-    // 🔸 ถ้าชิปเยอะมาก ๆ บนจอใหญ่ อาจเปลี่ยนจาก Row → Wrap
-    //     ให้ชิปขึ้นบรรทัดใหม่ได้ (เปิดคอมเมนต์ถ้าต้องการ) ★C
-    //
-    // return Wrap(
-    //   spacing: 8,
-    //   runSpacing: 4,
-    //   children: List.generate(widget.options.length, _buildChip),
-    // );
-
+    // ── โหมด single (เดิม) ─────────────────────────────────────
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Row(
-        children: List.generate(widget.options.length, _buildChip),
+        children: List.generate(widget.options.length, _buildChipSingle),
       ),
     );
   }
 
-  /* ---------- helper ---------- */
+  /* ---------- โหมด single: helper ---------- */
 
-  Widget _buildChip(int index) {
+  Widget _buildChipSingle(int index) {
     final option = widget.options[index];
     final isSelected = index == _selectedIndex;
     final theme = Theme.of(context);
@@ -105,6 +120,113 @@ class _ChoiceChipFilterState extends State<ChoiceChipFilter> {
             widget.onChanged?.call(index, option.key);
           }
         },
+      ),
+    );
+  }
+
+  /* ---------- โหมด group: UI ---------- */
+
+  Widget _buildGroupMode(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final include = List<String>.from(widget.includeGroups);
+    final exclude = List<String>.from(widget.excludeGroups);
+
+    if (include.isEmpty && exclude.isEmpty) {
+      // ไม่มีชิปให้แสดง → คืนกล่องว่าง (ให้หน้าพ่อจัดการ empty state เอง)
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (include.isNotEmpty) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: include
+                  .map((g) => _GroupChip(
+                        text: g,
+                        bg: cs.secondaryContainer,
+                        fg: cs.onSecondaryContainer,
+                        deletable: widget.deletable,
+                        onDelete: widget.deletable
+                            ? () {
+                                final nextInclude = List<String>.from(include)
+                                  ..remove(g);
+                                widget.onGroupsChanged?.call(
+                                  nextInclude,
+                                  exclude,
+                                );
+                              }
+                            : null,
+                        semanticPrefix: 'ต้องมี(กลุ่ม) ',
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 6),
+          ],
+          if (exclude.isNotEmpty)
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: exclude
+                  .map((g) => _GroupChip(
+                        text: g,
+                        bg: cs.tertiaryContainer,
+                        fg: cs.onTertiaryContainer,
+                        deletable: widget.deletable,
+                        onDelete: widget.deletable
+                            ? () {
+                                final nextExclude = List<String>.from(exclude)
+                                  ..remove(g);
+                                widget.onGroupsChanged?.call(
+                                  include,
+                                  nextExclude,
+                                );
+                              }
+                            : null,
+                        semanticPrefix: 'ไม่เอา(กลุ่ม) ',
+                      ))
+                  .toList(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/* ---------- โหมด group: ชิปเดี่ยว ---------- */
+class _GroupChip extends StatelessWidget {
+  const _GroupChip({
+    required this.text,
+    required this.bg,
+    required this.fg,
+    required this.deletable,
+    this.onDelete,
+    this.semanticPrefix = '',
+  });
+
+  final String text;
+  final Color bg;
+  final Color fg;
+  final bool deletable;
+  final VoidCallback? onDelete;
+  final String semanticPrefix;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '$semanticPrefix$text',
+      button: deletable,
+      child: Chip(
+        label: Text(text),
+        backgroundColor: bg,
+        labelStyle: TextStyle(color: fg, fontWeight: FontWeight.w600),
+        deleteIcon: deletable ? const Icon(Icons.close, size: 16) : null,
+        onDeleted: deletable ? onDelete : null,
+        side: BorderSide(color: fg.withOpacity(.35)),
       ),
     );
   }

@@ -13,28 +13,29 @@ class CommentInputField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
 
-    // ✅ 2. ใช้ Material -> InkWell -> Container เพื่อสร้างปุ่มที่สวยงามและตอบสนอง
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Material(
-        // ใช้สีและ shape จาก Theme ของ Card
+        // สี/ทรง ให้ไปตาม CardTheme ถ้ามี
         color: theme.cardTheme.color ?? colorScheme.surface,
+        surfaceTintColor:
+            theme.cardTheme.surfaceTintColor ?? Colors.transparent,
         shape: theme.cardTheme.shape ??
             RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(28.0), // ทำให้เป็นทรงแคปซูล
+              borderRadius: BorderRadius.circular(28.0), // ทรงแคปซูล
             ),
-        clipBehavior: Clip.antiAlias, // ทำให้ InkWell อยู่ในขอบเขตของ shape
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          borderRadius: BorderRadius.circular(28.0),
           child: Container(
-            height: 52, // กำหนดความสูงคงที่
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            // ✅ 3. ใช้สีเส้นขอบและสไตล์จาก Theme
+            // เดิมเป็น height: 52 → ใช้ minHeight เพื่อกันล้นแนวตั้ง
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
             decoration: BoxDecoration(
               border: Border.all(color: colorScheme.outline.withOpacity(0.5)),
               borderRadius: BorderRadius.circular(28.0),
@@ -45,13 +46,22 @@ class CommentInputField extends StatelessWidget {
                 Icon(
                   Icons.edit_outlined,
                   size: 20,
-                  color: colorScheme.onSurfaceVariant, // สีไอคอนที่เหมาะสม
+                  color: colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  label,
-                  style: textTheme.bodyLarge?.copyWith(
-                    color: colorScheme.onSurfaceVariant, // สีข้อความที่เหมาะสม
+                // ⬇️ ป้องกันล้นขอบขวา
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textWidthBasis: TextWidthBasis.parent,
+                    style:
+                        (textTheme.bodyLarge ?? const TextStyle(fontSize: 16))
+                            .copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.2, // ให้แน่นขึ้นเล็กน้อย
+                    ),
                   ),
                 ),
               ],

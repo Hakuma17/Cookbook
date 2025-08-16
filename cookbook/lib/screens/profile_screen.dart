@@ -1,7 +1,5 @@
 // lib/screens/profile_screen.dart
-
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:cookbook/services/auth_service.dart';
 import 'package:cookbook/services/api_service.dart';
@@ -22,7 +20,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _profileImageUrl;
   List<Ingredient> _allergyList = [];
 
-  // ★ 1. เพิ่ม State สำหรับเก็บสถานะการล็อกอิน (เพื่อความสอดคล้อง)
   bool _isLoggedIn = false;
   late Future<void> _initFuture;
   String? _errorMessage;
@@ -46,14 +43,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await _handleLogout();
     } on ApiException catch (e) {
       if (mounted) setState(() => _errorMessage = e.message);
-    } catch (e) {
-      if (mounted)
+    } catch (_) {
+      if (mounted) {
         setState(() => _errorMessage = 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
+      }
+    }
+  }
+
+  /// รวม baseUrl อย่างปลอดภัย ไม่เกิด // ซ้อน และกันค่าว่าง
+  String? _composeFullUrl(String? maybePath) {
+    if (maybePath == null || maybePath.isEmpty) return null;
+    if (maybePath.startsWith('http')) return maybePath;
+    try {
+      return Uri.parse(ApiService.baseUrl).resolve(maybePath).toString();
+    } catch (_) {
+      return maybePath;
     }
   }
 
   Future<void> _loadProfile() async {
-    // ★ 2. ดึงสถานะ isLoggedIn มาพร้อมกับข้อมูล Profile
     final data = await AuthService.getLoginData();
     if (!mounted) return;
 
@@ -61,19 +69,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final rawEmail = (data['email'] ?? '').toString().trim();
     final rawImage = (data['profileImage'] ?? '').toString();
 
-    String? fullImage;
-    if (rawImage.isNotEmpty) {
-      fullImage = rawImage.startsWith('http')
-          ? rawImage
-          : '${ApiService.baseUrl}$rawImage';
-    }
-
     setState(() {
-      // หน้านี้ถูกป้องกันด้วย AuthGuard ดังนั้น isLoggedIn จะเป็น true เสมอ
-      _isLoggedIn = data['isLoggedIn'] ?? false;
+      _isLoggedIn = data['isLoggedIn'] ?? true; // หน้านี้อยู่หลัง AuthGuard
       _username = rawName.isEmpty ? 'ผู้ใช้' : rawName;
       _email = rawEmail;
-      _profileImageUrl = fullImage;
+      _profileImageUrl = _composeFullUrl(rawImage);
     });
   }
 
@@ -82,18 +82,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted) return;
 
     final adjustedList = list.map((ing) {
-      final imgUrl = ing.imageUrl;
-      if (imgUrl.startsWith('http')) {
-        return ing;
-      }
-      final fullUrl = '${ApiService.baseUrl}$imgUrl';
-      return ing.copyWith(imageUrl: fullUrl);
+      final full = _composeFullUrl(ing.imageUrl);
+      return ing.copyWith(imageUrl: full ?? '');
     }).toList();
 
     setState(() => _allergyList = adjustedList);
   }
 
   Future<void> _handleLogout() async {
+    // กัน Snack ซ้อนๆ
+    if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
     await AuthService.logout();
     if (mounted) {
       Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
@@ -103,6 +101,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _navToEditProfile() async {
     final result = await Navigator.pushNamed(context, '/edit_profile');
     if (result == true && mounted) {
+      // bust cache แล้วรีโหลดข้อมูล
       setState(() {
         _profileImageUrl = null;
         _initFuture = _initialize();
@@ -119,16 +118,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // ★ 3. [แก้ไข] สร้างฟังก์ชันสำหรับจัดการการนำทางโดยเฉพาะ
   void _onNavItemTapped(int index) {
     if (index == 3) {
-      // หน้าปัจจุบัน
+      // หน้าปัจจุบัน → refresh
       setState(() {
-        _initFuture = _initialize(); // สั่ง refresh ข้อมูล
+        _initFuture = _initialize(); // ✅ ไม่คืน Future ออกไป
       });
       return;
     }
-
     switch (index) {
       case 0:
         Navigator.pushReplacementNamed(context, '/home');
@@ -148,26 +145,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final textTheme = theme.textTheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('โปรไฟล์ของฉัน'),
-      ),
-      // ★ 4. [แก้ไข] ส่งค่า `isLoggedIn` เข้าไป และเรียกใช้ฟังก์ชันใหม่
+      appBar: AppBar(title: const Text('โปรไฟล์ของฉัน')),
       bottomNavigationBar: CustomBottomNav(
         selectedIndex: 3,
         onItemSelected: _onNavItemTapped,
         isLoggedIn: _isLoggedIn,
       ),
       body: FutureBuilder(
-          future: _initFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (_errorMessage != null || snapshot.hasError) {
-              return Center(child: Text(_errorMessage ?? 'เกิดข้อผิดพลาด'));
-            }
+        future: _initFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              _allergyList.isEmpty &&
+              _profileImageUrl == null &&
+              _email.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-            return SingleChildScrollView(
+          // Error UI พร้อมปุ่มลองใหม่
+          if (_errorMessage != null || snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_errorMessage ?? 'เกิดข้อผิดพลาด',
+                        textAlign: TextAlign.center,
+                        style: textTheme.titleMedium),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _initFuture = _initialize();
+                        });
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('ลองอีกครั้ง'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          // เนื้อหา + ดึงรีเฟรชได้เสมอ
+          return RefreshIndicator(
+            onRefresh: _initialize,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(24.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -179,35 +204,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildAllergySection(theme, textTheme),
                 ],
               ),
-            );
-          }),
+            ),
+          );
+        },
+      ),
     );
   }
 
   Widget _buildProfileHeader(ThemeData theme, TextTheme textTheme) {
+    // cache-buster เพื่อดึงรูปใหม่หลังแก้ไข
     final imageUrlWithCacheBuster = _profileImageUrl != null
         ? '$_profileImageUrl?v=${DateTime.now().millisecondsSinceEpoch}'
         : null;
 
-    final imageProvider = (imageUrlWithCacheBuster != null)
+    final ImageProvider provider = (imageUrlWithCacheBuster != null)
         ? NetworkImage(imageUrlWithCacheBuster)
-        : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
+        : const AssetImage('assets/images/default_avatar.png');
 
     return Column(
       children: [
-        CircleAvatar(
-          radius: 50,
-          backgroundColor: theme.colorScheme.surfaceVariant,
-          backgroundImage: imageProvider,
-          onBackgroundImageError: (_, __) {},
+        Semantics(
+          label: 'รูปโปรไฟล์ของ $_username',
+          image: true,
+          child: CircleAvatar(
+            radius: 50,
+            backgroundColor: theme.colorScheme.surfaceVariant,
+            backgroundImage: provider,
+            onBackgroundImageError: (_, __) {}, // กัน error รูป
+          ),
         ),
         const SizedBox(height: 16),
         Text(_username, style: textTheme.headlineSmall),
         if (_email.isNotEmpty)
-          Text(_email,
-              style: textTheme.bodyLarge
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        // ปุ่มแก้ไขโปรไฟล์อยู่ที่นี่ ถูกต้องตามแผนแล้ว
+          Text(
+            _email,
+            style: textTheme.bodyLarge
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
         TextButton(
           onPressed: _navToEditProfile,
           child: const Text('แก้ไขโปรไฟล์'),
@@ -218,6 +251,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildSettingsCard(ThemeData theme) {
     return Card(
+      elevation: 1.5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         children: [
           ListTile(
@@ -252,51 +287,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
           style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 16),
-        _allergyList.isEmpty
-            ? Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(child: Text('ยังไม่มีข้อมูล')),
-              )
-            : Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: _allergyList.map((ing) {
-                  return Column(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.network(
-                          ing.imageUrl,
-                          width: 72,
-                          height: 72,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
+        if (_allergyList.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(child: Text('ยังไม่มีข้อมูล')),
+          )
+        else
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: _allergyList.map((ing) {
+              final hasUrl = ing.imageUrl.isNotEmpty;
+              return Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: hasUrl
+                        ? Image.network(
+                            ing.imageUrl,
+                            width: 72,
+                            height: 72,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 72,
+                              height: 72,
+                              color: theme.colorScheme.surfaceVariant,
+                              child: const Icon(Icons.no_photography_outlined),
+                            ),
+                          )
+                        : Container(
                             width: 72,
                             height: 72,
                             color: theme.colorScheme.surfaceVariant,
+                            alignment: Alignment.center,
                             child: const Icon(Icons.no_photography_outlined),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      SizedBox(
-                        width: 72,
-                        child: Text(
-                          ing.name,
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
-              ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 72,
+                    child: Text(
+                      ing.name,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
       ],
     );
   }

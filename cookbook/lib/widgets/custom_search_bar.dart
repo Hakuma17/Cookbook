@@ -4,7 +4,7 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 import '../utils/debouncer.dart';
 import '../services/api_service.dart';
 
-enum _SearchMode { recipe, ingredient }
+enum _SearchMode { recipe, ingredient, group }
 
 class CustomSearchBar extends StatefulWidget {
   final ValueChanged<String> onChanged;
@@ -38,11 +38,29 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
 
   Future<List<String>> _suggest(String raw) async {
     final token = _lastToken(raw);
-    if (token.isEmpty) return [];
-    final list = _mode == _SearchMode.recipe
-        ? await ApiService.getRecipeSuggestions(token)
-        : await ApiService.getIngredientSuggestions(token);
-    final prefix = _mode == _SearchMode.recipe ? '🍳 ' : '🥕 ';
+    // จำกัดความยาวขั้นต่ำของ token เพื่อลดภาระ/ไม่กวนผู้ใช้
+    if (token.isEmpty || token.length < 2) return [];
+
+    List<String> list;
+    String prefix;
+
+    switch (_mode) {
+      case _SearchMode.recipe:
+        list = await ApiService.getRecipeSuggestions(token);
+        prefix = '🍳 ';
+        break;
+      case _SearchMode.ingredient:
+        list = await ApiService.getIngredientSuggestions(token);
+        prefix = '🥕 ';
+        break;
+      case _SearchMode.group:
+        // ★ โหมดกลุ่ม: เรียก suggestGroups() จาก backend
+        list = await ApiService.getGroupSuggestions(token);
+        // เลือกอีโมจิที่ความยาว UTF-16 = 2 เพื่อไม่พังกับ substring(0,2)
+        prefix = '📁 ';
+        break;
+    }
+
     return list.take(10).map((e) => '$prefix$e').toList();
   }
 
@@ -58,16 +76,75 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
     }
     _controller.selection = TextSelection.fromPosition(
         TextPosition(offset: _controller.text.length));
+
     final trimmed = _controller.text.trim();
     widget.onChanged(trimmed);
     widget.onSubmitted?.call(trimmed);
   }
 
+  // ทำความสะอาดทรัพยากร
+  @override
+  void dispose() {
+    _controller.dispose();
+    _debouncer.dispose();
+    super.dispose();
+  }
+
   /* ───── UI ───── */
   @override
   Widget build(BuildContext context) {
-    const orange = Color(0xFFFF9A28);
-    final greyBorder = Colors.grey.shade400;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final fillColor = cs.surfaceContainerHighest;
+    final borderColor = cs.outlineVariant;
+    final focusColor = cs.primary;
+    final iconColor = cs.onSurfaceVariant;
+
+    String _hintText() {
+      switch (_mode) {
+        case _SearchMode.recipe:
+          return 'ค้นหาชื่อเมนู...';
+        case _SearchMode.ingredient:
+          return 'ค้นหาด้วยวัตถุดิบ...';
+        case _SearchMode.group:
+          return 'ค้นหาด้วยกลุ่มวัตถุดิบ...';
+      }
+    }
+
+    IconData _modeIcon() {
+      switch (_mode) {
+        case _SearchMode.recipe:
+          return Icons.search;
+        case _SearchMode.ingredient:
+          return Icons.spa;
+        case _SearchMode.group:
+          return Icons.category_outlined;
+      }
+    }
+
+    String _modeLabel() {
+      switch (_mode) {
+        case _SearchMode.recipe:
+          return 'เมนู';
+        case _SearchMode.ingredient:
+          return 'วัตถุดิบ';
+        case _SearchMode.group:
+          return 'กลุ่ม';
+      }
+    }
+
+    void _cycleMode() {
+      setState(() {
+        if (_mode == _SearchMode.recipe) {
+          _mode = _SearchMode.ingredient;
+        } else if (_mode == _SearchMode.ingredient) {
+          _mode = _SearchMode.group;
+        } else {
+          _mode = _SearchMode.recipe;
+        }
+      });
+    }
 
     return Row(
       children: [
@@ -81,48 +158,60 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
               controller: textController,
               focusNode: focusNode,
               textInputAction: TextInputAction.search,
-              onSubmitted: widget.onSubmitted,
+              onSubmitted: (txt) {
+                final t = txt.trim();
+                if (t.isEmpty) return;
+                widget.onSubmitted?.call(t);
+              },
               onChanged: (txt) {
                 _debouncer.run(() => widget.onChanged(txt.trim()));
-                setState(() {}); // update clear‑button
+                setState(() {}); // update clear-button
               },
               decoration: InputDecoration(
-                hintText: _mode == _SearchMode.recipe
-                    ? 'ค้นหาชื่อเมนู...'
-                    : 'ค้นหาด้วยวัตถุดิบ...',
-                prefixIcon: const Icon(Icons.search),
+                hintText: _hintText(),
+                prefixIcon: Icon(Icons.search, color: iconColor),
                 suffixIcon: textController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () {
-                          _controller.clear();
-                          widget.onChanged('');
-                          setState(() {});
-                        },
+                    ? Semantics(
+                        button: true,
+                        label: 'ล้างคำค้นหา',
+                        child: IconButton(
+                          icon: const Icon(Icons.close),
+                          tooltip: 'ล้างคำค้นหา',
+                          onPressed: () {
+                            _controller.clear();
+                            widget.onChanged('');
+                            setState(() {});
+                          },
+                        ),
                       )
                     : null,
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: fillColor,
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(40),
-                  borderSide: BorderSide(color: greyBorder),
+                  borderSide: BorderSide(color: borderColor),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(40),
-                  borderSide: const BorderSide(color: orange, width: 1.4),
+                  borderSide: BorderSide(color: focusColor, width: 1.4),
                 ),
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
               ),
             ),
             itemBuilder: (_, s) => ListTile(
-              leading: Text(s.substring(0, 2),
-                  style: Theme.of(context).textTheme.titleMedium),
+              leading: Text(
+                // คาดหวัง prefix แบบ 2 UTF-16 units (อีโมจิ) ตามที่ประกอบไว้ด้านบน
+                s.substring(0, 2),
+                style: theme.textTheme.titleMedium,
+              ),
               title: Text(s.substring(2).trim()),
               dense: true,
             ),
-            onSelected: (s) =>
-                _applySuggestion(_controller.text, s.substring(2).trim()),
+            onSelected: (s) => _applySuggestion(
+              _controller.text,
+              s.substring(2).trim(),
+            ),
           ),
         ),
         const SizedBox(width: 8),
@@ -134,12 +223,16 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
             DecoratedBox(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: greyBorder),
+                border: Border.all(color: borderColor),
               ),
-              child: IconButton(
-                icon: const Icon(Icons.tune),
-                tooltip: 'กรองผลการค้นหา',
-                onPressed: widget.onFilterTap,
+              child: Semantics(
+                button: true,
+                label: 'กรองผลการค้นหา',
+                child: IconButton(
+                  icon: Icon(Icons.tune, color: iconColor),
+                  tooltip: 'กรองผลการค้นหา',
+                  onPressed: widget.onFilterTap,
+                ),
               ),
             ),
             if (widget.hasActiveFilter)
@@ -149,9 +242,9 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
                 child: Container(
                   width: 8,
                   height: 8,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: orange,
+                    color: focusColor, // ใช้สี primary เป็น badge
                   ),
                 ),
               ),
@@ -159,29 +252,32 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
         ),
         const SizedBox(width: 8),
 
-        /// Mode toggle button
-        OutlinedButton.icon(
-          onPressed: () {
-            setState(() {
-              _mode = _mode == _SearchMode.recipe
-                  ? _SearchMode.ingredient
-                  : _SearchMode.recipe;
-            });
-          },
-          icon: Icon(
-            _mode == _SearchMode.recipe ? Icons.search : Icons.spa,
-            size: 18,
-          ),
-          label: Text(_mode == _SearchMode.recipe ? 'เมนู' : 'วัตถุดิบ'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor:
-                _mode == _SearchMode.recipe ? orange : Colors.grey.shade600,
-            side: BorderSide(
-                color: _mode == _SearchMode.recipe ? orange : greyBorder),
-            shape: const StadiumBorder(),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            textStyle:
-                const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        /// Mode toggle button (วนลูป เมนู → วัตถุดิบ → กลุ่ม)
+        Semantics(
+          button: true,
+          toggled: _mode != _SearchMode.recipe,
+          label: 'สลับโหมดค้นหา: ${_modeLabel()}',
+          child: OutlinedButton.icon(
+            onPressed: _cycleMode,
+            icon: Icon(
+              _modeIcon(),
+              size: 18,
+              color: _mode == _SearchMode.recipe ? focusColor : iconColor,
+            ),
+            label: Text(_modeLabel()),
+            style: OutlinedButton.styleFrom(
+              foregroundColor:
+                  _mode == _SearchMode.recipe ? focusColor : iconColor,
+              side: BorderSide(
+                color: _mode == _SearchMode.recipe ? focusColor : borderColor,
+              ),
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ),
       ],

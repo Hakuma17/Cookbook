@@ -50,7 +50,8 @@ class _FavoriteButtonState extends State<FavoriteButton> {
         const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนเพิ่มรายการโปรด')),
       );
       // ✅ 2. แนะนำให้มีการนำทางไปหน้า Login ด้วย
-      // Navigator.pushNamed(context, '/login');
+      // ★ Added: นำทางไปหน้า Login (สามารถส่ง nextRoute เพิ่มเองได้ถ้าต้องการ)
+      Navigator.pushNamed(context, '/login');
       return;
     }
     setState(() => _isLoading = true);
@@ -77,7 +78,7 @@ class _FavoriteButtonState extends State<FavoriteButton> {
     final colorScheme = theme.colorScheme;
 
     // ✅ 4. เปลี่ยนมาใช้ IconButton ที่สามารถกำหนดสไตล์ได้ยืดหยุ่น
-    return IconButton(
+    final button = IconButton(
       onPressed: _isLoading ? null : _toggleFavorite,
       iconSize: 28, // กำหนดขนาดไอคอนที่เหมาะสม
       tooltip: _isFavorited ? 'ลบออกจากสูตรโปรด' : 'เพิ่มเป็นสูตรโปรด',
@@ -106,6 +107,14 @@ class _FavoriteButtonState extends State<FavoriteButton> {
           : Icon(
               _isFavorited ? Icons.favorite : Icons.favorite_border,
             ),
+    );
+
+    // ★ Added: ครอบด้วย Semantics เพื่อการเข้าถึง (A11y)
+    return Semantics(
+      button: true,
+      toggled: _isFavorited,
+      label: _isFavorited ? 'เอาออกจากรายการโปรด' : 'เพิ่มเป็นรายการโปรด',
+      child: button,
     );
   }
 }

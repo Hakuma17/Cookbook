@@ -1,17 +1,37 @@
 import 'package:equatable/equatable.dart';
 import 'json_parser.dart';
 
-/// **วัตถุดิบ 1 รายการ** ที่ถูก *merge* เข้ามาอยู่ในตะกร้า
-/// (เกิดจากการรวมวัตถุดิบของเมนูหลาย ๆ จาน)
+/// วัตถุดิบ 1 รายการที่ถูก “รวม” เข้ามาอยู่ในตะกร้า
+///
+/// ใช้กับผลลัพธ์จาก `get_cart_items.php`
+/// - หลังบ้านจะคูณสัดส่วนเสิร์ฟให้เรียบร้อยแล้ว
+/// - ถ้ามีหลายเมนูใช้วัตถุดิบเดียวกันแต่คนละหน่วย จะถูกแยกคนละรายการ
 class CartIngredient extends Equatable {
   /* ───── fields ───── */
 
-  final int ingredientId; // id วัตถุดิบตาม table `ingredients`
-  final String name; // ชื่อวัตถุดิบมาตรฐาน
-  final double quantity; // ปริมาณ (ตามหน่วย)
-  final String unit; // หน่วย (เช่น “กรัม”, “ช้อนโต๊ะ”)
-  final String imageUrl; // URL ภาพวัตถุดิบ
-  final bool unitConflict; // true ถ้าเมนูอื่นใช้ “หน่วยคนละชนิด”
+  /// ไอดีวัตถุดิบตามตาราง `ingredients`
+  final int ingredientId;
+
+  /// ชื่อวัตถุดิบมาตรฐาน (เช่น กุ้ง, กระเทียม)
+  final String name;
+
+  /// ปริมาณตามหน่วยที่กำหนด
+  final double quantity;
+
+  /// หน่วย (เช่น “กรัม”, “ช้อนโต๊ะ”)
+  final String unit;
+
+  /// URL ของภาพวัตถุดิบ
+  final String imageUrl;
+
+  /// ธงว่ามีเมนูอื่นในตะกร้าใช้ “หน่วยคนละชนิด” กับรายการนี้หรือไม่
+  final bool unitConflict;
+
+  /// [NEW] ธงว่า “ผู้ใช้แพ้วัตถุดิบในกลุ่มนี้” หรือไม่
+  ///
+  /// มาจากการคำนวณฝั่งเซิร์ฟเวอร์โดยเทียบกลุ่ม `newcatagory`
+  /// ของวัตถุดิบบนเมนูกับกลุ่มของรายการแพ้ (`allergyinfo`)
+  final bool hasAllergy;
 
   const CartIngredient({
     required this.ingredientId,
@@ -20,6 +40,7 @@ class CartIngredient extends Equatable {
     required this.unit,
     required this.imageUrl,
     this.unitConflict = false,
+    this.hasAllergy = false, // [NEW]
   });
 
   /* ───── factories ───── */
@@ -31,7 +52,8 @@ class CartIngredient extends Equatable {
       quantity: JsonParser.parseDouble(json['quantity']),
       unit: JsonParser.parseString(json['unit']),
       imageUrl: JsonParser.parseString(json['image_url']),
-      unitConflict: JsonParser.parseBool(json['unit_conflict']),
+      unitConflict: JsonParser.parseBool(json['unit_conflict']) ?? false,
+      hasAllergy: JsonParser.parseBool(json['has_allergy']) ?? false, // [NEW]
     );
   }
 
@@ -44,6 +66,7 @@ class CartIngredient extends Equatable {
         'unit': unit,
         'image_url': imageUrl,
         'unit_conflict': unitConflict,
+        'has_allergy': hasAllergy, // [NEW]
       };
 
   /* ───── util: copyWith ───── */
@@ -55,6 +78,7 @@ class CartIngredient extends Equatable {
     String? unit,
     String? imageUrl,
     bool? unitConflict,
+    bool? hasAllergy, // [NEW]
   }) {
     return CartIngredient(
       ingredientId: ingredientId ?? this.ingredientId,
@@ -63,11 +87,16 @@ class CartIngredient extends Equatable {
       unit: unit ?? this.unit,
       imageUrl: imageUrl ?? this.imageUrl,
       unitConflict: unitConflict ?? this.unitConflict,
+      hasAllergy: hasAllergy ?? this.hasAllergy,
     );
   }
 
   /* ───── static helper: aggregate ─────
-   * รวมวัตถุดิบจากเมนูหลายจาน → หาผลรวม & flag หน่วยไม่ตรง
+   * รวมวัตถุดิบจากเมนูหลายจาน → หาผลรวมปริมาณ และตั้งธง unitConflict
+   *
+   * หมายเหตุ:
+   * - ถ้ารายการที่รวมกันมี hasAllergy อย่างน้อย 1 รายการ ให้ผลลัพธ์เป็น true
+   * - แยกคีย์รวมด้วย ingredientId+unit เพื่อไม่รวมหน่วยต่างชนิดเข้าด้วยกัน
    */
   static List<CartIngredient> aggregate(List<CartIngredient> list) {
     final Map<String, CartIngredient> merged = {};
@@ -76,22 +105,22 @@ class CartIngredient extends Equatable {
     for (final ing in list) {
       final key = '${ing.ingredientId}_${ing.unit}';
 
-      // รวมปริมาณถ้า ingredientId-unit ซ้ำ
       merged.update(
         key,
-        (existing) =>
-            existing.copyWith(quantity: existing.quantity + ing.quantity),
+        (existing) => existing.copyWith(
+          quantity: existing.quantity + ing.quantity,
+          // [NEW] OR ธงแพ้ ถ้ามีรายการใดรายการหนึ่งเป็น true
+          hasAllergy: existing.hasAllergy || ing.hasAllergy,
+        ),
         ifAbsent: () => ing,
       );
 
-      // เก็บว่า ingredientId นี้มีหน่วยอะไรบ้าง
       unitTracker.putIfAbsent(ing.ingredientId, () => {}).add(ing.unit);
     }
 
-    // ตรวจ flag หน่วยไม่เหมือนกัน
+    // ตั้งธงหน่วยไม่ตรงกันระดับ ingredientId
     return merged.values.map((e) {
       final hasConflict = (unitTracker[e.ingredientId]?.length ?? 0) > 1;
-      // คืนค่า object เดิมถ้าไม่มี conflict, หรือสร้างใหม่ถ้ามี
       return hasConflict ? e.copyWith(unitConflict: true) : e;
     }).toList();
   }
@@ -100,5 +129,5 @@ class CartIngredient extends Equatable {
 
   @override
   List<Object?> get props =>
-      [ingredientId, name, quantity, unit, imageUrl, unitConflict];
+      [ingredientId, name, quantity, unit, imageUrl, unitConflict, hasAllergy];
 }

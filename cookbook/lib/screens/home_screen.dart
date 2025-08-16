@@ -1,63 +1,96 @@
 // lib/screens/home_screen.dart
-
 import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/material.dart';
 
-// ★★★ [NEW] ใช้ SettingsStore เพื่ออ่านค่าสวิตช์ "ตัดคำภาษาไทย"
+// Store กลางไว้ sync รายการโปรด
 import 'package:provider/provider.dart';
-import '../stores/settings_store.dart';
+import '../main.dart' show routeObserver;
+import '../stores/favorite_store.dart';
 
-import '../main.dart';
+// โมเดล/บริการ
 import '../models/ingredient.dart';
 import '../models/recipe.dart';
+import '../models/ingredient_group.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+
+// วิดเจ็ตที่ใช้บนหน้า Home
 import '../widgets/recipe_card.dart';
 import '../widgets/ingredient_card.dart';
+import '../widgets/skeletons.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/allergy_warning_dialog.dart';
+import '../widgets/empty_result_dialog.dart';
 
-// ⬆️ อ้างอิงค่าความกว้างการ์ดแนวตั้งจาก recipe_card.dart
-//    (ถ้าตัว import ไม่ expose constant ให้คัดลอกค่ามาใช้ให้ตรงกัน)
-// 🔁 ปรับเป็น 188 ให้ตรงกับการ์ดใหม่ (Meta 2 บรรทัด)
-const double kRecipeCardVerticalWidth = 188;
+// ยูทิลรูป
+import '../utils/safe_image.dart';
+
+// กำหนดสัดส่วน/ขนาดที่ใช้ซ้ำ
+const double _ingredientImageAspectRatio = 4 / 3;
+
+// เวลารอพรีเช็คสั้น ๆ เพื่อไม่ให้ผู้ใช้รอนาน
+const Duration _precheckTimeout = Duration(milliseconds: 1200);
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> with RouteAware {
-  /* ───────────── State ───────────── */
+  /* ───────────── State หลัก ───────────── */
   late Future<void> _initFuture;
 
+  // ถ้าหลังบ้านมี “กลุ่มวัตถุดิบ” จะแสดงกลุ่ม; ถ้าไม่มีจะ fallback เป็นรายตัว
   List<Ingredient> _ingredients = [];
+  List<IngredientGroup> _ingredientGroups = [];
+
+  // สองแถบเมนู (ยอดนิยม/ใหม่ล่าสุด)
   List<Recipe> _popularRecipes = [];
   List<Recipe> _newRecipes = [];
+
+  // ข้อมูลแพ้อาหารของผู้ใช้ (ไว้ขึ้นเตือนตอนกดการ์ดสูตร)
   List<Ingredient> _allergyList = [];
   List<int> _allergyIngredientIds = [];
 
   bool _isLoggedIn = false;
   String? _profileName;
   String? _profileImage;
+
+  // 🔧 URL โปรไฟล์ที่ใส่ cache-bust แล้ว (สำหรับหน้า Home)
+  String? _profileImageBusted;
+
   int _selectedIndex = 0;
   String? _errorMessage;
+  bool _navBusy = false;
+  bool _isLoading = true;
 
-  /* ═════════════ INIT ═════════════ */
+  // ✅ รีเฟรชเฉพาะตอนกลับจาก “หน้าเต็ม” ที่เราตั้งใจไป ไม่รีเฟรชตอนปิด dialog
+  bool _refreshOnReturn = false;
+
+  // helper: เติม query เพื่อ bust แคช
+  String _withBust(String url) {
+    if (url.isEmpty) return url;
+    final sep = url.contains('?') ? '&' : '?';
+    return '$url${sep}v=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  /* ───────────── Lifecycle ───────────── */
   @override
   void initState() {
     super.initState();
-    // ★ ไม่มีการแก้ไขในส่วนนี้ โครงสร้างดีอยู่แล้ว
     _initFuture = _initialize();
   }
 
   Future<void> _initialize({bool forceRefresh = false}) async {
-    if (mounted) setState(() => _errorMessage = null);
+    if (mounted) {
+      setState(() {
+        _errorMessage = null;
+        _isLoading = true;
+      });
+    }
     try {
-      // โหลดสถานะล็อกอินและข้อมูลทั้งหมดไปพร้อมกัน
       await Future.wait([
         _loadLoginStatus(),
         _fetchAllData(force: forceRefresh),
@@ -69,13 +102,16 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     } catch (e, st) {
       log('init error: $e', stackTrace: st);
       if (mounted) setState(() => _errorMessage = 'เกิดข้อผิดพลาดไม่คาดคิด');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    routeObserver.subscribe(this, ModalRoute.of(context)! as PageRoute);
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) routeObserver.subscribe(this, route);
   }
 
   @override
@@ -84,27 +120,51 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     super.dispose();
   }
 
-  // ★ การใช้ didPopNext เพื่อ refresh ข้อมูลเมื่อกลับมาหน้านี้เป็น Logic ที่ดีมาก
   @override
   void didPopNext() {
-    setState(() {
-      _initFuture = _initialize(forceRefresh: true);
-    });
+    // รีเฟรชเฉพาะเมื่อเราคาดหวัง (กลับจากหน้าเต็ม)
+    if (_refreshOnReturn) {
+      _refreshOnReturn = false;
+      setState(() {
+        _initFuture = _initialize(forceRefresh: true);
+      });
+    }
   }
 
-  /* ═════════════ DATA ═════════════ */
+  /* ───────────── นำทางแบบหน้าเต็ม (คาดหวังให้รีเฟรชเมื่อกลับ) ───────────── */
+  Future<T?> _pushNamedExpectReturn<T>(String route, {Object? arguments}) {
+    _refreshOnReturn = true;
+    return Navigator.pushNamed<T>(context, route, arguments: arguments);
+  }
+
+  /* ───────────── ดึงข้อมูลหน้า Home ───────────── */
   Future<void> _fetchAllData({bool force = false}) async {
-    final results = await Future.wait([
-      ApiService.fetchIngredients(),
-      ApiService.fetchPopularRecipes(),
-      ApiService.fetchNewRecipes(),
-    ]);
-    if (!mounted) return;
-    setState(() {
-      _ingredients = results[0] as List<Ingredient>;
-      _popularRecipes = results[1] as List<Recipe>;
-      _newRecipes = results[2] as List<Recipe>;
-    });
+    // พยายามโหลด “กลุ่มวัตถุดิบ” ก่อน; ถ้าไม่สำเร็จค่อย fallback เป็นรายตัว
+    try {
+      final results = await Future.wait([
+        ApiService.fetchIngredientGroups(),
+        ApiService.fetchPopularRecipes(),
+        ApiService.fetchNewRecipes(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _ingredientGroups = results[0] as List<IngredientGroup>;
+        _popularRecipes = results[1] as List<Recipe>;
+        _newRecipes = results[2] as List<Recipe>;
+      });
+    } catch (_) {
+      final results = await Future.wait([
+        ApiService.fetchIngredients(),
+        ApiService.fetchPopularRecipes(),
+        ApiService.fetchNewRecipes(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _ingredients = results[0] as List<Ingredient>;
+        _popularRecipes = results[1] as List<Recipe>;
+        _newRecipes = results[2] as List<Recipe>;
+      });
+    }
   }
 
   Future<void> _loadLoginStatus() async {
@@ -112,33 +172,47 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     if (await AuthService.isLoggedIn()) {
       final login = await AuthService.getLoginData();
       final allergy = await ApiService.fetchAllergyIngredients();
+
+      // เติมสถานะรายการโปรดเข้าร้านกลาง (ให้หน้าอื่น sync ด้วย)
+      try {
+        final favs = await ApiService.fetchFavorites();
+        context.read<FavoriteStore>().replaceWith(favs.map((r) => r.id));
+      } catch (_) {}
+
       if (!mounted) return;
       setState(() {
         _isLoggedIn = true;
         _profileName = login['profileName'];
         _profileImage = login['profileImage'];
+        _profileImageBusted = (_profileImage?.isNotEmpty ?? false)
+            ? _withBust(_profileImage!)
+            : '';
         _allergyList = allergy;
         _allergyIngredientIds = allergy.map((e) => e.id).toList();
       });
     } else if (mounted) {
+      context.read<FavoriteStore>().clear();
       setState(() {
         _isLoggedIn = false;
         _profileName = null;
         _profileImage = null;
+        _profileImageBusted = '';
         _allergyList = [];
         _allergyIngredientIds = [];
       });
     }
   }
 
-  /* ═════════════ LOGOUT ═════════════ */
+  /* ───────────── ออกจากระบบ ───────────── */
   Future<void> _handleLogout({bool silent = false}) async {
     await AuthService.logout();
+    if (mounted) context.read<FavoriteStore>().clear();
     if (mounted && !silent) {
       setState(() {
         _isLoggedIn = false;
         _profileName = null;
         _profileImage = null;
+        _profileImageBusted = '';
         _allergyList = [];
         _allergyIngredientIds = [];
         _initFuture = _initialize(forceRefresh: true);
@@ -146,58 +220,111 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     }
   }
 
-  /* ═════════════ NAV ═════════════ */
-  // ★ 1. [แก้ไข] ปรับปรุง Logic การนำทางทั้งหมดให้ชัดเจนขึ้น
-  // และรองรับการสลับไปหน้า Profile/Settings ตามสถานะ _isLoggedIn
+  /* ───────────── เปลี่ยนแท็บล่าง ───────────── */
   Future<void> _onNavTap(int idx) async {
-    // ถ้ากดแท็บเดิม ไม่ต้องทำอะไร
-    if (idx == _selectedIndex) return;
-
-    switch (idx) {
-      case 0: // Home
-        setState(() => _selectedIndex = idx);
-        break;
-
-      case 1: // Search
-        await Navigator.pushNamed(context, '/search');
-        break;
-
-      case 2: // My Recipes (protected)
-        if (!_isLoggedIn) {
-          final result = await Navigator.pushNamed(context, '/login');
-          if (result == true) didPopNext();
-          return;
-        }
-        await Navigator.pushNamed(context, '/my_recipes');
-        break;
-
-      case 3: // Profile / Settings
-        final route = _isLoggedIn ? '/profile' : '/settings';
-        await Navigator.pushNamed(context, route);
-        break;
+    if (idx == _selectedIndex || _navBusy) return;
+    setState(() => _navBusy = true);
+    try {
+      switch (idx) {
+        case 0:
+          setState(() => _selectedIndex = idx);
+          break;
+        case 1:
+          await _pushNamedExpectReturn('/search');
+          break;
+        case 2:
+          if (!_isLoggedIn) {
+            await _pushNamedExpectReturn('/login');
+            return;
+          }
+          await _pushNamedExpectReturn('/my_recipes');
+          break;
+        case 3:
+          await _pushNamedExpectReturn(_isLoggedIn ? '/profile' : '/settings');
+          break;
+      }
+    } finally {
+      if (mounted) setState(() => _navBusy = false);
     }
   }
 
-  /* ═════════════ BUILD ═════════════ */
+  /* ───────────── พรีเช็ค “กลุ่มวัตถุดิบ” ก่อนนำทาง ─────────────
+   * - ถ้ามีเมนูในกลุ่ม → ไปหน้า Search ทันที
+   * - ถ้ายังไม่มีเมนู → เด้ง EmptyResultDialog ให้เลือก ยกเลิก/ไปต่อ
+   *   (กด ยกเลิก = ปิด dialog เฉย ๆ, หน้า Home ไม่รีเฟรช)
+   */
+  Future<void> _onTapGroupHome(String groupName) async {
+    List<Recipe> list;
+    try {
+      list = await ApiService.fetchRecipesByGroup(
+        group: groupName,
+        page: 1,
+        limit: 1,
+        sort: 'latest',
+      ).timeout(_precheckTimeout, onTimeout: () => const <Recipe>[]);
+    } catch (_) {
+      list = const <Recipe>[]; // เช็คไม่สำเร็จถือว่าว่างไว้ก่อน
+    }
+
+    if (!mounted) return;
+
+    if (list.isEmpty) {
+      await showDialog(
+        context: context,
+        builder: (_) => EmptyResultDialog(
+          subject: groupName, // ไม่ต้องเติมคำว่า "กลุ่ม"
+          onProceed: () {
+            Navigator.pop(context); // ปิด dialog ก่อน
+            _pushNamedExpectReturn('/search', arguments: {'group': groupName});
+          },
+        ),
+      );
+    } else {
+      _pushNamedExpectReturn('/search', arguments: {'group': groupName});
+    }
+  }
+
+  /* ───────────── Build ───────────── */
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return FutureBuilder(
       future: _initFuture,
       builder: (_, snap) {
-        if (_ingredients.isEmpty &&
-            snap.connectionState == ConnectionState.waiting) {
+        final noDataYet = _ingredientGroups.isEmpty && _ingredients.isEmpty;
+        if (noDataYet && snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
         }
         if (_errorMessage != null) {
-          return Scaffold(body: Center(child: Text(_errorMessage!)));
+          return Scaffold(
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_errorMessage!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => setState(
+                        () => _initFuture = _initialize(forceRefresh: true),
+                      ),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('ลองอีกครั้ง'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
         }
 
         return Scaffold(
-          backgroundColor: const Color(0xFFFDF7F2),
+          backgroundColor: cs.surface,
           body: SafeArea(
             bottom: false,
-            // ★ ไม่มีการแก้ไขในส่วนนี้ การใช้ IndexedStack ถูกต้องแล้ว
             child: IndexedStack(
               index: _selectedIndex,
               children: [
@@ -208,7 +335,6 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               ],
             ),
           ),
-          // ★ 2. [แก้ไข] ส่งค่า `isLoggedIn` ที่เรามีอยู่ เข้าไปใน CustomBottomNav
           bottomNavigationBar: CustomBottomNav(
             selectedIndex: _selectedIndex,
             onItemSelected: _onNavTap,
@@ -219,7 +345,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  /* ═════════════ MAIN VIEW ═════════════ */
+  /* ───────────── เนื้อหาหลักของ Home ───────────── */
   Widget _buildMainHomeView() => Column(
         children: [
           _buildCustomAppBar(),
@@ -228,6 +354,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               onRefresh: () => _initialize(forceRefresh: true),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(top: 16),
+                physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -236,8 +363,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                     _buildRecipeSection(
                       title: 'สูตรอาหารยอดนิยม',
                       recipes: _popularRecipes,
-                      onAction: () => Navigator.pushNamed(
-                        context,
+                      onAction: () => _pushNamedExpectReturn(
                         '/search',
                         arguments: {'initialSortIndex': 0},
                       ),
@@ -246,8 +372,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                     _buildRecipeSection(
                       title: 'สูตรอาหารอัปเดตใหม่',
                       recipes: _newRecipes,
-                      onAction: () => Navigator.pushNamed(
-                        context,
+                      onAction: () => _pushNamedExpectReturn(
                         '/search',
                         arguments: {'initialSortIndex': 2},
                       ),
@@ -261,42 +386,118 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         ],
       );
 
-  /* ═════════════ INGREDIENT SECTION ═════════════ */
-  Widget _buildIngredientSection() => Container(
-        color: const Color(0xFFFFE3D9),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(
-          children: [
-            _buildSectionHeader(
-              title: 'วัตถุดิบ',
-              actionText: 'ดูทั้งหมด',
-              onAction: () => Navigator.pushNamed(context, '/all_ingredients'),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 150,
-              child: _ingredients.isEmpty
-                  ? const Center(child: Text('ไม่พบวัตถุดิบ'))
-                  : ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _ingredients.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 16),
-                      itemBuilder: (_, i) => IngredientCard(
-                        ingredient: _ingredients[i],
-                        // ================== บรรทัดที่แก้ไข ==================
-                        // ลบ onTap ที่ override ออก เพื่อให้ IngredientCard
-                        // ใช้ Logic การกดเริ่มต้นของตัวเอง (ที่เราแก้ไปแล้ว)
-                        // onTap: () => _onIngredientTap(_ingredients[i]),
-                        // =================================================
-                      ),
-                    ),
-            ),
-          ],
-        ),
-      );
+  /* ───────────── โซน “วัตถุดิบ/กลุ่มวัตถุดิบ” ─────────────
+   * - ถ้ามีข้อมูลกลุ่ม → แสดงการ์ดกลุ่ม
+   * - ถ้าไม่มี → แสดงการ์ดวัตถุดิบรายตัว (fallback)
+   */
+  Widget _buildIngredientSection() {
+    final cs = Theme.of(context).colorScheme;
+    final showingGroups = _ingredientGroups.isNotEmpty;
 
-  /* ═════════════ RECIPE SECTION ═════════════ */
+    return Container(
+      color: cs.secondaryContainer,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        children: [
+          _buildSectionHeader(
+            title: showingGroups ? 'กลุ่มวัตถุดิบ' : 'วัตถุดิบ',
+            actionText: 'ดูทั้งหมด',
+            onAction: () => _pushNamedExpectReturn('/all_ingredients'),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const hPad = 16.0, gap = 16.0;
+              final totalPadding = (hPad * 2) + gap;
+              final cardWidth = (constraints.maxWidth - totalPadding) / 2;
+
+              final imageH = cardWidth / _ingredientImageAspectRatio;
+
+              // ใช้ค่าของ IngredientCard ให้ layout ตรงกัน
+              final nameH = IngredientCard.titleBoxHeightOf(context);
+
+              const namePad = 8 + 8;
+              final listH = (imageH + nameH + namePad + 2).ceilToDouble() + 1;
+
+              // ระหว่างโหลด → โชว์ Skeleton
+              if (_isLoading) {
+                return SizedBox(
+                  height: listH,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: 6,
+                    separatorBuilder: (_, __) => const SizedBox(width: 16),
+                    itemBuilder: (_, __) => SizedBox(
+                      width: cardWidth,
+                      child: IngredientCardSkeleton(width: cardWidth),
+                    ),
+                  ),
+                );
+              }
+
+              // โหมด “กลุ่มวัตถุดิบ”
+              if (showingGroups) {
+                final groups = _ingredientGroups;
+                return SizedBox(
+                  height: listH,
+                  child: groups.isEmpty
+                      ? const Center(child: Text('ไม่พบกลุ่มวัตถุดิบ'))
+                      : ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: groups.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 16),
+                          itemBuilder: (_, i) => SizedBox(
+                            width: cardWidth,
+                            child: IngredientCard(
+                              group: groups[i],
+                              width: cardWidth,
+                              onTap: () =>
+                                  _onTapGroupHome(groups[i].apiGroupValue),
+                            ),
+                          ),
+                        ),
+                );
+              }
+
+              // โหมด “วัตถุดิบรายตัว” (fallback)
+              return SizedBox(
+                height: listH,
+                child: _ingredients.isEmpty
+                    ? const Center(child: Text('ไม่พบวัตถุดิบ'))
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _ingredients.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 16),
+                        itemBuilder: (_, i) => SizedBox(
+                          width: cardWidth,
+                          child: IngredientCard(
+                            ingredient: _ingredients[i],
+                            // ❗ ไม่ส่ง onTap → ให้ IngredientCard จัดการพรีเช็ค+dialog เอง
+                          ),
+                        ),
+                      ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ความสูงกล่องชื่อ (สองบรรทัด) ใช้คำนวณความสูงแถบรายการ
+  double _ingredientTitleBoxHeightOf(BuildContext context) {
+    final ts = Theme.of(context).textTheme;
+    final scale = MediaQuery.textScaleFactorOf(context);
+    final style = ts.bodyMedium ?? const TextStyle(fontSize: 16, height: 1.2);
+    final line = (style.fontSize ?? 16) * (style.height ?? 1.2);
+    return (line * 2 * scale).ceilToDouble();
+  }
+
+  /* ───────────── โซน “สูตรอาหาร” (คาร์รอสเซลแนวนอน) ───────────── */
   Widget _buildRecipeSection({
     required String title,
     required List<Recipe> recipes,
@@ -308,24 +509,33 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
               title: title, actionText: 'ดูเพิ่มเติม', onAction: onAction),
           const SizedBox(height: 12),
           SizedBox(
-            height: _recipeStripHeight(context), // ✅ คำนวณอัตโนมัติ
-            child: recipes.isEmpty
-                ? const Center(child: Text('ยังไม่มีสูตรอาหาร'))
-                : ListView.separated(
+            height: _recipeStripHeight(context),
+            child: _isLoading
+                ? ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: recipes.length,
+                    itemCount: 6,
                     separatorBuilder: (_, __) => const SizedBox(width: 16),
-                    itemBuilder: (_, i) => RecipeCard(
-                      recipe: recipes[i],
-                      onTap: () => _handleRecipeTap(recipes[i]),
-                    ),
-                  ),
+                    itemBuilder: (_, __) => const RecipeCardSkeleton(
+                        width: kRecipeCardVerticalWidth),
+                  )
+                : (recipes.isEmpty
+                    ? const Center(child: Text('ยังไม่มีสูตรอาหาร'))
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: recipes.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 16),
+                        itemBuilder: (_, i) => RecipeCard(
+                          recipe: recipes[i],
+                          onTap: () => _handleRecipeTap(recipes[i]),
+                        ),
+                      )),
           ),
         ],
       );
 
-  /* ═════════════ COMMON HEADER ═════════════ */
+  // หัวข้อแต่ละเซกชัน + ปุ่ม "ดูเพิ่มเติม"
   Widget _buildSectionHeader({
     required String title,
     required String actionText,
@@ -333,21 +543,26 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }) {
     final theme = Theme.of(context);
     return Padding(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 2), // +space
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title,
-              style: theme.textTheme.titleLarge
-                  ?.copyWith(fontWeight: FontWeight.bold)),
-          InkWell(
-            onTap: onAction,
-            child: Text(
-              actionText,
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.bold,
+          Text(
+            title,
+            style: theme.textTheme.titleLarge
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          Semantics(
+            button: true,
+            label: actionText,
+            child: InkWell(
+              onTap: onAction,
+              child: Text(
+                actionText,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -356,15 +571,12 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  /* ═════════════ CUSTOM APP BAR ═════════════ */
-  // ★ 3. [แก้ไข] ทำให้รูปโปรไฟล์กดได้ และปรับปรุงปุ่ม Action ด้านขวา
+  // แถบบนสุด (รูปโปรไฟล์ + ปุ่มล็อกอิน/ออก)
   Widget _buildCustomAppBar() {
     final theme = Theme.of(context);
-    ImageProvider avatar = const AssetImage('assets/images/default_avatar.png');
-    if (_isLoggedIn && _profileImage?.isNotEmpty == true) {
-      avatar = NetworkImage(_profileImage!);
-    }
-
+    final imageUrl = (_isLoggedIn && (_profileImageBusted?.isNotEmpty ?? false))
+        ? _profileImageBusted!
+        : '';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -373,10 +585,20 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       ),
       child: Row(
         children: [
-          // ทำให้ CircleAvatar กดได้ เพื่อเป็นทางลัดไปหน้าโปรไฟล์
-          GestureDetector(
-            onTap: _isLoggedIn ? () => _onNavTap(3) : null,
-            child: CircleAvatar(radius: 24, backgroundImage: avatar),
+          ClipOval(
+            child: SizedBox.square(
+              dimension: 48,
+              child: SafeImage(
+                key: ValueKey(
+                    imageUrl), // เปลี่ยนคีย์เพื่อบังคับรีบิลด์เมื่อ bust เปลี่ยน
+                url: imageUrl,
+                fit: BoxFit.cover,
+                error: Image.asset(
+                  'assets/images/default_avatar.png',
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -388,9 +610,10 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
             ),
           ),
           IconButton(
+            tooltip: _isLoggedIn ? 'ออกจากระบบ' : 'เข้าสู่ระบบ',
             icon: Icon(
-                _isLoggedIn ? Icons.logout_outlined : Icons.login_outlined),
-            // ปุ่ม Action นี้ เมื่อกดจะทำงานเหมือนกดแท็บที่ 4
+              _isLoggedIn ? Icons.logout_outlined : Icons.login_outlined,
+            ),
             onPressed: _isLoggedIn ? _handleLogout : () => _onNavTap(3),
           ),
         ],
@@ -398,16 +621,13 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  /* ═════════════ ALLERGY LOGIC ═════════════ */
+  /* ───────────── เตือนแพ้อาหารตอนกดการ์ดสูตร ───────────── */
   void _handleRecipeTap(Recipe recipe) {
-    final hasAllergy = _isLoggedIn &&
-        _allergyIngredientIds.isNotEmpty &&
-        recipe.ingredientIds.any(_allergyIngredientIds.contains);
-
+    final hasAllergy = recipe.hasAllergy; // ได้จาก backend แล้ว
     if (hasAllergy) {
       _showAllergyWarning(recipe);
     } else {
-      Navigator.pushNamed(context, '/recipe_detail', arguments: recipe);
+      _pushNamedExpectReturn('/recipe_detail', arguments: recipe);
     }
   }
 
@@ -425,35 +645,94 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       builder: (_) => AllergyWarningDialog(
         recipe: recipe,
         badIngredientNames: badNames,
-        onConfirm: (r) =>
-            Navigator.pushNamed(context, '/recipe_detail', arguments: r),
+        onConfirm: (r) {
+          Navigator.pop(context); // ปิด dialog ก่อน
+          _pushNamedExpectReturn('/recipe_detail', arguments: r);
+        },
       ),
     );
   }
 
-  // ================== ส่วนที่แก้ไข (ลบออก) ==================
-  // ลบฟังก์ชัน _onIngredientTap และ _hasResults ออกทั้งหมด
-  // เนื่องจากไม่ได้ใช้งานแล้ว
-  // ======================================================
-
-  // ======= HEIGHT HELPER: คำนวณความสูงแถวการ์ดแนวนอนแบบอัตโนมัติ =======
+  // คำนวณความสูงแถบคาร์รอสเซลสูตร
   double _recipeStripHeight(BuildContext context) {
-    // ใช้ความกว้างของการ์ดแนวตั้งเป็นฐาน
     const imageW = kRecipeCardVerticalWidth;
+    final imageH = imageW * (3 / 4);
     final ts = Theme.of(context).textTheme;
     final scale = MediaQuery.textScaleFactorOf(context);
-
-    // Helper สำหรับคำนวณความสูงของ Text โดยดูจาก fontSize และ lineHeight
     double lh(TextStyle s) => (s.height ?? 1.2) * (s.fontSize ?? 14);
+    final titleH =
+        lh(ts.titleMedium ?? const TextStyle(fontSize: 20)) * 2 * scale;
+    final metaH =
+        lh(ts.bodyMedium ?? const TextStyle(fontSize: 18)) * 1 * scale;
+    const padding = 8 + 4 + 8 + 8;
+    final h = imageH + titleH + metaH + padding;
+    return h.ceilToDouble();
+  }
+}
 
-    final titleH = lh(ts.titleMedium!) * 2 * scale; // ชื่อ 2 บรรทัด
-    final metaH = lh(ts.bodyMedium!) * 2 * scale; // Meta 2 บรรทัด
-    const padding = 8 + 4 + 8 + 8; // padding ทั้งหมดของการ์ด
+/* ────────────────────────────────────────────────
+ * การ์ด “กลุ่มวัตถุดิบ” (เฉพาะหน้า Home)
+ * ─ ใช้ UI เรียบ ๆ และโยน onTap ออกไปให้พ่อเรียกพรีเช็คเอง
+ *
+ * [NOTE/LEGACY - ยังเก็บไว้] หลังอัปเดต เราเปลี่ยนไปใช้ IngredientCard
+ * ในหน้า Home เพื่อให้มีป้าย "สูตร N" อัตโนมัติ
+ * คลาสนี้จึงไม่ถูกเรียกใช้งานแล้ว แต่เก็บไว้เผื่อ rollback/อ้างอิง
+ * ──────────────────────────────────────────────── */
+class _GroupCard extends StatelessWidget {
+  final double width;
+  final String name;
+  final String imageUrl;
+  final VoidCallback onTap;
 
-    // รวมความสูงทั้งหมด +2 เพื่อ buffer ป้องกัน overflow
-    final h = imageW + titleH + metaH + padding + 2;
+  const _GroupCard({
+    required this.width,
+    required this.name,
+    required this.imageUrl,
+    required this.onTap,
+  });
 
-    // Clamp ค่าความสูงเพื่อไม่ให้สูงเกินไปบนจอเล็ก
-    return h.clamp(322.0, 390.0).roundToDouble();
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final imageH = width / _ingredientImageAspectRatio;
+
+    return Material(
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          children: [
+            SizedBox(
+              width: width,
+              height: imageH,
+              child: SafeImage(
+                url: imageUrl,
+                fit: BoxFit.cover,
+                error: Container(
+                  color: theme.colorScheme.surfaceVariant,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.image_not_supported_outlined),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 }

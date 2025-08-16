@@ -7,8 +7,8 @@ import 'nutrition.dart';
 
 /// ─────────────────────────────────────────────────────────────
 ///  RecipeDetail  (extends Recipe)
-///  – ปลอด null 100 %
-///  – ถ้าไม่มีรูป => ใช้ assets/images/default_recipe.png
+///  – ปลอด null 100 %
+///  – ถ้าไม่มีรูป => ใช้ assets/images/default_recipe.png
 /// ─────────────────────────────────────────────────────────────
 @immutable
 class RecipeDetail extends Recipe {
@@ -93,11 +93,18 @@ class RecipeDetail extends Recipe {
     }
 
     /* ---------- mapping ---------- */
+    // [Compat] บาง endpoint ส่ง image_url เดียว, บางที่ส่ง image_urls เป็น array
     final imgUrls = _parseImages(j['image_url'], j['image_urls']);
+
+    // [Compat] id / recipe_id
+    final rid = j.containsKey('recipe_id') ? j['recipe_id'] : j['id'];
+
+    // [Compat] บางจุด favorite_count อาจไม่มี
+    final favoriteCount = _parseInt(j['favorite_count'], 0);
 
     return RecipeDetail(
       /* base Recipe */
-      id: _parseInt(j['recipe_id']),
+      id: _parseInt(rid),
       name: _parseStr(j['name']),
       imagePath: _parseStr(j['image_path']).isEmpty
           ? null
@@ -106,7 +113,7 @@ class RecipeDetail extends Recipe {
       prepTime: _parseInt(j['prep_time']),
       averageRating: _parseDouble(j['average_rating']),
       reviewCount: _parseInt(j['review_count']),
-      favoriteCount: _parseInt(j['favorite_count']),
+      favoriteCount: favoriteCount,
       isFavorited: j['is_favorited'] == true || j['is_favorited'] == 1,
       shortIngredients: _parseStr(j['short_ingredients']),
       hasAllergy: j['has_allergy'] == true || j['has_allergy'] == 1,

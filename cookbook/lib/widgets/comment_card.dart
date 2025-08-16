@@ -1,148 +1,235 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/comment.dart';
 
-/// การ์ดแสดงรีวิว พร้อมเมนูแก้ไข / ลบ
-class CommentCard extends StatefulWidget {
+double _s(BuildContext context, double base) =>
+    MediaQuery.textScalerOf(context).scale(base);
+
+// [NEW] Widget “ไส้ใน” ของคอมเมนต์ (ไม่มี Card หุ้ม)
+class CommentContent extends StatelessWidget {
+  final Comment comment;
+  final String? nameOverride;
+  final String? avatarOverride;
+  final bool showInlineActions;
+  final ValueChanged<Comment>? onEdit;
+  final ValueChanged<Comment>? onDelete;
+
+  const CommentContent({
+    super.key,
+    required this.comment,
+    this.nameOverride,
+    this.avatarOverride,
+    this.showInlineActions = true,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final colorScheme = theme.colorScheme;
+
+    final c = comment;
+
+    final userName = (() {
+      final o = nameOverride?.trim() ?? '';
+      if (o.isNotEmpty) return o;
+      final n = (c.profileName ?? '').trim();
+      return n.isNotEmpty ? n : 'ผู้ใช้ทั่วไป';
+    })();
+
+    final dateText = c.createdAt != null
+        ? DateFormat('d MMM yyyy', 'th').format(c.createdAt!)
+        : 'ไม่ระบุวันที่';
+
+    final avatarUrl = avatarOverride?.trim().isNotEmpty == true
+        ? avatarOverride!
+        : (c.avatarUrl ?? '');
+
+    final ImageProvider<Object> avatarProvider = avatarUrl.isNotEmpty
+        ? NetworkImage(avatarUrl)
+        : const AssetImage('assets/images/default_avatar.png');
+
+    final commentText = (c.comment?.trim().isNotEmpty ?? false)
+        ? c.comment!
+        : '— ไม่มีข้อความรีวิว —';
+
+    final isMine = c.isMine;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: _s(context, 18),
+              backgroundColor: colorScheme.surfaceVariant,
+              backgroundImage: avatarProvider,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                userName,
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              dateText,
+              style: (textTheme.labelMedium ?? textTheme.bodySmall)
+                  ?.copyWith(color: colorScheme.onSurfaceVariant),
+            ),
+            if (isMine &&
+                showInlineActions &&
+                (onEdit != null || onDelete != null))
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onEdit != null)
+                    IconButton(
+                      tooltip: 'แก้ไข',
+                      iconSize: _s(context, 20),
+                      constraints:
+                          const BoxConstraints(minWidth: 44, minHeight: 44),
+                      onPressed: () => onEdit!.call(c),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                  if (onDelete != null)
+                    IconButton(
+                      tooltip: 'ลบ',
+                      iconSize: _s(context, 20),
+                      constraints:
+                          const BoxConstraints(minWidth: 44, minHeight: 44),
+                      onPressed: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Text('ยืนยันการลบ'),
+                            content: const Text(
+                                'คุณต้องการลบคอมเมนต์นี้ใช่หรือไม่?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('ยกเลิก'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: Text('ลบ',
+                                    style: TextStyle(color: colorScheme.error)),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (ok == true) onDelete!.call(c);
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _RatingStars(rating: c.rating ?? 0),
+        const SizedBox(height: 10),
+        _ExpandableText(
+          text: commentText,
+          style: (textTheme.bodyMedium),
+          toggleStyle: textTheme.bodyMedium?.copyWith(
+            color: colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// การ์ดแสดงรีวิว (ตัวหุ้ม)
+class CommentCard extends StatelessWidget {
   final Comment comment;
   final ValueChanged<Comment>? onEdit;
   final ValueChanged<Comment>? onDelete;
+  final String? nameOverride;
+  final String? avatarOverride;
+  final bool showInlineActions;
+  final EdgeInsetsGeometry? margin;
+  final Color? cardColor;
 
   const CommentCard({
     super.key,
     required this.comment,
     this.onEdit,
     this.onDelete,
+    this.nameOverride,
+    this.avatarOverride,
+    this.showInlineActions = true,
+    this.margin,
+    this.cardColor,
   });
 
   @override
-  State<CommentCard> createState() => _CommentCardState();
-}
-
-class _CommentCardState extends State<CommentCard> {
-  bool _expanded = false; // “ดูเพิ่มเติม”
-
-  @override
   Widget build(BuildContext context) {
-    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
 
-    // --- Data Mapping ---
-    final c = widget.comment;
-    final userName = (c.profileName?.trim().isNotEmpty ?? false)
-        ? c.profileName!
-        : 'ผู้ใช้ทั่วไป';
-    final dateText = c.createdAt != null
-        ? DateFormat('d MMM yyyy', 'th').format(c.createdAt!)
-        : 'ไม่ระบุวันที่';
-    final avatarProvider = (c.avatarUrl?.isNotEmpty ?? false)
-        ? NetworkImage(c.avatarUrl!)
-        : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
-    final commentText = (c.comment?.trim().isNotEmpty ?? false)
-        ? c.comment!
-        : '— ไม่มีข้อความรีวิว —';
-
-    // --- UI ---
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: cardColor ?? theme.cardColor,
+      elevation: 0,
+      shadowColor: Colors.black.withOpacity(0.05),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withOpacity(.35),
+          width: 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // --- Header ---
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: colorScheme.surfaceVariant,
-                  backgroundImage: avatarProvider,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    userName,
-                    style: textTheme.titleSmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  dateText,
-                  style: textTheme.bodySmall
-                      ?.copyWith(color: colorScheme.onSurfaceVariant),
-                ),
-                // --- Popup Menu for Delete ---
-                if (c.isMine && widget.onDelete != null) _buildPopupMenu(c),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // --- Rating Stars ---
-            _buildRatingStars(c.rating ?? 0, colorScheme),
-            const SizedBox(height: 12),
-            // --- Comment Body (expandable) ---
-            _ExpandableText(
-              text: commentText,
-              style: textTheme.bodyMedium,
-              toggleStyle: textTheme.bodyMedium?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            // --- Edit Button ---
-            if (c.isMine && widget.onEdit != null)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => widget.onEdit!.call(c),
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('แก้ไข'),
-                ),
-              ),
-          ],
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: CommentContent(
+          comment: comment,
+          nameOverride: nameOverride,
+          avatarOverride: avatarOverride,
+          onEdit: onEdit,
+          onDelete: onDelete,
+          showInlineActions: showInlineActions,
         ),
       ),
     );
   }
+}
 
-  /// ✅ 2. แยก UI ย่อยๆ ออกมาเป็น Widget Builder และใช้ Theme
-  Widget _buildPopupMenu(Comment c) {
-    return SizedBox(
-      width: 32,
-      height: 32,
-      child: PopupMenuButton<String>(
-        iconSize: 18,
-        tooltip: 'ตัวเลือกเพิ่มเติม',
-        onSelected: (value) {
-          if (value == 'delete') widget.onDelete?.call(c);
-        },
-        itemBuilder: (_) => const [
-          PopupMenuItem(value: 'delete', child: Text('ลบรีวิว')),
-        ],
-      ),
-    );
-  }
+class _RatingStars extends StatelessWidget {
+  final int rating;
+  const _RatingStars({required this.rating});
 
-  Widget _buildRatingStars(int rating, ColorScheme colorScheme) {
+  @override
+  Widget build(BuildContext context) {
+    final size = _s(context, 20);
     return Row(
       children: List.generate(5, (i) {
-        return Icon(
-          i < rating ? Icons.star : Icons.star_border,
-          size: 20,
-          color: const Color(0xFFFFCC00), // สีดาวยังคงเดิมได้เพื่อให้เด่นชัด
+        final filled = i < rating;
+        return Padding(
+          padding: const EdgeInsetsDirectional.only(end: 2),
+          child: Icon(
+            filled ? Icons.star : Icons.star_border,
+            size: size,
+            color: const Color(0xFFFFCC00),
+          ),
         );
       }),
     );
   }
 }
 
-/// ✅ 3. แยก Logic ของ Expandable Text ออกมาเป็น StatefulWidget ของตัวเอง
 class _ExpandableText extends StatefulWidget {
   final String text;
   final TextStyle? style;
@@ -151,37 +238,31 @@ class _ExpandableText extends StatefulWidget {
   const _ExpandableText({required this.text, this.style, this.toggleStyle});
 
   @override
-  __ExpandableTextState createState() => __ExpandableTextState();
+  State<_ExpandableText> createState() => _ExpandableTextState();
 }
 
-class __ExpandableTextState extends State<_ExpandableText> {
+class _ExpandableTextState extends State<_ExpandableText> {
   bool _isExpanded = false;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final textStyle = widget.style ?? DefaultTextStyle.of(context).style;
-
-        // --- ⭐️ จุดที่แก้ไข ⭐️ ---
-        // ดึงค่า textDirection มาจาก context โดยตรง
-        final textDirection = Directionality.of(context);
-
-        final textPainter = TextPainter(
-          text: TextSpan(text: widget.text, style: textStyle),
-          textDirection: textDirection, // 👈 แก้ไขตรงนี้
+        final base = widget.style ?? DefaultTextStyle.of(context).style;
+        final tp = TextPainter(
+          text: TextSpan(text: widget.text, style: base),
+          textDirection: Directionality.of(context),
           maxLines: 3,
         )..layout(maxWidth: constraints.maxWidth);
-        // -------------------------
 
-        final isOverflow = textPainter.didExceedMaxLines;
+        final isOverflow = tp.didExceedMaxLines;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               widget.text,
-              style: textStyle,
+              style: base,
               maxLines: _isExpanded ? null : 3,
               overflow: TextOverflow.ellipsis,
             ),

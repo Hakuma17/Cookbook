@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'recipe.dart';
 
 // ✅ 1. เพิ่ม Helper functions เพื่อการ Parse ที่ปลอดภัยและสอดคล้องกับ Model อื่นๆ
-int _toInt(dynamic v, {int fallback = 0}) {
+int _toInt(dynamic v, {int fallback = 1}) {
   if (v == null) return fallback;
   if (v is int) return v;
   return int.tryParse(v.toString()) ?? fallback;
@@ -29,12 +29,29 @@ class SearchResponse {
 
   /// ✅ 2. เพิ่ม factory constructor สำหรับสร้าง Object จาก JSON
   factory SearchResponse.fromJson(Map<String, dynamic> json) {
+    // [Compat] บางเวอร์ชันอาจใช้ key 'current_page'
+    final page = _toInt(json['page'] ?? json['current_page'], fallback: 1);
+
+    // [Compat] เผื่อ backend ใช้ชื่ออื่น เช่น 'terms'
+    final tokens = (json['tokens'] is List)
+        ? List<String>.from(json['tokens'])
+        : (json['terms'] is List)
+            ? List<String>.from(json['terms'])
+            : <String>[];
+
+    // [Compat] data vs recipes
+    final list = (json['data'] is List)
+        ? (json['data'] as List)
+        : (json['recipes'] is List)
+            ? (json['recipes'] as List)
+            : const <dynamic>[];
+
     return SearchResponse(
-      page: _toInt(json['page'], fallback: 1),
-      tokens: (json['tokens'] is List) ? List<String>.from(json['tokens']) : [],
-      recipes: (json['data'] is List)
-          ? (json['data'] as List).map((e) => Recipe.fromJson(e)).toList()
-          : [],
+      page: page,
+      tokens: tokens,
+      recipes: list
+          .map((e) => Recipe.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
     );
   }
 
@@ -46,7 +63,9 @@ class SearchResponse {
   }) {
     return SearchResponse(
       page: page ?? this.page,
-      tokens: tokens ?? this.tokens,
+      // [OLD] tokens: tokens ?? this.tokens,
+      // ↑ แอบพิมพ์ผิดในเวอร์ชันก่อน (token) → แก้ให้ถูกต้อง
+      tokens: token ?? this.tokens,
       recipes: recipes ?? this.recipes,
     );
   }
