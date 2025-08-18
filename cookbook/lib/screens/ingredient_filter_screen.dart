@@ -244,6 +244,129 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
     _notHaveGroupFocus.unfocus();
   }
 
+  /* ─────────────── Camera handlers (4 ช่อง) ─────────────── */
+
+  // กล้อง: โหมด "ชื่อวัตถุดิบ" → เพิ่มลง include
+  Future<void> _onIncludeNameCamera() async {
+    final names = await scanIngredient(context);
+    if (names == null || names.isEmpty) return;
+    _addNameTo(_haveSet, _notHaveSet, names.join(','));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('เพิ่มจากการสแกน: ${names.join(", ")}')),
+    );
+  }
+
+  // กล้อง: โหมด "ชื่อวัตถุดิบ" → เพิ่มลง exclude
+  Future<void> _onExcludeNameCamera() async {
+    final names = await scanIngredient(context);
+    if (names == null || names.isEmpty) return;
+    _addNameTo(_notHaveSet, _haveSet, names.join(','));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('ยกเว้นจากการสแกน: ${names.join(", ")}')),
+    );
+  }
+
+  // กล้อง: โหมด "กลุ่มวัตถุดิบ" → สแกนชื่อ → map เป็นกลุ่ม → เพิ่มลง include
+  Future<void> _onIncludeGroupCamera() async {
+    final names = await scanIngredient(context);
+    if (names == null || names.isEmpty) return;
+    try {
+      final groups = await ApiService.mapIngredientsToGroups(names);
+      if (groups.isNotEmpty) {
+        _addGroupTo(_haveGroupSet, _notHaveGroupSet, groups.join(','));
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เพิ่มกลุ่ม: ${groups.join(", ")}')),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่พบกลุ่มจากภาพที่สแกน')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ผิดพลาด: $e')),
+      );
+    }
+  }
+
+  // กล้อง: โหมด "กลุ่มวัตถุดิบ" → สแกนชื่อ → map เป็นกลุ่ม → เพิ่มลง exclude
+  Future<void> _onExcludeGroupCamera() async {
+    final names = await scanIngredient(context);
+    if (names == null || names.isEmpty) return;
+    try {
+      final groups = await ApiService.mapIngredientsToGroups(names);
+      if (groups.isNotEmpty) {
+        _addGroupTo(_notHaveGroupSet, _haveGroupSet, groups.join(','));
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ยกเว้นกลุ่ม: ${groups.join(", ")}')),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่พบกลุ่มจากภาพที่สแกน')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ผิดพลาด: $e')),
+      );
+    }
+  }
+
+  /* ─────────────── Help sheet ─────────────── */
+
+  void _showHelpSheet({required bool isGroupMode}) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        final t = Theme.of(ctx).textTheme;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('📝 วิธีกรอกตัวกรอง', style: t.titleLarge),
+              const SizedBox(height: 12),
+              Text(
+                isGroupMode
+                    ? 'โหมด “กลุ่มวัตถุดิบ” — พิมพ์ชื่อกลุ่ม เช่น “นมวัว, พริก, อาหารทะเล” (ใส่หลายชื่อคั่น , หรือ ; ได้)'
+                    : 'โหมด “ชื่อวัตถุดิบ” — พิมพ์ชื่อวัตถุดิบ เช่น “ใบกะเพรา, กระเทียม, ตะไคร้” (ใส่หลายชื่อคั่น , หรือ ; ได้)',
+                style: t.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              if (isGroupMode)
+                Text(
+                    'ตัวอย่างชื่อกลุ่ม: นมวัว, พริก, สมุนไพรไทย, อาหารทะเล, เส้นก๋วยเตี๋ยว',
+                    style: t.bodySmall),
+              const SizedBox(height: 16),
+              Text('📷 ทริคการถ่ายรูปให้ทายแม่นยำ', style: t.titleMedium),
+              const SizedBox(height: 8),
+              const _HelpBullet('วางให้มี “วัตถุดิบเดียว” ชัด ๆ ในภาพ'),
+              const _HelpBullet('พื้นหลังเรียบ แสงเพียงพอ ไม่ย้อนแสง'),
+              const _HelpBullet('ขนาดภาพ ≥ 224×224 px และไฟล์ ≤ 10MB'),
+              const SizedBox(height: 8),
+              Text(
+                isGroupMode
+                    ? 'ในโหมดกลุ่ม ระบบจะ: ถ่ายรูป → รู้ชื่อวัตถุดิบ → แม็ปเป็น “กลุ่ม” ให้อัตโนมัติ'
+                    : 'ในโหมดชื่อ ระบบจะ: ถ่ายรูป → รู้ชื่อวัตถุดิบ แล้วเติมลงช่องให้',
+                style: t.bodySmall,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   /* ─────────────────────── Build ─────────────────────────── */
   @override
   Widget build(BuildContext context) {
@@ -318,9 +441,20 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                         ),
 
                       // --- Section: "มีวัตถุดิบ" ---
-                      Text('แสดงสูตรที่มี:',
-                          style: textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          Text('แสดงสูตรที่มี:',
+                              style: textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: 'คู่มือการกรอก',
+                            icon: const Icon(Icons.help_outline),
+                            onPressed: () =>
+                                _showHelpSheet(isGroupMode: _groupMode),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
 
                       if (_groupMode)
@@ -336,7 +470,9 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                             _notHaveGroupSet,
                             g,
                           ),
-                          showCamera: false, // กลุ่มไม่ใช้กล้อง
+                          // ★ กล้องโหมดกลุ่ม: ถ่าย→map→เติมกลุ่ม
+                          showCamera: true,
+                          onCamera: _onIncludeGroupCamera,
                         )
                       else
                         _TypeAheadBox(
@@ -349,6 +485,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                               ApiService.getIngredientSuggestions,
                           onAdd: (n) => _addNameTo(_haveSet, _notHaveSet, n),
                           showCamera: true,
+                          onCamera: _onIncludeNameCamera,
                         ),
 
                       const SizedBox(height: 12),
@@ -391,9 +528,20 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                       const SizedBox(height: 24),
 
                       // --- Section: "ไม่มีวัตถุดิบ" ---
-                      Text('แสดงสูตรที่ไม่มี:',
-                          style: textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          Text('แสดงสูตรที่ไม่มี:',
+                              style: textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: 'คู่มือการกรอก',
+                            icon: const Icon(Icons.help_outline),
+                            onPressed: () =>
+                                _showHelpSheet(isGroupMode: _groupMode),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
 
                       if (_groupMode)
@@ -407,7 +555,9 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                             _haveGroupSet,
                             g,
                           ),
-                          showCamera: false,
+                          // ★ กล้องโหมดกลุ่ม: ถ่าย→map→เติมกลุ่ม (exclude)
+                          showCamera: true,
+                          onCamera: _onExcludeGroupCamera,
                         )
                       else
                         _TypeAheadBox(
@@ -417,7 +567,9 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                           suggestionsCallback:
                               ApiService.getIngredientSuggestions,
                           onAdd: (n) => _addNameTo(_notHaveSet, _haveSet, n),
-                          showCamera: false,
+                          // ★ กล้องครบ 4 ช่อง: โหมดชื่อ (exclude) ก็เปิดกล้องด้วย
+                          showCamera: true,
+                          onCamera: _onExcludeNameCamera,
                         ),
 
                       const SizedBox(height: 12),
@@ -589,6 +741,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 /* ───────── TypeAhead box (รับทั้ง "ชื่อวัตถุดิบ" และ "กลุ่มวัตถุดิบ") ─────────
  * - ควบคุมด้วยพารามิเตอร์ suggestionsCallback และ showCamera
  * - เมื่อ submit/เลือก suggestion จะเรียก onAdd แล้วเคลียร์ controller ให้
+ * - [NEW] รองรับ onCamera (ถ้าส่งมา) เพื่อปรับพฤติกรรมปุ่มกล้องได้ (เช่น mapIngredientsToGroups)
  */
 class _TypeAheadBox extends StatelessWidget {
   const _TypeAheadBox({
@@ -598,6 +751,7 @@ class _TypeAheadBox extends StatelessWidget {
     required this.onAdd,
     required this.suggestionsCallback,
     this.showCamera = false,
+    this.onCamera, // [NEW]
   });
 
   final TextEditingController controller;
@@ -608,8 +762,11 @@ class _TypeAheadBox extends StatelessWidget {
   /// ฟังก์ชันดึงคำแนะนำ (รองรับทั้ง ingredient และ group)
   final Future<List<String>> Function(String) suggestionsCallback;
 
-  /// แสดงปุ่มกล้องหรือไม่ (เฉพาะโหมดชื่อวัตถุดิบ)
+  /// แสดงปุ่มกล้องหรือไม่ (เฉพาะโหมดชื่อวัตถุดิบหรือกลุ่ม ตามที่ผู้ใช้เลือก)
   final bool showCamera;
+
+  /// [NEW] callback เมื่อกดกล้อง (ถ้าไม่ส่งมา จะ fallback เป็นสแกนแล้วเพิ่มชื่อแรก)
+  final Future<void> Function()? onCamera;
 
   @override
   Widget build(BuildContext context) {
@@ -681,15 +838,20 @@ class _TypeAheadBox extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        // ปุ่มสแกนด้วยกล้อง เฉพาะโหมด "ชื่อวัตถุดิบ"
+        // ปุ่มสแกนด้วยกล้อง (ครบ 4 ช่อง ตาม requirement)
         if (showCamera)
           Semantics(
             button: true,
-            label: 'ถ่ายรูปสแกนวัตถุดิบ',
+            label: 'ถ่ายรูปสแกน',
             child: IconButton(
               icon: const Icon(Icons.camera_alt_outlined),
-              tooltip: 'ถ่ายรูปสแกนวัตถุดิบ',
+              tooltip: 'ถ่ายรูปสแกน',
               onPressed: () async {
+                if (onCamera != null) {
+                  await onCamera!();
+                  return;
+                }
+                // Fallback เดิม: สแกนแล้วเติมชื่อแรก
                 final names = await scanIngredient(context);
                 if (names != null && names.isNotEmpty) {
                   onAdd(names.first);
@@ -703,6 +865,25 @@ class _TypeAheadBox extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/* ───────── Small helper widget ───────── */
+class _HelpBullet extends StatelessWidget {
+  final String text;
+  const _HelpBullet(this.text);
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('• '),
+          Expanded(child: Text(text)),
+        ],
+      ),
     );
   }
 }

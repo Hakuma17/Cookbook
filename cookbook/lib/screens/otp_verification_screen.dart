@@ -1,17 +1,14 @@
 // lib/screens/otp_verification_screen.dart
 //
-// 2025-08-12 – Align with API "Option B" reset_token + UI polish
-// - ใช้ ApiService.resendOtp() แทน sendOtp()
-// - หลัง verify สำเร็จ ดึง reset_token แล้วส่งต่อไป /new_password
-//   ใน args: { email, otp: reset_token } (คง key 'otp' ให้เข้ากับ NewPasswordScreen)
-// - ปรับ Pinput/typography/padding ให้เข้ากับธีมตัวใหญ่
-// - เพิ่ม haptic feedback และกัน snack ซ้อน
+// OTP Verification (รองรับกรณี OTP หมดอายุ/ผิด/ถูกล็อก ฯลฯ)
+// - แสดง error ใต้กล่อง PIN แบบอ่านง่ายตามสถานะ HTTP จาก BE
+// - เมื่อ OTP หมดอายุ (410) จะปลดคูลดาวน์ทันทีเพื่อให้กด "ส่งรหัสอีกครั้ง" ได้
+// - เมื่อพยายามผิดจนถูกล็อก (423/429) จะบอกเหตุและพากลับหน้าล็อกอินอย่างสุภาพ
 //
 import 'dart:async';
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ตัวกรองตัวเลข + haptics
+import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
 
 import '../services/api_service.dart';
@@ -52,7 +49,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   void _startCountdown() {
     _timer?.cancel();
     setState(() => _remainingSeconds = 60);
-
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) {
         t.cancel();
@@ -67,12 +63,17 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     });
   }
 
+  void _forceEnableResend() {
+    // ปลดคูลดาวน์ทันที (ใช้ตอน OTP หมดอายุ)
+    _timer?.cancel();
+    setState(() => _remainingSeconds = 0);
+  }
+
   /* ───────── helpers ───────── */
   void _showSnack(String msg, {bool isError = true}) {
     if (!mounted) return;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    // กัน snack ซ้อน
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -84,7 +85,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   String? _extractResetToken(Map<String, dynamic> res) {
-    // รองรับทั้ง {reset_token} / {data:{reset_token}} / {token} / {data:{token}}
     final data = res['data'];
     if (data is Map && data['reset_token'] != null) {
       return data['reset_token'].toString();
@@ -105,7 +105,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     });
 
     try {
-      // ใช้ resendOtp ตามสเต็ป
       final result = await ApiService.resendOtp(widget.email);
       if (!mounted) return;
 
@@ -133,7 +132,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   Future<void> _verifyOtp() async {
     if (!(_formKey.currentState?.validate() ?? false) || _isLoading) return;
 
-    // ซ่อนคีย์บอร์ดก่อนยิง API
     FocusScope.of(context).unfocus();
 
     setState(() {
@@ -150,7 +148,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         final token = _extractResetToken(
             (result is Map<String, dynamic>) ? result : <String, dynamic>{});
         if (token == null || token.isEmpty) {
-          // กันกรณี backend ยังไม่ส่ง token
           setState(() => _errorMsg = 'ไม่พบโทเค็นสำหรับตั้งรหัสผ่านใหม่');
           return;
         }
@@ -158,31 +155,49 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         _timer?.cancel();
         HapticFeedback.lightImpact();
 
-        // ส่ง token ต่อไปใน key 'otp' (เพื่อเข้ากับ NewPasswordScreen)
         Navigator.of(context).pushNamedAndRemoveUntil(
           '/new_password',
           (_) => false,
           arguments: {'email': widget.email, 'otp': token},
         );
       } else {
-        final code = (result['errorCode'] ?? '').toString().toUpperCase();
-        if (code == 'ACCOUNT_LOCKED') {
-          await _showLockedDialog(result['message']);
+        // เผื่อเคสที่ ApiService ไม่ throw (ปกติจะ throw)
+        setState(
+            () => _errorMsg = result['message'] ?? 'รหัสไม่ถูกต้องหรือหมดอายุ');
+      }
+    } on ApiException catch (e) {
+      // ★★ ตรงนี้คือหัวใจ: map status code → ข้อความสวย ๆ ใต้ PIN ★★
+      final sc = e.statusCode ?? 0;
+      String msg = e.message;
+
+      switch (sc) {
+        case 410: // Gone → OTP หมดอายุ
+          msg = 'OTP หมดอายุแล้ว กรุณากด “ส่งรหัสอีกครั้ง”';
+          _forceEnableResend(); // ปลดคูลดาวน์ ให้กดส่งใหม่ได้ทันที
+          break;
+        case 401: // Unauthorized → OTP ไม่ถูกต้อง
+          msg = 'OTP ไม่ถูกต้อง กรุณาลองใหม่';
+          break;
+        case 423: // Locked
+          await _showLockedDialog(
+              'คุณพยายามหลายครั้งเกินไป บัญชีถูกล็อกชั่วคราว');
           if (mounted) {
             Navigator.of(context)
                 .pushNamedAndRemoveUntil('/login', (_) => false);
           }
-        } else {
-          setState(() =>
-              _errorMsg = result['message'] ?? 'รหัสไม่ถูกต้องหรือหมดอายุ');
-        }
+          return;
+        case 429: // Too Many Requests
+          msg = 'ขอรหัสถี่เกินไป กรุณารอสักครู่แล้วลองใหม่';
+          break;
+        default:
+          // ใช้ข้อความเดิม ถ้า BE ส่งมาชัดเจนอยู่แล้ว
+          if (msg.isEmpty) msg = 'เกิดข้อผิดพลาด กรุณาลองใหม่';
       }
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _errorMsg = e.message);
+
+      if (mounted) setState(() => _errorMsg = msg);
     } catch (_) {
-      if (mounted) {
+      if (mounted)
         setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
-      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -194,7 +209,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         title: const Text('บัญชีถูกล็อก'),
-        content: Text(message ?? 'กรุณาติดต่อเจ้าหน้าที่เพื่อปลดล็อก'),
+        content: Text(message ?? 'กรุณาลองใหม่ภายหลัง'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -212,9 +227,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final textTheme = theme.textTheme;
 
     final defaultPinTheme = PinTheme(
-      width: 60, // ↑ ใหญ่ขึ้นเล็กน้อย
+      width: 60,
       height: 68,
-      textStyle: textTheme.titleLarge, // ↑ เข้ากับธีมตัวใหญ่
+      textStyle: textTheme.titleLarge,
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
@@ -246,10 +261,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       style: textTheme.titleLarge
                           ?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 32),
-
-                  // จำกัดเป็นตัวเลข + เคลียร์ error เมื่อพิมพ์ใหม่
                   Pinput(
-                    length: 5, // ให้ตรงกับฝั่ง PHP: OTP_LEN = 5
+                    length: 6, // ให้ตรงกับฝั่ง PHP
                     controller: _otpController,
                     autofocus: true,
                     keyboardType: TextInputType.number,
@@ -267,19 +280,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       ),
                     ),
                     validator: (s) {
-                      if (s == null || s.length != 5) {
-                        return 'กรุณากรอกรหัสให้ครบ 5 หลัก';
+                      if (s == null || s.length != 6) {
+                        return 'กรุณากรอกรหัสให้ครบ 6 หลัก';
                       }
                       return null;
                     },
                     onChanged: (_) {
-                      if (_errorMsg != null) {
-                        setState(() => _errorMsg = null);
-                      }
+                      if (_errorMsg != null) setState(() => _errorMsg = null);
                     },
                     onCompleted: (_) => _verifyOtp(),
                   ),
-
                   if (_errorMsg != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 16),
@@ -291,7 +301,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       ),
                     ),
                   const SizedBox(height: 24),
-
                   ElevatedButton(
                     onPressed: (_isLoading || _isResending) ? null : _verifyOtp,
                     child: _isLoading
@@ -304,8 +313,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         : const Text('ยืนยันรหัส'),
                   ),
                   const SizedBox(height: 24),
-
-                  // รีเซ็นด์
                   _buildResend(theme),
                 ],
               ),

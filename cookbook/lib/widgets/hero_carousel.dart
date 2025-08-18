@@ -1,6 +1,8 @@
+// lib/widgets/hero_carousel.dart
 import 'package:flutter/material.dart';
 import '../models/recipe.dart';
 import '../utils/highlight_span.dart';
+import '../utils/safe_image.dart'; // ⬅️ ใช้ SafeImage แทน Image.network
 import 'rank_badge.dart';
 
 /// แคโรเซล 1 แถวสำหรับเมนูเด่น (สูงสุด 3 ใบ)
@@ -30,7 +32,7 @@ class HeroCarousel extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
-        // ✅ [แก้ไข] เปลี่ยนมาใช้ .expand และแทรก SizedBox เพื่อสร้างระยะห่าง
+        // เปลี่ยนมาใช้ .expand และแทรก SizedBox เพื่อสร้างระยะห่าง
         children: topRecipes.expand((recipe) {
           final index = topRecipes.indexOf(recipe);
           return [
@@ -79,8 +81,7 @@ class _CardItem extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => onTap?.call(recipe),
-        borderRadius:
-            BorderRadius.circular(8), // Optional: for better ink splash
+        borderRadius: BorderRadius.circular(8),
         child: LayoutBuilder(
           builder: (context, cons) {
             final double side = cons.maxWidth; // ให้รูปเป็นสี่เหลี่ยมจัตุรัส
@@ -103,7 +104,6 @@ class _CardItem extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-
                 // เปลี่ยนจาก Center -> Align(topCenter) ให้บรรทัดแรกตรงกันทุกใบ
                 SizedBox(
                   height: titleBoxHeight,
@@ -113,7 +113,6 @@ class _CardItem extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
-
                       // ทำให้ line height คงที่และไม่ดันขอบบน/ล่างต่างกัน
                       strutStyle: StrutStyle(
                         forceStrutHeight: true,
@@ -127,7 +126,6 @@ class _CardItem extends StatelessWidget {
                         applyHeightToFirstAscent: false,
                         applyHeightToLastDescent: false,
                       ),
-
                       text: highlightSpan(
                         recipe.name,
                         highlightTerms,
@@ -147,45 +145,23 @@ class _CardItem extends StatelessWidget {
     );
   }
 
+  /// ใช้ SafeImage เพื่อให้มี fallback เป็น asset เสมอ
   Widget _recipeImage(String url, {double cropPct = 0.0}) {
-    final Widget image = url.isNotEmpty
-        ? Image.network(
-            url,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.medium,
-            loadingBuilder: (context, child, progress) {
-              if (progress == null) return child;
-              return const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              );
-            },
-            errorBuilder: (_, __, ___) => _placeholder(),
-          )
-        : _placeholder();
+    final img = SafeImage(
+      url: url,
+      fit: BoxFit.cover,
+      // ถ้าอยากเปลี่ยนไฟล์ fallback ที่การ์ดนี้ใช้ ให้ระบุที่นี่
+      fallbackAsset: 'assets/images/default_recipe.png',
+    );
 
-    if (cropPct <= 0) return image;
+    if (cropPct <= 0) return img;
 
     final double scale = 1.0 / (1.0 - cropPct); // 0.05 -> ~1.0526
     return ClipRect(
       child: Transform.scale(
         scale: scale,
         alignment: Alignment.center,
-        child: image,
-      ),
-    );
-  }
-
-  Widget _placeholder() {
-    return Container(
-      color: const Color(0xFFEFE7DB),
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          Icon(Icons.image_not_supported_outlined),
-          SizedBox(height: 6),
-          Text('ยังไม่มีภาพ'),
-        ],
+        child: img,
       ),
     );
   }

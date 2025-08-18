@@ -1,3 +1,4 @@
+// lib/widgets/allergy_warning_dialog.dart
 import 'package:flutter/material.dart';
 import '../models/recipe.dart';
 
@@ -15,12 +16,28 @@ class AllergyWarningDialog extends StatelessWidget {
     required this.onConfirm,
   });
 
+  /// ★★★ [NEW] รวมรายชื่อที่จะขึ้นชิปตามลำดับความสำคัญ:
+  /// 1) recipe.allergyNames (มาจาก backend) → 2) recipe.allergyGroups → 3) badIngredientNames (เดิม)
+  List<String> _resolveChipNames() {
+    final aNames = recipe.allergyNames;
+    if (aNames.isNotEmpty) {
+      return aNames.toSet().toList(); // กันซ้ำเล็กน้อย
+    }
+    final aGroups = recipe.allergyGroups;
+    if (aGroups.isNotEmpty) {
+      return aGroups.toSet().toList();
+    }
+    return badIngredientNames.toSet().toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     // 1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
+
+    final chipNames = _resolveChipNames(); // ★★★ [NEW]
 
     // ใช้ AlertDialog ซึ่งเป็น Widget มาตรฐานสำหรับการแจ้งเตือน
     return AlertDialog(
@@ -65,19 +82,30 @@ class AllergyWarningDialog extends StatelessWidget {
                 color: colorScheme.errorContainer.withOpacity(0.5),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: badIngredientNames
-                    .map((name) => Chip(
-                          label: Text(name),
-                          backgroundColor: colorScheme.errorContainer,
-                          labelStyle: textTheme.labelLarge
-                              ?.copyWith(color: colorScheme.onErrorContainer),
-                        ))
-                    .toList(),
-              ),
+              child: chipNames.isNotEmpty
+                  ? Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: chipNames
+                          .map(
+                            (name) => Chip(
+                              label: Text(name),
+                              backgroundColor: colorScheme.errorContainer,
+                              labelStyle: textTheme.labelLarge?.copyWith(
+                                  color: colorScheme.onErrorContainer),
+                            ),
+                          )
+                          .toList(),
+                    )
+                  : Center(
+                      // ★★★ [NEW] กันกรณีไม่มีชื่อจริง ๆ (ควรไม่เกิดหลังแก้ backend)
+                      child: Text(
+                        '—',
+                        style: textTheme.bodyMedium
+                            ?.copyWith(color: colorScheme.onErrorContainer),
+                      ),
+                    ),
             ),
           ],
         ),

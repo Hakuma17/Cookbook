@@ -4,6 +4,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../services/api_service.dart';
 
+/// โหลดรูป "แบบปลอดภัย":
+/// - URL ว่าง → ใช้ asset fallback (ค่าเริ่มต้น: assets/images/default_recipe.png)
+/// - เป็น asset อยู่แล้ว → Image.asset
+/// - เป็น URL → CachedNetworkImage (+ placeholder, error fallback)
 class SafeImage extends StatelessWidget {
   final String url;
   final BoxFit fit;
@@ -37,6 +41,7 @@ class SafeImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ให้ ApiService แปลง relative → absolute, รวมถึงกรณี http://localhost → 10.0.2.2
     final normalized = ApiService.normalizeUrl(url).trim();
     final fallback = fallbackAsset ?? 'assets/images/default_recipe.png';
 
@@ -97,7 +102,7 @@ class _DefaultSkeleton extends StatelessWidget {
     return Container(
       width: width,
       height: height,
-      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(.4),
+      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
     );
   }
 }

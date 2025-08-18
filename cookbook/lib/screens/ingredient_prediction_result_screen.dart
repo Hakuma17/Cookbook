@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 /// ─── แผนที่ Label → ชื่อภาษาไทย ─────────────────────────────────────
-/// (อัปเดตให้ตรง 12 คลาสจาก labels.txt และรองรับ sanitize ใน _mapLabel)
 const Map<String, String> _kLabelMap = {
   'bai horapha': 'ใบโหระพา',
   'bai yi ra': 'ใบยี่หร่า',
@@ -25,14 +24,21 @@ const double _kMultiGap = 0.10; // top1 - top2 < 0.10
 const double _kMultiSecond = 0.50; // และ top2 ≥ 0.50
 
 /* ────────────────────────────────────────────────────────────── */
-/*  สีหลักตาม mock-up                                            */
+/*  โทนสี (นุ่ม เข้าธีมครีม)                                    */
 /* ────────────────────────────────────────────────────────────── */
 const _bgColor = Color(0xFFFFE8CB); // ครีมอ่อน
-const _primaryBtn = Color(0xFFFF00D6); // ชมพูสดปุ่มหลัก
+const _ink = Color(0xFF3D2B1F); // น้ำตาลเข้ม
+const _cta = Color(0xFF8C5E3C); // Cocoa (ปุ่มหลัก/บวก)
+const _ctaHover = Color(0xFF7A4E2D); // Cocoa เข้มตอนกด
+const _chipBg = Color(0xFFFFF7EE); // พื้นหลังชิป
+const _chipLine = Color(0xFFB58763); // เส้นขอบชิป
+const _chipText = Color(0xFF5B3E2B); // ตัวอักษรชิป
+
+// สีแท่งผลทำนาย (พาสเทล)
 const _barColors = [
-  Color(0xFFF4A026), // ส้ม
-  Color(0xFFFF4F86), // ชมพู
-  Color(0xFFC9A4C9), // ม่วงอ่อน
+  Color(0xFFF2B36A), // ส้มพาสเทล
+  Color(0xFFE9928B), // คอรัลนุ่ม
+  Color(0xFFC7B3D6), // ลาเวนเดอร์อ่อน
 ];
 
 class IngredientPredictionResultScreen extends StatefulWidget {
@@ -56,7 +62,7 @@ class _IngredientPredictionResultScreenState
   final _selected = <String>{};
 
   List<Map<String, dynamic>> _topPredictions = [];
-  bool _showPredictions = false;
+  bool _showPredictions = false; // ⬅️ ปิดไว้ก่อน ต้องกดลูกศรลงเพื่อเปิด
 
   // ★ ธงเตือน ‘หลายวัตถุดิบ’
   bool _multiObjectSuspected = false;
@@ -64,11 +70,13 @@ class _IngredientPredictionResultScreenState
   @override
   void initState() {
     super.initState();
+
     _topPredictions = widget.allPredictions.take(3).toList();
 
     if (widget.allPredictions.isNotEmpty) {
       final top = widget.allPredictions.first;
       final conf = (top['confidence'] as num).toDouble();
+      // ✅ Autofill เฉพาะ ≥ 80%
       if (conf >= _kAutoFillThreshold) {
         _inputCtrl.text = _mapLabel(top['label'] as String);
       }
@@ -79,6 +87,8 @@ class _IngredientPredictionResultScreenState
             ((c1 - c2) < _kMultiGap) && (c2 >= _kMultiSecond);
       }
     }
+
+    _inputCtrl.addListener(() => setState(() {}));
   }
 
   @override
@@ -97,56 +107,37 @@ class _IngredientPredictionResultScreenState
     return _kLabelMap[s] ?? raw;
   }
 
-  void _addToList() {
-    final value = _inputCtrl.text.trim();
-    if (value.isNotEmpty) {
-      setState(() => _selected.add(value));
+  // ─────────────────── Logic: เพิ่ม / ลบ / สรุป ───────────────────
+  void _addToList({String? valueOverride}) {
+    final value = (valueOverride ?? _inputCtrl.text).trim();
+    if (value.isEmpty) return;
+
+    if (_selected.contains(value)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('มี “$value” อยู่ในรายการแล้ว'),
+          duration: const Duration(milliseconds: 900),
+        ),
+      );
       _inputCtrl.clear();
-      FocusScope.of(context).unfocus();
+      return;
     }
+
+    setState(() => _selected.add(value));
+    _inputCtrl.clear();
+    FocusScope.of(context).unfocus();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('เพิ่ม “$value” แล้ว'),
+        duration: const Duration(milliseconds: 800),
+      ),
+    );
   }
 
   void _removeFromList(String n) => setState(() => _selected.remove(n));
+  void _clearAll() => setState(() => _selected.clear());
 
-  void _showHelpSheet() => showModalBottomSheet(
-        context: context,
-        builder: (ctx) {
-          final t = Theme.of(ctx).textTheme;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('📝 วิธีใช้หน้านี้', style: t.titleLarge),
-                const SizedBox(height: 16),
-                _bullet('กดชื่อวัตถุดิบเพื่อกรอกอัตโนมัติ', t),
-                _bullet('พิมพ์ชื่อเองแล้วกด “+” เพื่อเพิ่ม', t),
-                _bullet('แตะ ✕ เพื่อลบออกจากรายการ', t),
-                _bullet('กด “ใช้รายการนี้” เมื่อเลือกครบ', t),
-                const SizedBox(height: 12),
-                // Tips ให้ตรงสcopeรูปภาพ
-                _bullet('ถ่าย/ครอบให้มี “วัตถุดิบเดียว” ชัด ๆ ในภาพ', t),
-                _bullet('พื้นหลังเรียบ แสงเพียงพอ ไม่ย้อนแสง', t),
-                _bullet('ขนาดภาพอย่างน้อย 224×224 พิกเซล และไฟล์ ≤ 10MB', t),
-              ],
-            ),
-          );
-        },
-      );
-
-  Widget _bullet(String text, TextTheme t) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('• ', style: TextStyle(fontSize: 16)),
-            Expanded(child: Text(text, style: t.bodyMedium)),
-          ],
-        ),
-      );
-
-  // ★ รวม logic สรุปผลที่ต้องส่งกลับ (กันเคสยังไม่ได้กด '+')
   List<String>? _finalizeSelection() {
     if (_selected.isNotEmpty) return _selected.toList();
     final lone = _inputCtrl.text.trim();
@@ -165,127 +156,200 @@ class _IngredientPredictionResultScreenState
     Navigator.pop(context, out);
   }
 
+  // ─── ออกจากหน้า: เตือนถ้ามีรายการวัตถุดิบ ──────────────────────
+  Future<bool> _confirmCancelIfNeeded() async {
+    if (_selected.isEmpty) return true; // ไม่มีรายการ → ออกได้เลย
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ทิ้งรายการวัตถุดิบ?'),
+        content: Text(
+            'คุณเพิ่มไว้ทั้งหมด ${_selected.length} รายการ ต้องการออกจากหน้านี้หรือไม่'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('อยู่ต่อ')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: _cta, foregroundColor: Colors.white),
+            child: const Text('ออก'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<bool> _onWillPop() async => _confirmCancelIfNeeded();
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tt = theme.textTheme;
 
-    return Scaffold(
-      backgroundColor: _bgColor,
-      appBar: AppBar(
+    final canAdd = _inputCtrl.text.trim().isNotEmpty;
+    final canConfirm = canAdd || _selected.isNotEmpty;
+
+    return WillPopScope(
+      onWillPop: _onWillPop, // ⬅️ จัดการปุ่ม Back ของระบบ
+      child: Scaffold(
         backgroundColor: _bgColor,
-        foregroundColor: Colors.black87,
-        elevation: 0,
-        title: const Text('ผลการสแกน'),
-        leading: TextButton(
-          child: const Text('ยกเลิก'),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.help_outline),
-            onPressed: _showHelpSheet,
+        appBar: AppBar(
+          backgroundColor: _bgColor,
+          foregroundColor: _ink,
+          elevation: 0,
+          title: const Text('ผลการสแกน'),
+          leading: TextButton(
+            child: const Text('ยกเลิก'),
+            onPressed: () async {
+              if (await _confirmCancelIfNeeded()) {
+                // ออก
+                // ignore: use_build_context_synchronously
+                Navigator.pop(context);
+              }
+            },
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // รูปตัวอย่าง
-              Semantics(
-                label: 'ภาพที่สแกน',
-                child: Material(
-                  elevation: 6,
-                  borderRadius: BorderRadius.circular(16),
-                  child: ClipRRect(
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.help_outline),
+              color: _ink,
+              onPressed: _showHelpSheet,
+              tooltip: 'วิธีใช้งาน',
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ───────── รูปตัวอย่าง ─────────
+                Semantics(
+                  label: 'ภาพที่สแกน',
+                  child: Material(
+                    color: Colors.white,
+                    elevation: 6,
                     borderRadius: BorderRadius.circular(16),
-                    child: Image.file(
-                      widget.imageFile,
-                      height: 300,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // เตือนหลายวัตถุดิบ
-              if (_multiObjectSuspected)
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF3CD),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFFFEEA8)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_amber_rounded,
-                          color: Colors.black87),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'ความมั่นใจของผลลัพธ์อันดับ 1 และ 2 ใกล้กัน อาจมีหลายวัตถุดิบในภาพ\n'
-                          'แนะนำให้ครอบภาพให้ชัดเจนขึ้นหรือถ่ายใหม่',
-                          style: tt.bodyMedium?.copyWith(color: Colors.black87),
-                        ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.file(
+                        widget.imageFile,
+                        height: 300,
+                        fit: BoxFit.cover,
                       ),
-                    ],
-                  ),
-                ),
-
-              const SizedBox(height: 24),
-              // ช่องกรอก + ปุ่มเพิ่ม
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _inputCtrl,
-                      decoration:
-                          const InputDecoration(hintText: 'พิมพ์ชื่อวัตถุดิบ'),
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => _addToList(),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: _primaryBtn,
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: const Icon(Icons.add),
-                    tooltip: 'เพิ่มเข้ารายการ',
-                    onPressed: _addToList,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-              _buildPredictionSection(tt),
-
-              const SizedBox(height: 24),
-              if (_selected.isNotEmpty) _buildSelectedItemsSection(tt),
-
-              const SizedBox(height: 24),
-              // ปุ่มยืนยัน
-              ElevatedButton.icon(
-                icon: const Icon(Icons.search),
-                label: const Text('ดูสูตรอาหาร'),
-                onPressed: _onConfirm,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _primaryBtn,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: const StadiumBorder(),
-                  elevation: 4,
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+
+                // ───────── เตือนหลายวัตถุดิบ ─────────
+                if (_multiObjectSuspected)
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF3CD),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFFEEA8)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            color: Colors.black87),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'ความมั่นใจอันดับ 1 และ 2 ใกล้กัน อาจมีหลายวัตถุดิบในภาพ\n'
+                            'แนะนำให้ครอบภาพให้ชัดเจนขึ้นหรือถ่ายใหม่',
+                            style:
+                                tt.bodyMedium?.copyWith(color: Colors.black87),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                const SizedBox(height: 24),
+
+                // ───────── ช่องกรอก + ปุ่มบวก ─────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _inputCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'พิมพ์ชื่อวัตถุดิบ',
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Colors.black12),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Colors.black12),
+                          ),
+                        ),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _addToList(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      style: IconButton.styleFrom(
+                        backgroundColor: canAdd ? _cta : _cta.withOpacity(.35),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: _cta.withOpacity(.25),
+                      ),
+                      icon: const Icon(Icons.add),
+                      tooltip: 'เพิ่มเข้ารายการ',
+                      onPressed: canAdd ? () => _addToList() : null,
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // ───────── ผลลัพธ์การทำนาย (ปิดไว้ก่อน) ─────────
+                _buildPredictionSection(tt),
+
+                const SizedBox(height: 24),
+
+                // ───────── รายการวัตถุดิบที่เลือก ─────────
+                _buildSelectedItemsSection(tt),
+
+                const SizedBox(height: 24),
+
+                // ───────── ปุ่มยืนยัน ─────────
+                FilledButton.icon(
+                  onPressed: canConfirm ? _onConfirm : null,
+                  icon: const Icon(Icons.search),
+                  label: Text(
+                    _selected.isNotEmpty
+                        ? 'ดูสูตรอาหาร (${_selected.length})'
+                        : 'ดูสูตรอาหาร',
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: canConfirm ? _cta : _cta.withOpacity(.35),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: _cta.withOpacity(.25),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: const StadiumBorder(),
+                  ).copyWith(
+                    overlayColor: WidgetStateProperty.resolveWith(
+                      (s) => s.contains(WidgetState.pressed)
+                          ? _ctaHover.withOpacity(.18)
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -294,6 +358,7 @@ class _IngredientPredictionResultScreenState
 
   /* ────────────── UI helpers ────────────── */
 
+  // ส่วน: แท่งผลทำนาย (แตะ = เพิ่มลงรายการทันที)
   Widget _buildPredictionSection(TextTheme tt) => Column(
         children: [
           InkWell(
@@ -303,9 +368,10 @@ class _IngredientPredictionResultScreenState
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('ผลลัพธ์การทำนาย', style: tt.titleMedium),
-                  Icon(
-                      _showPredictions ? Icons.expand_less : Icons.expand_more),
+                  Text('ผลลัพธ์การทำนาย',
+                      style: tt.titleMedium?.copyWith(color: _ink)),
+                  Icon(_showPredictions ? Icons.expand_less : Icons.expand_more,
+                      color: _ink),
                 ],
               ),
             ),
@@ -322,7 +388,7 @@ class _IngredientPredictionResultScreenState
 
   Widget _buildPredictionBar(Map<String, dynamic> p, int i) {
     final fill = _barColors[i % _barColors.length];
-    final bg = fill.withOpacity(0.15);
+    final bg = fill.withOpacity(0.18);
     final label = _mapLabel(p['label'] as String);
     final score = (p['confidence'] as num).toDouble();
 
@@ -330,9 +396,12 @@ class _IngredientPredictionResultScreenState
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Semantics(
         button: true,
-        label: 'เลือก $label ความมั่นใจ ${(score * 100).toInt()} เปอร์เซ็นต์',
+        label:
+            'เพิ่ม $label ลงในรายการ ความมั่นใจ ${(score * 100).toInt()} เปอร์เซ็นต์',
         child: InkWell(
-          onTap: () => _inputCtrl.text = label, // กดเพื่อกรอกอัตโนมัติ
+          onTap: () =>
+              _addToList(valueOverride: label), // ➕ แตะ = เพิ่มเข้ารายการ
+          borderRadius: BorderRadius.circular(18),
           child: Container(
             height: 36,
             decoration: BoxDecoration(
@@ -358,12 +427,14 @@ class _IngredientPredictionResultScreenState
                     children: [
                       Text(label,
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold)),
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          )),
                       Text('${(score * 100).toInt()}%',
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold)),
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          )),
                     ],
                   ),
                 ),
@@ -375,36 +446,107 @@ class _IngredientPredictionResultScreenState
     );
   }
 
-  Widget _buildSelectedItemsSection(TextTheme tt) => Column(
+  // ส่วน: รายการวัตถุดิบที่เลือก (Wrap ชิป + ปุ่ม “ล้างทั้งหมด”)
+  Widget _buildSelectedItemsSection(TextTheme tt) {
+    if (_selected.isEmpty) {
+      return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('รายการวัตถุดิบ', style: tt.titleMedium),
+          Text('รายการวัตถุดิบ', style: tt.titleMedium?.copyWith(color: _ink)),
           const SizedBox(height: 8),
-          Container(
-            height: 120,
-            padding: const EdgeInsets.all(8),
+          Text(
+            'ยังไม่มีรายการ — พิมพ์แล้วกดปุ่ม + หรือเปิด “ผลลัพธ์การทำนาย” เพื่อเลือก',
+            style: tt.bodyMedium?.copyWith(color: _ink.withOpacity(.7)),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+                child: Text('รายการวัตถุดิบ',
+                    style: tt.titleMedium?.copyWith(color: _ink))),
+            TextButton.icon(
+              onPressed: _clearAll,
+              icon: const Icon(Icons.clear_all, size: 18),
+              label: const Text('ล้างทั้งหมด'),
+              style: TextButton.styleFrom(foregroundColor: _cta),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Container(
+            key: ValueKey(_selected.length),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.black12),
             ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _selected
-                    .map((n) => Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6.0),
-                          child: Chip(
-                            backgroundColor: Colors.white,
-                            label: Text(n),
-                            deleteIcon: const Icon(Icons.cancel, size: 18),
-                            onDeleted: () => _removeFromList(n),
-                          ),
-                        ))
-                    .toList(),
-              ),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _selected
+                  .map(
+                    (n) => Chip(
+                      label: Text(n,
+                          style: TextStyle(
+                              color: _chipText, fontWeight: FontWeight.w600)),
+                      backgroundColor: _chipBg,
+                      side: BorderSide(color: _chipLine.withOpacity(.8)),
+                      deleteIcon: const Icon(Icons.close, size: 18),
+                      onDeleted: () => _removeFromList(n),
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                    ),
+                  )
+                  .toList(),
             ),
           ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  // ชีทช่วยเหลือ
+  void _showHelpSheet() => showModalBottomSheet(
+        context: context,
+        builder: (ctx) {
+          final t = Theme.of(ctx).textTheme;
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('📝 วิธีใช้หน้านี้', style: t.titleLarge),
+                const SizedBox(height: 16),
+                _bullet('ผลลัพธ์การทำนายถูกปิดไว้ก่อน — กดหัวข้อเพื่อเปิด', t),
+                _bullet('แตะแท่งผลลัพธ์เพื่อ “เพิ่ม” ลงในรายการวัตถุดิบ', t),
+                _bullet('Autofill จะกรอกให้เองถ้าอันดับ 1 ≥ 80%', t),
+                _bullet('พิมพ์ชื่อเองแล้วกด “+” เพื่อเพิ่มได้เช่นกัน', t),
+                _bullet('แตะ ✕ เพื่อลบออกจากรายการ หรือกด “ล้างทั้งหมด”', t),
+              ],
+            ),
+          );
+        },
+      );
+
+  Widget _bullet(String text, TextTheme t) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('• ', style: TextStyle(fontSize: 16)),
+            Expanded(child: Text(text, style: t.bodyMedium)),
+          ],
+        ),
       );
 }

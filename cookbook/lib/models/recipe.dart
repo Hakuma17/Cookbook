@@ -1,3 +1,4 @@
+// lib/models/recipe.dart
 import 'package:flutter/foundation.dart';
 
 /// ───────── helper ───────────────────────────────────────────
@@ -18,6 +19,23 @@ String _toString(dynamic v, {String fallback = ''}) {
   if (v == null) return fallback;
   final s = v.toString();
   return s.isEmpty ? fallback : s;
+}
+
+/// ★★★ [NEW] แปลง dynamic → List<String> (รองรับทั้ง List และ CSV)
+List<String> _toStringList(dynamic v) {
+  if (v == null) return const [];
+  if (v is List) {
+    return v
+        .map((e) => e?.toString().trim() ?? '')
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+  return v
+      .toString()
+      .split(',')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
 }
 
 /// ───────── model ────────────────────────────────────────────
@@ -64,6 +82,12 @@ class Recipe {
   /// รายการ id วัตถุดิบทั้งหมดในสูตร
   final List<int> ingredientIds;
 
+  /// ★★★ [NEW] กลุ่มวัตถุดิบที่ “ชน” กับรายการแพ้ของผู้ใช้ (เช่น “ถั่ว”, “อาหารทะเล”)
+  final List<String> allergyGroups;
+
+  /// ★★★ [NEW] รายชื่อที่ใช้แสดงเป็นชิป (ชื่อจากรายการแพ้ของผู้ใช้ที่อยู่ในกลุ่มเดียวกับในสูตร)
+  final List<String> allergyNames;
+
   const Recipe({
     required this.id,
     required this.name,
@@ -78,6 +102,8 @@ class Recipe {
     required this.hasAllergy,
     this.rank,
     required this.ingredientIds,
+    this.allergyGroups = const [], // ★★★ [NEW]
+    this.allergyNames = const [], // ★★★ [NEW]
   });
 
   /// ───── สร้างจาก JSON (จาก API) ─────────────────────────
@@ -128,6 +154,8 @@ class Recipe {
       hasAllergy: j['has_allergy'] == true || j['has_allergy'] == 1,
       rank: j['rank'] == null ? null : _toInt(j['rank']),
       ingredientIds: _parseIds(j['ingredient_ids']),
+      allergyGroups: _toStringList(j['allergy_groups']), // ★★★ [NEW]
+      allergyNames: _toStringList(j['allergy_names']), // ★★★ [NEW]
     );
   }
 
@@ -146,6 +174,8 @@ class Recipe {
         'has_allergy': hasAllergy,
         'rank': rank,
         'ingredient_ids': ingredientIds,
+        'allergy_groups': allergyGroups, // ★★★ [NEW]
+        'allergy_names': allergyNames, // ★★★ [NEW]
       };
 
   Recipe copyWith({
@@ -162,6 +192,8 @@ class Recipe {
     bool? hasAllergy,
     int? rank,
     List<int>? ingredientIds,
+    List<String>? allergyGroups, // ★★★ [NEW]
+    List<String>? allergyNames, // ★★★ [NEW]
   }) {
     return Recipe(
       id: id ?? this.id,
@@ -177,6 +209,8 @@ class Recipe {
       hasAllergy: hasAllergy ?? this.hasAllergy,
       rank: rank ?? this.rank,
       ingredientIds: ingredientIds ?? this.ingredientIds,
+      allergyGroups: allergyGroups ?? this.allergyGroups, // ★★★ [NEW]
+      allergyNames: allergyNames ?? this.allergyNames, // ★★★ [NEW]
     );
   }
 

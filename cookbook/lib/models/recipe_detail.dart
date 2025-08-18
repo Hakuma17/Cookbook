@@ -1,3 +1,4 @@
+// lib/models/recipe_detail.dart
 import 'package:flutter/foundation.dart';
 
 import 'recipe.dart';
@@ -38,6 +39,10 @@ class RecipeDetail extends Recipe {
     required super.hasAllergy,
     super.rank,
     required super.ingredientIds,
+
+    // ★★★ [NEW] ส่งผ่านข้อมูลแพ้อาหารแบบ “กลุ่ม/ชื่อ” ไปยังคลาสแม่ (Recipe)
+    List<String> super.allergyGroups = const [],
+    List<String> super.allergyNames = const [],
 
     // ── fields ของ RecipeDetail ──
     required this.imageUrls,
@@ -92,6 +97,23 @@ class RecipeDetail extends Recipe {
       return <int>[];
     }
 
+    /// ★★★ [NEW] แปลง dynamic → List<String> (รองรับทั้ง List และ CSV)
+    List<String> _parseStrList(dynamic v) {
+      if (v == null) return const <String>[];
+      if (v is List) {
+        return v
+            .map((e) => e?.toString().trim() ?? '')
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false);
+      }
+      return v
+          .toString()
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList(growable: false);
+    }
+
     /* ---------- mapping ---------- */
     // [Compat] บาง endpoint ส่ง image_url เดียว, บางที่ส่ง image_urls เป็น array
     final imgUrls = _parseImages(j['image_url'], j['image_urls']);
@@ -101,6 +123,10 @@ class RecipeDetail extends Recipe {
 
     // [Compat] บางจุด favorite_count อาจไม่มี
     final favoriteCount = _parseInt(j['favorite_count'], 0);
+
+    // ★★★ [NEW] รับกลุ่ม/ชื่อ allergen กลับมาจาก backend (ถ้ามี)
+    final agroups = _parseStrList(j['allergy_groups']);
+    final anames = _parseStrList(j['allergy_names']);
 
     return RecipeDetail(
       /* base Recipe */
@@ -119,6 +145,10 @@ class RecipeDetail extends Recipe {
       hasAllergy: j['has_allergy'] == true || j['has_allergy'] == 1,
       rank: j['rank'] != null ? _parseInt(j['rank']) : null,
       ingredientIds: _parseIds(j['ingredient_ids']),
+
+      // ★★★ [NEW] forward เข้าคลาสแม่
+      allergyGroups: agroups,
+      allergyNames: anames,
 
       /* detail */
       imageUrls: imgUrls,
@@ -142,7 +172,8 @@ class RecipeDetail extends Recipe {
   /* ───────────────────────── toJson ───────────────────────── */
   @override
   Map<String, dynamic> toJson() => {
-        ...super.toJson(),
+        ...super
+            .toJson(), // ← รวม allergy_groups / allergy_names จากคลาสแม่ด้วย
         'image_urls': imageUrls,
         'categories': categories,
         'ingredients': ingredients.map((e) => e.toJson()).toList(),
@@ -155,7 +186,7 @@ class RecipeDetail extends Recipe {
 
   /* ───────────────────────── copyWith ───────────────────────── */
   @override
-  RecipeDetail copyWith({
+  Recipe copyWith({
     int? id,
     String? name,
     String? imagePath,
@@ -169,6 +200,10 @@ class RecipeDetail extends Recipe {
     bool? hasAllergy,
     int? rank,
     List<int>? ingredientIds,
+
+    // ★★★ [NEW] ให้แก้ไขค่าในคลาสแม่ได้จาก RecipeDetail.copyWith
+    List<String>? allergyGroups,
+    List<String>? allergyNames,
     List<String>? imageUrls,
     List<String>? categories,
     List<IngredientQuantity>? ingredients,
@@ -193,6 +228,11 @@ class RecipeDetail extends Recipe {
       hasAllergy: hasAllergy ?? this.hasAllergy,
       rank: rank ?? this.rank,
       ingredientIds: ingredientIds ?? this.ingredientIds,
+
+      // ★★★ [NEW]
+      allergyGroups: allergyGroups ?? this.allergyGroups,
+      allergyNames: allergyNames ?? this.allergyNames,
+
       imageUrls: urls,
       categories: categories ?? this.categories,
       ingredients: ingredients ?? this.ingredients,

@@ -1,6 +1,8 @@
 // lib/services/api_service.dart
-import 'dart:convert';
-import 'dart:io';
+// รวมทุกการเรียก API + จัดการคุกกี้/เฮดเดอร์/เออเรอร์
+
+import 'dart:convert'; // แปลง JSON
+import 'dart:io'; // ตรวจแพลตฟอร์ม
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:device_info_plus/device_info_plus.dart';
@@ -15,25 +17,35 @@ import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
 import '../models/search_response.dart';
-// ★★★ NEW: โมเดลการ์ดกลุ่ม
-import '../models/ingredient_group.dart';
+import '../models/ingredient_group.dart'; // โมเดลกลุ่มวัตถุดิบ
 
 // ─────────────────────────────────────────────────────────────
-// 1. Custom Exceptions
+// 1) Exceptions แบบกำหนดเอง
 // ─────────────────────────────────────────────────────────────
 class ApiException implements Exception {
   final String message;
+
+  /// ใช้ชื่อนี้ให้ตรงกับที่ส่วนอื่น ๆ ของแอปรู้จัก
   final int? statusCode;
-  ApiException(this.message, {this.statusCode});
+
+  /// เก็บ errorCode (เช่น OTP_EXPIRED / RATE_LIMIT) ถ้า BE ส่งมา
+  final String? code;
+
+  /// แนบ payload ดิบไว้เผื่อ debug
+  final Map<String, dynamic>? data;
+
+  ApiException(this.message, {this.statusCode, this.code, this.data});
+
   @override
   String toString() => message;
 }
 
 class UnauthorizedException extends ApiException {
-  UnauthorizedException(String message) : super(message, statusCode: 401);
+  UnauthorizedException(String message)
+      : super(message, statusCode: 401, code: 'UNAUTHORIZED');
 }
 
-/// โครงสร้างผลลัพธ์ของการสลับเมนูโปรดจาก backend
+// ผลลัพธ์ toggle favorite (โครงสร้างตอบกลับ)
 class FavoriteToggleResult {
   final int recipeId;
   final bool isFavorited;
@@ -47,6 +59,7 @@ class FavoriteToggleResult {
     this.totalUserFavorites,
   });
 
+  // แปลง JSON → FavoriteToggleResult (ยืดหยุ่นกับรูปแบบ data)
   factory FavoriteToggleResult.fromJson(dynamic json,
       {required int fallbackRecipeId}) {
     final Map d;
@@ -73,28 +86,30 @@ class FavoriteToggleResult {
   }
 }
 
-/// จัดการทุก API call กับ backend
+// ─────────────────────────────────────────────────────────────
+// 2) Service หลักรวมทุก API
+// ─────────────────────────────────────────────────────────────
 class ApiService {
-  /* ───── http & session ───── */
-  static final _client = http.Client();
-  static const _timeout = Duration(seconds: 30);
-  static late final String baseUrl;
+  /* ─── http & session ─── */
+  static final _client = http.Client(); // คลไคลเอนต์ HTTP
+  static const _timeout = Duration(seconds: 30); // ไทม์เอาต์รวม
+  static late final String baseUrl; // โคน URL ของเซิร์ฟเวอร์
 
-  /// init() – กำหนด baseUrl ตามแพลตฟอร์ม
+  /// init() – กำหนด baseUrl ตามแพลตฟอร์ม (Android/Emulator/Web)
   static Future<void> init() async {
     if (kIsWeb) {
       baseUrl = 'http://localhost/cookbookapp/';
     } else if (Platform.isAndroid) {
       final info = await DeviceInfoPlugin().androidInfo;
       baseUrl = info.isPhysicalDevice
-          ? 'http://192.168.137.1/cookbookapp/' // ✨ เปลี่ยนได้ตาม LAN/Hotspot ที่ใช้จริง
-          : 'http://10.0.2.2/cookbookapp/'; // Emulator
+          ? 'http://192.168.137.1/cookbookapp/' // เครื่องจริงผ่าน LAN/Hotspot
+          : 'http://10.0.2.2/cookbookapp/'; // Android Emulator
     } else {
       baseUrl = 'http://localhost/cookbookapp/';
     }
   }
 
-  // ✨ NEW: Helper รวมศูนย์ ทำ URL ให้เป็น absolute + แก้ localhost → host ของ base
+  // helper: ทำ URL ให้เป็น absolute + แทน localhost ด้วย host ของ base (กันปัญหา emulator)
   static String normalizeUrl(String? raw) {
     final v = (raw ?? '').trim();
     if (v.isEmpty) return '';
@@ -113,25 +128,26 @@ class ApiService {
       return v;
     }
 
-    // 1) relative → absolute
+    // relative → absolute
     if (!u.hasScheme) {
       final p = v.startsWith('/') ? v.substring(1) : v;
       u = base.resolve(p);
     }
 
-    // 2) localhost → base.host (รองรับ Android Emulator)
+    // แก้ host localhost → host ของ base
     final isLocalHost =
         (u.host == 'localhost' || u.host == '127.0.0.1' || u.host == '::1');
     if (isLocalHost) {
       u = u.replace(host: base.host, port: base.hasPort ? base.port : null);
     }
-
     return u.toString();
   }
 
-  /* ───── cookie & header helper ───── */
-  static Future<void> clearSession() async => AuthService.clearToken();
+  /* ─── cookie & headers ─── */
+  static Future<void> clearSession() async =>
+      AuthService.clearToken(); // เคลียร์ token
 
+  // ดึงค่า PHPSESSID จาก Set-Cookie แล้วเก็บไว้ (persist session)
   static Future<void> _captureCookie(http.BaseResponse r) async {
     final raw = r.headers['set-cookie'];
     final m = raw == null ? null : RegExp(r'PHPSESSID=([^;]+)').firstMatch(raw);
@@ -140,6 +156,7 @@ class ApiService {
     }
   }
 
+  // เฮดเดอร์มาตรฐาน (แนบ Cookie ถ้ามี)
   static Future<Map<String, String>> _headers({bool json = false}) async {
     final token = await AuthService.getToken();
     return {
@@ -152,8 +169,9 @@ class ApiService {
     };
   }
 
-  /* ───── low-level GET / POST ───── */
+  /* ─── low-level GET / POST ─── */
 
+  // GET พื้นฐาน (public=true จะตัด Cookie ออก)
   static Future<http.Response> _get(Uri uri, {bool public = false}) async {
     final headers = await _headers();
     if (public) headers.remove('Cookie');
@@ -163,11 +181,7 @@ class ApiService {
     return r;
   }
 
-  // ★★★ CHANGED: _post/_postAndProcess/_processResponse/_throwHttp
-  // เพิ่ม flag map401ToUnauthorized (ค่าเริ่มต้น = true)
-  // เพื่อรองรับ public endpoints (login/register/otp/reset password)
-  // ที่ backend อาจตอบ 401 เพื่อบอก “ข้อมูลไม่ถูกต้อง”
-  // โดยไม่ควรถูกตีความว่า “Session หมดอายุ”
+  // POST พื้นฐาน + ตัวเลือก map401ToUnauthorized (ป้องกันตีความผิดใน public endpoints)
   static Future<http.Response> _post(
     String path,
     Map<String, String> body, {
@@ -184,6 +198,7 @@ class ApiService {
     return r;
   }
 
+  // สั้น: POST แล้ว parse ต่อเลย (strict)
   static Future<dynamic> _postAndProcess(
     String p,
     Map<String, String> b, {
@@ -195,7 +210,59 @@ class ApiService {
         map401ToUnauthorized: map401ToUnauthorized);
   }
 
-  /* ───── Response & Error Processing ───── */
+  /// ★★★ Lenient POST: สำหรับ OTP endpoints
+  /// - ยอมรับโค้ด 4xx บางประเภทแล้ว "คืน JSON" ให้ FE แสดงผลเอง
+  /// - ใช้กรณีต้องโชว์ error จำเพาะ (OTP_EXPIRED / RATE_LIMIT ฯลฯ)
+  static Future<Map<String, dynamic>> _postLenient(
+    String path,
+    Map<String, String> body, {
+    Set<int> okStatuses = const {200, 400, 401, 403, 404, 410, 422, 423, 429},
+  }) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final r = await _client
+        .post(uri, headers: await _headers(), body: body)
+        .timeout(_timeout);
+    await _captureCookie(r);
+
+    Map<String, dynamic>? json;
+    try {
+      json = (jsonDecode(r.body) as Map?)?.cast<String, dynamic>();
+    } catch (_) {
+      json = null;
+    }
+
+    if (okStatuses.contains(r.statusCode) && json != null) {
+      // แนบสถานะไว้ใน payload เผื่อจออยากใช้
+      json.putIfAbsent('_httpStatus', () => r.statusCode);
+      return json;
+    }
+
+    // กรณีอื่น โยนรวม แต่ยังพยายามดึง message/errorCode จาก body
+    final msg = (json?['message'] ??
+            (json?['errors'] is List && (json!['errors'] as List).isNotEmpty
+                ? (json['errors'] as List).join('\n')
+                : 'POST $path ผิดพลาด'))
+        .toString();
+    final code = json?['errorCode']?.toString();
+    throw ApiException(msg, statusCode: r.statusCode, code: code, data: json);
+  }
+
+  /* ─── Response & Error Processing ─── */
+
+  // ตัวช่วยดึงข้อความจาก backend (message หรือ errors[])
+  static String _serverMsg(dynamic parsed, http.Response r) {
+    if (parsed is Map<String, dynamic>) {
+      final m = parsed['message'];
+      if (m is String && m.trim().isNotEmpty) return m.trim();
+      final errs = parsed['errors'];
+      if (errs is List && errs.isNotEmpty) {
+        return errs.map((e) => e.toString()).join('\n');
+      }
+    }
+    return 'เกิดข้อผิดพลาดจาก Server (HTTP ${r.statusCode})';
+  }
+
+  // แปลง/ตรวจ response จาก server (รองรับปิดการแมป 401)
   static dynamic _processResponse(
     http.Response r, {
     bool map401ToUnauthorized = true,
@@ -203,7 +270,7 @@ class ApiService {
     try {
       final parsed = jsonDecode(r.body.trim());
 
-      // ★ จุดเปลี่ยน: ให้ปิดการแมป 401 → UnauthorizedException ได้
+      // แมป 401 → Unauthorized เฉพาะกรณีต้องการ
       if (map401ToUnauthorized && r.statusCode == 401) {
         throw UnauthorizedException('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
       }
@@ -214,11 +281,14 @@ class ApiService {
           throw UnauthorizedException('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
         }
         if (parsed['success'] == false) {
-          throw ApiException(parsed['message'] ?? 'เกิดข้อผิดพลาดจาก Server',
-              statusCode: r.statusCode);
+          throw ApiException(
+            _serverMsg(parsed, r),
+            statusCode: r.statusCode,
+            code: parsed['errorCode']?.toString(),
+            data: parsed,
+          );
         }
       }
-
       return parsed; // อนุญาตให้เป็น List/primitive ได้
     } on FormatException {
       throw ApiException('ไม่สามารถประมวลผลข้อมูลจาก Server ได้',
@@ -226,6 +296,7 @@ class ApiService {
     }
   }
 
+  // โยนข้อผิดพลาดเมื่อ HTTP code >= 300 (พยายามอ่าน message ก่อน)
   static Never _throwHttp(
     String what,
     http.Response r, {
@@ -236,17 +307,26 @@ class ApiService {
     }
     try {
       final json = jsonDecode(r.body);
-      if (json is Map && json['message'] != null) {
-        throw ApiException(json['message'], statusCode: r.statusCode);
+      if (json is Map) {
+        // ลองอ่าน message / errors จาก body + แนบ errorCode
+        final msg = json['message'] ??
+            ((json['errors'] is List && (json['errors'] as List).isNotEmpty)
+                ? (json['errors'] as List).join('\n')
+                : null);
+        if (msg != null) {
+          throw ApiException(msg.toString(),
+              statusCode: r.statusCode,
+              code: json['errorCode']?.toString(),
+              data: json.cast<String, dynamic>());
+        }
       }
     } catch (_) {}
     throw ApiException('$what ผิดพลาด', statusCode: r.statusCode);
   }
 
-  /* ───── helpers: multi query/array ───── */
+  /* ─── helpers: สร้าง URI ที่มี array query ─── */
 
-  /// [NEW] สร้าง URI ที่รองรับ query แบบ array (เช่น include_groups[0]=…)
-  /// ใช้ index แทน include_groups[] เพื่อหลบข้อจำกัดของ Uri.replace ที่ไม่รองรับ key ซ้ำ
+  // รองรับ include_groups[0]=A&include_groups[1]=B
   static Uri _buildUriWithMulti(
     String path, {
     Map<String, String> single = const {},
@@ -259,7 +339,7 @@ class ApiService {
       parts
           .add('${Uri.encodeQueryComponent(k)}=${Uri.encodeQueryComponent(v)}');
     });
-    // multi with [index]
+    // multi ด้วย index
     multi.forEach((k, list) {
       for (var i = 0; i < list.length; i++) {
         final key = '$k[$i]';
@@ -275,13 +355,13 @@ class ApiService {
   }
 
   /* |------------------------------------------------------------------
-  | Public API Endpoints
+  | Public API Endpoints (ฟังก์ชันเรียกใช้งานจริง)
   |------------------------------------------------------------------ */
 
   // ───────── INGREDIENTS ─────────
   static Future<List<Ingredient>> fetchIngredients() async {
     final r = await _get(Uri.parse('${baseUrl}get_ingredients.php'),
-        public: !await AuthService.isLoggedIn());
+        public: !await AuthService.isLoggedIn()); // ถ้ายังไม่ล็อกอิน → public
     final json = _processResponse(r);
     final list = json is Map
         ? (json['data'] ?? json['ingredients'] ?? [])
@@ -296,14 +376,13 @@ class ApiService {
     return list.map((e) => Ingredient.fromJson(e)).toList();
   }
 
-  /// [NEW] ดึง “กลุ่มวัตถุดิบ” สำหรับหน้า Home
+  // กลุ่มวัตถุดิบ (รองรับหลายรูปแบบ data)
   static Future<List<IngredientGroup>> fetchIngredientGroups() async {
     try {
       final r = await _get(Uri.parse('${baseUrl}get_ingredient_groups.php'),
           public: !await AuthService.isLoggedIn());
       final j = _processResponse(r);
 
-      // ✨ รองรับได้ทั้ง 2 รูปแบบ: 1) [{...}] 2) { groups:[...] } / { data:[...] }
       List raw = const [];
       if (j is List) {
         raw = j;
@@ -313,7 +392,7 @@ class ApiService {
       }
       return raw.map((e) => IngredientGroup.fromJson(e)).toList();
     } on ApiException catch (e) {
-      // fallback: โหมด grouped ในไฟล์เดิม
+      // ถ้า endpoint ไม่มี/พัง → fallback ไป grouped ใน get_ingredients.php
       if (e.statusCode != null && e.statusCode! >= 400) {
         final r2 = await _get(
             Uri.parse('${baseUrl}get_ingredients.php?grouped=1'),
@@ -357,7 +436,7 @@ class ApiService {
         (json is Map ? json['data'] : json) as Map<String, dynamic>);
   }
 
-  /// toggleFavorite คืนผลจริงจาก backend
+  // toggle favorite (ส่งค่า true/false)
   static Future<FavoriteToggleResult> toggleFavorite(
       int recipeId, bool fav) async {
     final json = await _postAndProcess('toggle_favorite.php', {
@@ -370,7 +449,7 @@ class ApiService {
   // ───────── COMMENT ─────────
   static Future<Comment> postComment(
       int recipeId, String text, double rating) async {
-    // ✨ NOTE: backend บางตัวใช้ INT 1–5 ถ้าอยากชัวร์สามารถ round ก่อนส่งได้
+    // หมายเหตุ: บาง backend ใช้ INT 1–5 → ถ้าจะชัวร์อาจปัดเป็น .0
     final res = await _postAndProcess('post_comment.php', {
       'recipe_id': recipeId.toString(),
       'comment': text,
@@ -390,14 +469,14 @@ class ApiService {
         headers: await _headers(),
         body: {'email': email, 'password': pwd}).timeout(_timeout);
     await _captureCookie(r);
-    // ★ login: ไม่แมป 401 → UnauthorizedException (ให้เป็น ApiException ตาม message)
+    // login: ปิดแมป 401 เพื่อให้ข้อความผิด/ถูกจาก backend โชว์ตรง
     final j = _processResponse(r, map401ToUnauthorized: false);
     return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
   }
 
   static Future<Map<String, dynamic>> register(
       String email, String pwd, String cPwd, String name) async {
-    // ★ register: public endpoint → ปิดการแมป 401
+    // register: public endpoint → ปิดการแมป 401
     final r = await _post(
         'register.php',
         {
@@ -416,46 +495,39 @@ class ApiService {
         headers: await _headers(),
         body: {'id_token': idToken}).timeout(_timeout);
     await _captureCookie(r);
-    // ★ public-ish: ปิดการแมป 401
+    // public-ish: ปิดแมป 401 เช่นกัน
     final j = _processResponse(r, map401ToUnauthorized: false);
     return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
   }
 
   // ───────── OTP / PASSWORD ─────────
+
   static Future<Map<String, dynamic>> sendOtp(String email) async {
-    // ★ public: ปิดการแมป 401 เพื่อให้ข้อความ backend โชว์ตรงไปตรงมา
+    // ลืมรหัสผ่าน: public → ปิดแมป 401 (ยัง strict ได้)
     final r = await _post('reset_password.php', {'email': email},
         map401ToUnauthorized: false);
     final j = _processResponse(r, map401ToUnauthorized: false);
     return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
   }
 
+  /// ★ ใช้ lenient เพื่อให้ FE อ่าน errorCode/secondsLeft ได้
   static Future<Map<String, dynamic>> resendOtp(String email) async {
-    final r = await _post('resend_otp.php', {'email': email},
-        map401ToUnauthorized: false);
-    final j = _processResponse(r, map401ToUnauthorized: false);
-    return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
+    return _postLenient('resend_otp.php', {'email': email});
   }
 
+  /// ★ ใช้ lenient เพื่อให้ FE แสดงข้อความจำเพาะ (OTP_EXPIRED/INCORRECT/LOCKED)
   static Future<Map<String, dynamic>> verifyOtp(
       String email, String otp) async {
-    // ★★ ทางเลือก B: verify_otp.php จะตอบกลับ reset_token
-    //    { success:true, reset_token:"..." } หรือ { data:{ reset_token:"..." } }
-    final r = await _post('verify_otp.php', {'email': email, 'otp': otp},
-        map401ToUnauthorized: false);
-    final j = _processResponse(r, map401ToUnauthorized: false);
+    final j =
+        await _postLenient('verify_otp.php', {'email': email, 'otp': otp});
 
-    // ★★★ Normalize: ดึง reset_token มาวางไว้ระดับบนสุดเสมอ
-    if (j is Map<String, dynamic>) {
-      final data = j['data'];
-      if (j['reset_token'] == null &&
-          data is Map<String, dynamic> &&
-          data['reset_token'] != null) {
-        j['reset_token'] = data['reset_token'];
-      }
-      return j;
+    // Normalize reset_token ให้อยู่ระดับบนสุดเสมอ (รองรับโฟลว์ลืมรหัสผ่าน)
+    if (j['reset_token'] == null &&
+        j['data'] is Map<String, dynamic> &&
+        (j['data'] as Map<String, dynamic>)['reset_token'] != null) {
+      j['reset_token'] = (j['data'] as Map<String, dynamic>)['reset_token'];
     }
-    return <String, dynamic>{'data': j};
+    return j;
   }
 
   static Future<Map<String, dynamic>> changePassword(
@@ -466,17 +538,14 @@ class ApiService {
     return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
   }
 
-  // ★★★ CHANGED: resetPassword – เพื่อรองรับ “ทางเลือก B”
-  //    - พารามิเตอร์ตัวที่ 2 (ชื่อเดิม otp) ตอนนี้ตีความเป็น **reset_token**
-  //    - ส่งให้ backend เป็น field ชื่อ 'reset_token' (ไม่ใช่ 'otp')
-  //    - ปิดการแมป 401 → เพื่อไม่ให้ขึ้นว่า Session หมดอายุเวลา token ไม่ถูกต้อง
+  // resetPassword: ใช้ reset_token (ไม่ใช่ otp) + ปิดแมป 401
   static Future<Map<String, dynamic>> resetPassword(
       String email, String otpOrToken, String newP) async {
     final r = await _post(
         'new_password.php',
         {
           'email': email,
-          'reset_token': otpOrToken, // ⬅️ เปลี่ยนจาก 'otp' → 'reset_token'
+          'reset_token': otpOrToken, // ชื่อฟิลด์ให้ตรงฝั่ง BE
           'new_password': newP,
         },
         map401ToUnauthorized: false);
@@ -484,19 +553,19 @@ class ApiService {
     return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
   }
 
-  /// multipart upload profile image
+  /// อัปโหลดรูปโปรไฟล์ (multipart)
   static Future<String> uploadProfileImage(File img) async {
     final req = http.MultipartRequest(
         'POST', Uri.parse('${baseUrl}upload_profile_image.php'));
     final headers = await _headers();
-    headers.remove('Content-Type'); // อย่าทับ boundary ของ multipart
+    headers.remove('Content-Type'); // ห้ามทับ boundary ของ multipart
     req.headers.addAll(headers);
     req.files.add(await http.MultipartFile.fromPath('profile_image', img.path));
     final streamed = await req.send().timeout(_timeout);
     final resp = await http.Response.fromStream(streamed);
     await _captureCookie(resp);
     final json = _processResponse(resp);
-    // ✨ กรณี backend ให้ทั้ง absolute/relative ให้รองรับได้ทั้งสอง
+    // รองรับทั้ง relative/absolute path
     final path = (json is Map && json['data'] is Map)
         ? (json['data']['relative_path'] ?? json['data']['image_url'])
         : null;
@@ -530,14 +599,13 @@ class ApiService {
     String sort = 'latest',
     List<String>? ingredientNames,
     List<String>? excludeIngredientNames,
-    bool? tokenize, // NEW
-    String? group, // NEW
-    // [NEW] เปลี่ยนชื่อให้สอดคล้องกับ SearchScreen
+    bool? tokenize, // เปิดโหมดตัดคำ
+    String? group, // ค้นตามกลุ่ม
     List<String>? includeGroupNames,
     List<String>? excludeGroupNames,
     int? catId,
   }) async {
-    // single params
+    // พารามิเตอร์เดี่ยว
     final singles = <String, String>{
       'page': '$page',
       'limit': '$limit',
@@ -552,7 +620,7 @@ class ApiService {
         'exclude': excludeIngredientNames!.join(','),
     };
 
-    // multi params (array)
+    // พารามิเตอร์แบบ array
     final multi = <String, List<String>>{
       if ((includeGroupNames?.isNotEmpty ?? false))
         'include_groups': includeGroupNames!,
@@ -560,7 +628,7 @@ class ApiService {
         'exclude_groups': excludeGroupNames!,
     };
 
-    // [NEW] ใช้ตัวช่วยที่สร้าง query แบบ include_groups[0]=A&include_groups[1]=B
+    // สร้าง URI ที่รองรับ [index]
     final uri = _buildUriWithMulti(
       'search_recipes_unified.php',
       single: singles,
@@ -572,7 +640,7 @@ class ApiService {
     return SearchResponse.fromJson(json);
   }
 
-  /// [NEW] ดึงสูตรจาก “ชื่อกลุ่ม” โดยตรง (ใช้ endpoint ใหม่ ถ้ามี; fallback ไป unified)
+  // ดึงสูตรตามชื่อกลุ่ม (ถ้า endpoint ไม่มี → fallback ไป unified)
   static Future<List<Recipe>> fetchRecipesByGroup({
     required String group,
     int page = 1,
@@ -594,7 +662,7 @@ class ApiService {
       final list = j is Map ? (j['data'] as List) : (j as List);
       return list.map((e) => Recipe.fromJson(e)).toList();
     } on ApiException catch (e) {
-      // fallback ไป unified ถ้า endpoint ไม่มี
+      // endpoint ไม่มี/ไม่พร้อม → ใช้ unified แทน
       if (e.statusCode != null && e.statusCode! >= 400) {
         final res = await searchRecipes(
             group: group, page: page, limit: limit, sort: sort);
@@ -604,6 +672,7 @@ class ApiService {
     }
   }
 
+  // suggest ชื่อสูตร
   static Future<List<String>> getRecipeSuggestions(String pattern,
       {bool withMeta = false}) async {
     if (pattern.isEmpty) return [];
@@ -628,6 +697,7 @@ class ApiService {
     return [];
   }
 
+  // suggest วัตถุดิบ
   static Future<List<String>> getIngredientSuggestions(String pattern) async {
     if (pattern.isEmpty) return [];
     try {
@@ -642,16 +712,14 @@ class ApiService {
     return [];
   }
 
-  /// [CHANGED] Suggest “ชื่อกลุ่มวัตถุดิบ” → ชี้ไป get_group_suggestions.php
-  /// - ส่ง q, contains=1 (ค้นแบบ contains) และ limit (เช่น 15)
-  /// - รองรับทั้งรูปแบบ {data:[...]} และ {items:[{group_name,recipe_count}]}
+  // suggest ชื่อกลุ่มวัตถุดิบ
   static Future<List<String>> getGroupSuggestions(String pattern) async {
     if (pattern.isEmpty) return [];
     try {
       final uri = Uri.parse('${baseUrl}get_group_suggestions.php').replace(
         queryParameters: {
           'q': pattern,
-          'contains': '1', // [NEW] ให้ค้นแบบ contains
+          'contains': '1', // ค้นแบบ contains
           'limit': '15',
         },
       );
@@ -677,6 +745,81 @@ class ApiService {
     return [];
   }
 
+  // map รายชื่อวัตถุดิบ → ชื่อกลุ่ม (fallback GET ถ้า POST พัง)
+  static Future<List<String>> mapIngredientsToGroups(List<String> names) async {
+    final list = names
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+    if (list.isEmpty) return <String>[];
+
+    // แปลง response → List<String>
+    List<String> _parseGroups(dynamic j) {
+      List<String> out = [];
+
+      if (j is Map) {
+        if (j['groups'] is List) {
+          out = (j['groups'] as List).map((e) => e.toString()).toList();
+        } else if (j['data'] is List) {
+          out = (j['data'] as List).map((e) => e.toString()).toList();
+        } else if (j['items'] is List) {
+          out = (j['items'] as List)
+              .map((e) => e is Map
+                  ? (e['group_name'] ??
+                          e['group'] ??
+                          e['catagorynew'] ??
+                          e['name'] ??
+                          '')
+                      .toString()
+                  : e.toString())
+              .where((s) => s.trim().isNotEmpty)
+              .cast<String>()
+              .toList();
+        }
+      } else if (j is List) {
+        out = j.map((e) => e.toString()).toList();
+      }
+
+      // unique + trim
+      final seen = <String>{};
+      final cleaned = <String>[];
+      for (final g in out) {
+        final s = g.trim();
+        if (s.isEmpty) continue;
+        if (seen.add(s)) cleaned.add(s);
+      }
+      return cleaned;
+    }
+
+    // สร้าง body names[0], names[1], ...
+    final body = <String, String>{};
+    for (var i = 0; i < list.length; i++) {
+      body['names[$i]'] = list[i];
+    }
+
+    // 1) POST ก่อน
+    try {
+      final resp = await _post('map_ingredients_to_groups.php', body,
+          map401ToUnauthorized: false); // public ไม่แมป 401
+      final json = _processResponse(resp, map401ToUnauthorized: false);
+      final groups = _parseGroups(json);
+      if (groups.isNotEmpty) return groups;
+    } catch (_) {
+      // ไป GET ต่อ
+    }
+
+    // 2) GET fallback (?names[0]=...&names[1]=...)
+    try {
+      final uri = _buildUriWithMulti('map_ingredients_to_groups.php',
+          multi: {'names': list});
+      final r = await _get(uri, public: !await AuthService.isLoggedIn());
+      final j = _processResponse(r);
+      return _parseGroups(j);
+    } catch (_) {
+      return <String>[]; // พังทั้งหมด → คืนลิสต์ว่าง
+    }
+  }
+
   // ───────── FAVORITES / COMMENTS ─────────
   static Future<List<Recipe>> fetchFavorites() async {
     final r = await _get(Uri.parse('${baseUrl}get_user_favorites.php'));
@@ -692,14 +835,14 @@ class ApiService {
     return list.map((e) => Comment.fromJson(e)).toList();
   }
 
-  /// ใช้เช็คสถานะหัวใจรวดเร็ว ไม่ต้อง deserialize Recipe ทั้งก้อน
+  // ดึงเฉพาะ id สูตรที่เป็น favorite (เบา/เร็ว)
   static Future<List<int>> fetchFavoriteIds() async {
     final uri = Uri.parse('${baseUrl}get_user_favorites.php')
         .replace(queryParameters: {'only_ids': '1'});
     final r = await _get(uri);
     final json = _processResponse(r);
 
-    // 1) กรณีได้ { data: [1,2,3] }
+    // รูปแบบ { data: [1,2,3] }
     final data = (json is Map) ? json['data'] : json;
     if (data is List) {
       final ids = data
@@ -718,7 +861,7 @@ class ApiService {
       return ids;
     }
 
-    // 2) เผื่อบางเวอร์ชันส่ง { ids:[...] } / { favorite_ids:[...] } / { favorites:[...] }
+    // เผื่อรูปแบบอื่น ๆ
     final alt = (json is Map)
         ? (json['ids'] ?? json['favorite_ids'] ?? json['favorites'])
         : null;
@@ -776,14 +919,13 @@ class ApiService {
     return list.map((e) => Ingredient.fromJson(e)).toList();
   }
 
-  /// [NEW] ดึงสรุป “กลุ่มที่แพ้” จาก get_allergy_list.php
+  // ดึงกลุ่มที่แพ้ (ถ้ามี)
   static Future<List<Map<String, dynamic>>> fetchAllergyGroups() async {
     if (!await AuthService.isLoggedIn()) return [];
     final r = await _get(Uri.parse('${baseUrl}get_allergy_list.php'));
     final j = _processResponse(r);
     final List groups =
         (j is Map && j['groups'] is List) ? j['groups'] : <dynamic>[];
-    // คืนเป็น Map ง่าย ๆ: {group_name, representative_ingredient_id}
     return groups
         .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e))
         .toList();
@@ -799,7 +941,7 @@ class ApiService {
         'manage_allergy.php', {'action': 'remove', 'ingredient_id': '$id'});
   }
 
-  /// [NEW] เพิ่ม “ทั้งกลุ่ม”
+  // เพิ่มทั้งกลุ่ม
   static Future<void> addAllergyGroup(List<int> ingredientIds) async {
     if (ingredientIds.isEmpty) return;
     final body = <String, String>{'action': 'add', 'mode': 'group'};
@@ -809,7 +951,7 @@ class ApiService {
     await _postAndProcess('manage_allergy.php', body);
   }
 
-  /// [NEW] ลบ “ทั้งกลุ่ม”
+  // ลบทั้งกลุ่ม
   static Future<void> removeAllergyGroup(List<int> ingredientIds) async {
     if (ingredientIds.isEmpty) return;
     final body = <String, String>{'action': 'remove', 'mode': 'group'};
@@ -822,8 +964,8 @@ class ApiService {
   // ───────── LOGOUT ─────────
   static Future<void> logout() async {
     try {
-      await _post('logout.php', {});
+      await _post('logout.php', {}); // แจ้งเซิร์ฟเวอร์ให้เคลียร์เซสชัน
     } catch (_) {}
-    await clearSession();
+    await clearSession(); // เคลียร์ token ฝั่งแอปเสมอ
   }
 }

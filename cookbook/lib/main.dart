@@ -1,18 +1,11 @@
 // lib/main.dart
 // ------------------------------------------------------------
 // 2025-07-26 – FavoriteStore provider + larger typography
-//               + force dark text colors (onSurface) app-wide
-// 2025-08-02 – ↑ label sizes (labelMedium/labelLarge ≥ 16sp),
-//               keep chip label at 14sp
-// 2025-08-08 – ★ Switch to app_theme (Light/Dark), keep GoogleFonts,
-//               remove hard-coded palette; derive from ColorScheme
-//               + minor safety around observers
-// 2025-08-10 – ★ Split OTP routes:
-//               - /verify_email  → VerifyOtpScreen (ยืนยันอีเมลหลังสมัคร)
-//               - /verify_otp    → OtpVerificationScreen (ลืมรหัสผ่าน)
-// 2025-08-14 – ★★ Theming ปุ่มให้ "เท่ากันทั้งระบบ":
-//               + เพิ่ม filledButtonTheme (minHeight 56, StadiumBorder)
-//               + จูน outlinedButtonTheme ให้สอดคล้อง (optional side=cs.outline)
+// 2025-08-02 – ↑ label sizes (labelMedium/labelLarge ≥ 16sp)
+// 2025-08-08 – ★ Switch to app_theme (Light/Dark)
+// 2025-08-10 – ★ Split OTP routes
+// 2025-08-14 – ★★ Theming ปุ่มให้ "เท่ากันทั้งระบบ"
+// 2025-08-18 – ★ รองรับ args แบบ String/Map บน /verify_email และ /verify_otp
 // ------------------------------------------------------------
 import 'dart:async';
 import 'dart:developer';
@@ -174,7 +167,7 @@ class MyApp extends StatelessWidget {
           titleTextStyle: textTheme.titleLarge,
         ),
 
-        // ElevatedButton: ปุ่มหลักพื้นทึบ (minHeight 56)
+        // ElevatedButton: ปุ่มหลักพื้นทึบ
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             foregroundColor: Colors.white,
@@ -187,10 +180,10 @@ class MyApp extends StatelessWidget {
           ),
         ),
 
-        // ★★ FilledButton: ให้เท่ากับ Elevated/Outlined → ปุ่มใน Dialog จะสูงเท่ากัน
+        // FilledButton: ให้สเปกเดียวกับปุ่มอื่น
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            minimumSize: const Size(0, 46), // ← สำคัญ
+            minimumSize: const Size(0, 46),
             shape: const StadiumBorder(),
             padding: const EdgeInsets.symmetric(horizontal: 24),
             backgroundColor: cs.primary,
@@ -200,13 +193,13 @@ class MyApp extends StatelessWidget {
           ),
         ),
 
-        // OutlinedButton: ปุ่มรองขอบเส้น (minHeight 56)
+        // OutlinedButton: ปุ่มรองขอบเส้น
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
             foregroundColor: cs.onSurface,
             minimumSize: const Size(0, 46),
             shape: const StadiumBorder(),
-            side: BorderSide(color: cs.outline, width: 1.25), // คอนทราสต์พอดี
+            side: BorderSide(color: cs.outline, width: 1.25),
             padding: const EdgeInsets.symmetric(horizontal: 24),
             textStyle:
                 GoogleFonts.itim(fontSize: 18, fontWeight: FontWeight.bold),
@@ -222,7 +215,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
 
-        // Input: ฟอร์มกรอกต่าง ๆ
+        // Input: ฟอร์มกรอก
         inputDecorationTheme: base.inputDecorationTheme.copyWith(
           filled: true,
           fillColor: base.brightness == Brightness.light
@@ -257,7 +250,7 @@ class MyApp extends StatelessWidget {
           shadowColor: Colors.black.withOpacity(0.08),
         ),
 
-        // Chip: ป้ายกรอง/แท็ก → label 14 เพื่อบาลานซ์
+        // Chip: ป้ายกรอง/แท็ก
         chipTheme: base.chipTheme.copyWith(
           shape: const StadiumBorder(),
           side: BorderSide(color: cs.primary.withOpacity(0.5)),
@@ -343,13 +336,19 @@ class MyApp extends StatelessWidget {
       case '/reset_password':
         return _material(const ResetPasswordScreen(), settings);
 
-      // ยืนยัน OTP (ลืมรหัสผ่าน)
-      // ResetPasswordScreen → pushNamed('/verify_otp', arguments: email)
+      // ยืนยัน OTP (ลืมรหัสผ่าน) — รับ String หรือ Map(email)
       case '/verify_otp':
-        if (args is String) {
-          return _material(OtpVerificationScreen(email: args), settings);
+        {
+          // 👇 ยืดหยุ่น: รับ email ได้ทั้ง String และ Map{'email':...}
+          String email = '';
+          if (args is String) {
+            email = args.trim();
+          } else if (args is Map) {
+            email = (args['email'] ?? '').toString().trim();
+          }
+          if (email.isEmpty) return _errorRoute('ข้อมูลอีเมลไม่ถูกต้อง');
+          return _material(OtpVerificationScreen(email: email), settings);
         }
-        return _errorRoute('ข้อมูลอีเมลไม่ถูกต้อง');
 
       // ตั้งรหัสผ่านใหม่ (รับ email + otp)
       case '/new_password':
@@ -361,13 +360,24 @@ class MyApp extends StatelessWidget {
         }
         return _errorRoute('ข้อมูล OTP ไม่ถูกต้อง');
 
-      // ยืนยันอีเมลหลังสมัคร (คนละ flow)
-      // RegisterScreen → pushReplacementNamed('/verify_email', arguments: email)
+      // ยืนยันอีเมลหลังสมัคร — รับ String หรือ Map{email,startCooldown}
       case '/verify_email':
-        if (args is String) {
-          return _material(VerifyOtpScreen(email: args), settings);
+        {
+          // 👇 รองรับเวอร์ชันเก่า/ใหม่
+          String email = '';
+          bool startCooldown = true;
+          if (args is String) {
+            email = args.trim();
+          } else if (args is Map) {
+            email = (args['email'] ?? '').toString().trim();
+            startCooldown = args['startCooldown'] == true;
+          }
+          if (email.isEmpty) return _errorRoute('ข้อมูลอีเมลไม่ถูกต้อง');
+          return _material(
+            VerifyOtpScreen(email: email, startCooldown: startCooldown),
+            settings,
+          );
         }
-        return _errorRoute('ข้อมูลอีเมลไม่ถูกต้อง');
 
       /* main */
       case '/home':

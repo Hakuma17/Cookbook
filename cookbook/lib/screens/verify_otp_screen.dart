@@ -1,50 +1,64 @@
 // lib/screens/verify_otp_screen.dart
 //
-// 2025-08-10 – Verify OTP (email verification) polish
-// - ใช้ Theme/Named Routes ให้สอดคล้องทั้งแอป
-// - กันกดซ้ำ, บังคับกรอกตัวเลข 6 หลัก, แสดง cooldown ส่งซ้ำ
-// - หลัง verify: login อัตโนมัติถ้า backend ส่ง user data กลับมา
-//   -> ถ้าล็อกอินแล้วไป /home, ถ้าไม่ ไป /login
-// - เคลียร์ error เมื่อพิมพ์/เปลี่ยนค่า, ปรับ snackbar ให้พร้อมใช้งาน
+// Verify OTP (Email Verification)
+// - รับ {email, startCooldown} จากหน้า Register
+// - กันกดซ้ำ/กันกดย้อนกลับ (ทั้งปุ่ม back และ gesture)
+// - เริ่ม/รีเซ็ต cooldown ปุ่ม "ส่งรหัสอีกครั้ง"
+// - ดึง error จาก BE, แสดง snack ตอน resend สำเร็จ
+// - verify สำเร็จ: บันทึก login ถ้ามี data + เคลียร์ pending + นำทาง
 //
-// 2025-08-12 – UI polish for larger typography (ให้เข้ากับ main.dart)
-// - ขยายขนาดตัวอักษร/spacing และ PIN box
-// - ปรับปุ่ม/Progress ให้ใหญ่ขึ้น อ่านง่ายขึ้น
-// - เคลียร์โค้ดเล็กๆ: ป้องกัน double-submit และยกเลิก Timer เสมอ
-//
+// หมายเหตุ: MyApp จะพาเข้าหน้านี้อัตโนมัติถ้ามี pending verify ใน AuthService
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
+import 'package:google_fonts/google_fonts.dart'; // Import Google Fonts
 
 import 'package:cookbook/services/auth_service.dart';
 import 'package:cookbook/services/api_service.dart';
 
 class VerifyOtpScreen extends StatefulWidget {
+  /// อีเมลที่ใช้รับ OTP
   final String email;
-  const VerifyOtpScreen({super.key, required this.email});
+
+  /// เริ่มนับ cooldown ตั้งแต่เข้าหน้าหรือไม่
+  final bool startCooldown;
+
+  const VerifyOtpScreen({
+    super.key,
+    required this.email,
+    this.startCooldown = true, // ค่าเริ่มต้น
+  });
 
   @override
   State<VerifyOtpScreen> createState() => _VerifyOtpScreenState();
 }
 
 class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
-  final _otpCtrl = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
+  /* ───────── controllers & form ───────── */
+  final _otpCtrl = TextEditingController(); // ช่องกรอก OTP
+  final _formKey = GlobalKey<FormState>(); // ตรวจความถูกต้อง
 
-  bool _submitting = false;
-  bool _resending = false;
-  String? _errorMsg;
+  /* ───────── UI state ───────── */
+  bool _submitting = false; // ระหว่างกด "ยืนยัน"
+  bool _resending = false; // ระหว่างกด "ส่งรหัสอีกครั้ง"
+  String? _errorMsg; // ข้อความผิดพลาดใต้ PIN
 
-  // Cooldown logic
-  static const int _cooldown = 60;
+  /* ───────── resend cooldown ───────── */
+  static const int _cooldown = 60; // วินาที
   Timer? _timer;
-  int _secLeft = 0;
+  int _secLeft = 0; // เหลือกี่วินาที
 
   @override
   void initState() {
     super.initState();
-    _startCooldown();
+    _persistPending(startCooldown: widget.startCooldown);
+    if (widget.startCooldown) {
+      _startCooldown();
+    } else {
+      _secLeft = 0;
+    }
   }
 
   @override
@@ -54,7 +68,73 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     super.dispose();
   }
 
+  /* ───────── helpers ───────── */
+
+  Future<void> _persistPending({required bool startCooldown}) async {
+    await AuthService.markPendingEmailVerify(
+      email: widget.email,
+      startCooldown: startCooldown,
+    );
+  }
+
+  Future<void> _clearPending() => AuthService.clearPendingEmailVerify();
+
+  void _showSnack(String msg, {bool isError = true}) {
+    if (!mounted) return;
+    final theme = Theme.of(context);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg, style: GoogleFonts.itim(fontSize: 16)),
+          backgroundColor:
+              isError ? theme.colorScheme.error : Colors.green[600],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  void _startCooldown() {
+    _secLeft = _cooldown;
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      if (_secLeft <= 1) {
+        t.cancel();
+        setState(() => _secLeft = 0);
+      } else {
+        setState(() => _secLeft--);
+      }
+    });
+  }
+
+  String _mapOtpError(Map res) {
+    final code = (res['errorCode'] ?? '').toString().toUpperCase();
+    switch (code) {
+      case 'OTP_EXPIRED':
+        setState(() => _secLeft = 0);
+        return 'OTP หมดอายุแล้ว';
+      case 'OTP_INCORRECT':
+        final left = res['attemptsLeft'];
+        return 'OTP ไม่ถูกต้อง${left != null ? ' (เหลือ $left ครั้ง)' : ''}';
+      case 'ACCOUNT_LOCKED':
+        final wait = res['secondsLeft'];
+        return 'บัญชีถูกล็อกชั่วคราว${wait != null ? ' ($wait วินาที)' : ''}';
+      default:
+        return (res['message'] ?? 'OTP ไม่ถูกต้อง').toString();
+    }
+  }
+
   /* ───────── actions ───────── */
+
+  Future<void> _cancelVerification() async {
+    await _clearPending();
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
+  }
 
   Future<void> _verify() async {
     if (_submitting) return;
@@ -68,24 +148,21 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     try {
       final code = _otpCtrl.text.trim();
       final res = await AuthService.verifyOtp(widget.email, code);
-
       if (!mounted) return;
 
       if (res['success'] == true) {
-        // ถ้า backend ส่งข้อมูลผู้ใช้กลับมา → บันทึกให้ล็อกอินทันที
         final data = res['data'];
         if (data is Map<String, dynamic>) {
           await AuthService.saveLoginData(data);
         }
-
-        // เช็คสถานะล็อกอินจริง แล้วนำทางให้เหมาะสม
+        await _clearPending();
         final loggedIn = await AuthService.isLoggedIn();
         Navigator.of(context).pushNamedAndRemoveUntil(
           loggedIn ? '/home' : '/login',
           (_) => false,
         );
       } else {
-        setState(() => _errorMsg = res['message'] ?? 'OTP ไม่ถูกต้อง');
+        setState(() => _errorMsg = _mapOtpError(res));
       }
     } on ApiException catch (e) {
       if (mounted) setState(() => _errorMsg = e.message);
@@ -111,8 +188,14 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
       if (res['success'] == true) {
         _startCooldown();
         _showSnack('ส่ง OTP ใหม่แล้ว', isError: false);
+        await _persistPending(startCooldown: true);
       } else {
-        setState(() => _errorMsg = res['message'] ?? 'ส่ง OTP ใหม่ไม่สำเร็จ');
+        final code = (res['errorCode'] ?? '').toString().toUpperCase();
+        if (code == 'RATE_LIMIT' && (res['secondsLeft'] is int)) {
+          setState(() => _secLeft = res['secondsLeft'] as int);
+        }
+        setState(() =>
+            _errorMsg = (res['message'] ?? 'ส่ง OTP ใหม่ไม่สำเร็จ').toString());
       }
     } on ApiException catch (e) {
       if (mounted) setState(() => _errorMsg = e.message);
@@ -123,166 +206,171 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     }
   }
 
-  void _startCooldown() {
-    _secLeft = _cooldown;
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      if (_secLeft <= 1) {
-        t.cancel();
-        setState(() => _secLeft = 0);
-      } else {
-        setState(() => _secLeft--);
-      }
-    });
-  }
-
-  void _skip() {
-    // ไปหน้า Home ในฐานะ Guest
-    Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
-  }
-
-  void _showSnack(String msg, {bool isError = true}) {
-    if (!mounted) return;
-    final theme = Theme.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: isError ? theme.colorScheme.error : Colors.green[600],
-      behavior: SnackBarBehavior.floating,
-    ));
-  }
-
-  /* ───────── build ───────── */
+  /* ───────── UI ───────── */
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final txt = theme.textTheme;
 
-    // PIN theme — ให้ใหญ่ขึ้นเพื่อ match กับตัวหนังสือของแอป
-    final baseBox = BoxDecoration(
-      color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: theme.colorScheme.outline.withOpacity(0.5)),
-    );
+    // ★ Define custom colors for this screen
+    const primaryBrown = Color(0xFF967259);
+    const pinBoxBg = Color(0xFFF5E4DE);
+    const pinBoxBorder = Color(0xFFDBC8C1);
 
+    // ★ Define PinTheme using custom colors
     final defaultPinTheme = PinTheme(
       width: 58,
-      height: 66,
-      textStyle: txt.titleLarge, // ใหญ่ขึ้น
-      decoration: baseBox,
-    );
-
-    final focusedTheme = defaultPinTheme.copyWith(
-      decoration: baseBox.copyWith(
-        border: Border.all(color: theme.colorScheme.primary, width: 2),
+      height: 62,
+      textStyle: GoogleFonts.itim(fontSize: 24, color: primaryBrown),
+      decoration: BoxDecoration(
+        color: pinBoxBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: pinBoxBorder),
       ),
     );
 
-    final submittedTheme = defaultPinTheme.copyWith(
-      decoration: baseBox.copyWith(
-        color: theme.colorScheme.primaryContainer,
+    final focusedPinTheme = defaultPinTheme.copyWith(
+      decoration: defaultPinTheme.decoration!.copyWith(
+        border: Border.all(color: primaryBrown, width: 2),
       ),
     );
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('ยืนยันอีเมล')),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.shield_moon_outlined,
-                    size: 88, color: theme.colorScheme.primary),
-                const SizedBox(height: 26),
-                Text('ป้อนรหัสที่ส่งไปยัง', style: txt.titleMedium),
-                const SizedBox(height: 10),
-                Text(
-                  widget.email,
-                  style: txt.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 34),
+    final submittedPinTheme = defaultPinTheme.copyWith(
+      decoration: defaultPinTheme.decoration!.copyWith(
+        color: pinBoxBg,
+      ),
+    );
 
-                // PIN input (6 digits, ตัวเลขเท่านั้น)
-                Pinput(
-                  length: 6,
-                  controller: _otpCtrl,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  defaultPinTheme: defaultPinTheme,
-                  focusedPinTheme: focusedTheme,
-                  submittedPinTheme: submittedTheme,
-                  validator: (s) {
-                    if (s == null || s.trim().length != 6) {
-                      return 'กรุณากรอกรหัส 6 หลัก';
-                    }
-                    return null;
-                  },
-                  onChanged: (_) {
-                    if (_errorMsg != null) {
-                      setState(() => _errorMsg = null);
-                    }
-                  },
-                  onCompleted: (_) => _verify(),
-                ),
-
-                if (_errorMsg != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Text(
-                      _errorMsg!,
-                      style: txt.bodyLarge
-                          ?.copyWith(color: theme.colorScheme.error),
-                      textAlign: TextAlign.center,
+    return WillPopScope(
+      onWillPop: () async => false, // Prevent back navigation
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: const Text('ยืนยันอีเมล'),
+          backgroundColor: theme.scaffoldBackgroundColor,
+          elevation: 0,
+        ),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(32, 20, 32, 28),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.shield_moon_outlined,
+                    size: 90,
+                    color: primaryBrown,
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    'ป้อนรหัสที่ส่งไปยัง',
+                    style: txt.bodyLarge?.copyWith(fontSize: 18),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.email,
+                    style: GoogleFonts.itim(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+                  Pinput(
+                    length: 6,
+                    controller: _otpCtrl,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    defaultPinTheme: defaultPinTheme,
+                    focusedPinTheme: focusedPinTheme,
+                    submittedPinTheme: submittedPinTheme,
+                    validator: (s) {
+                      if (s == null || s.trim().length != 6) {
+                        return 'กรุณากรอกรหัส 6 หลัก';
+                      }
+                      return null;
+                    },
+                    onChanged: (_) {
+                      if (_errorMsg != null) setState(() => _errorMsg = null);
+                    },
+                    onCompleted: (_) => _verify(),
+                  ),
+                  if (_errorMsg != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16, bottom: 8),
+                      child: Text(
+                        _errorMsg!,
+                        style: GoogleFonts.itim(
+                          fontSize: 17,
+                          color: theme.colorScheme.error,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryBrown,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        textStyle: GoogleFonts.itim(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      onPressed: _submitting ? null : _verify,
+                      child: _submitting
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 3,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('ยืนยัน'),
                     ),
                   ),
-
-                const SizedBox(height: 26),
-                ElevatedButton(
-                  onPressed: _submitting ? null : _verify,
-                  child: _submitting
-                      ? const SizedBox(
-                          width: 26,
-                          height: 26,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 3,
-                            color: Colors.white,
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: _resending || _secLeft > 0 ? null : _resend,
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.onSurface,
+                    ),
+                    child: _resending
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          )
+                        : Text(
+                            _secLeft > 0
+                                ? 'ส่งอีกครั้งใน ($_secLeft)'
+                                : 'ส่งรหัสอีกครั้ง',
+                            style: GoogleFonts.itim(fontSize: 18),
                           ),
-                        )
-                      : const Text('ยืนยัน'),
-                ),
-
-                const SizedBox(height: 14),
-                TextButton(
-                  onPressed: _skip,
-                  child: const Text('ข้ามไปก่อน'),
-                ),
-
-                const SizedBox(height: 26),
-                TextButton(
-                  onPressed: _resending || _secLeft > 0 ? null : _resend,
-                  child: _resending
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(
-                          _secLeft > 0
-                              ? 'ส่งอีกครั้งใน ($_secLeft)'
-                              : 'ส่งรหัสอีกครั้ง',
-                          style: txt.titleMedium,
-                        ),
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 4),
+                  TextButton(
+                    onPressed: _cancelVerification,
+                    child: Text(
+                      'ยกเลิก',
+                      style: GoogleFonts.itim(
+                        fontSize: 18,
+                        color: theme.colorScheme.error,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

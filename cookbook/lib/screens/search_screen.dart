@@ -250,6 +250,27 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         }
         _hasMore = res.recipes.length == _pageSize;
       });
+
+      // ★★★ Cute dialog: เมื่อใช้ "กลุ่ม" แล้วหน้า 1 ว่าง → โชว์แจ้งเตือนหนึ่งครั้งต่อคำขอ
+      if (page == 1 &&
+          _recipes.isEmpty &&
+          (_group != null ||
+              _includeGroupNames.isNotEmpty ||
+              _excludeGroupNames.isNotEmpty) &&
+          _emptyDialogShownForReq != myId) {
+        _emptyDialogShownForReq = myId;
+        final label = _group ??
+            (_includeGroupNames.isNotEmpty
+                ? _includeGroupNames.first
+                : (_excludeGroupNames.isNotEmpty
+                    ? _excludeGroupNames.first
+                    : 'กลุ่มที่เลือก'));
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _showEmptyGroupDialog(label);
+          });
+        }
+      }
     } on UnauthorizedException {
       await AuthService.logout();
       if (mounted) {
@@ -586,16 +607,21 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
 
   void _handleRecipeTap(Recipe r) {
     if (r.hasAllergy) {
-      final badNames = _allergyList
+      // ★★★ ใช้ชื่อจาก backend ก่อน (recipe.allergyNames) แล้วค่อย fallback เป็นคำนวณเอง
+      final backendNames = r.allergyNames;
+      final fallbackNames = _allergyList
           .where((ing) => r.ingredientIds.contains(ing.id))
           .map((e) => e.name)
           .toList();
+      final badNames =
+          backendNames.isNotEmpty ? backendNames : fallbackNames; // ✅
+
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (_) => AllergyWarningDialog(
           recipe: r,
-          badIngredientNames: badNames,
+          badIngredientNames: badNames, // ✅ ส่งชื่อเข้า dialog
           onConfirm: (rx) {
             Navigator.pop(context);
             Navigator.pushNamed(context, '/recipe_detail', arguments: rx);

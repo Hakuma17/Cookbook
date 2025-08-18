@@ -1,17 +1,20 @@
 // lib/screens/crop_avatar_screen.dart
 //
-// ★ 2025-08-12 – Avatar Cropper (FB-like, save SQUARE; preview CIRCLE)
-//   • พรีวิว: นอกวงกลม “จาง”, ในวงกลมสีปกติ
-//   • Pinch-to-zoom / pan ปกติ, หมุน 90° แล้วยังคงซูมและจุดกึ่งกลาง
-//   • บันทึก: ครอป “สี่เหลี่ยมจัตุรัส” จากพิกัดภาพจริง (ไม่ใช่วงกลม)
-//   • ใช้คณิตจาก TransformationController → ตัดตรงจาก _original
-//   • ออปชันย่อสูงสุด ~1024px และบันทึกเป็น JPG
+// 2025-08-18 — Avatar Cropper (Android Only, simple & precise)
+// • ใช้ “ภาพเดียว” (ไม่มี Transform ซ้ำ) → สี/สเกลใน-นอกวงกลมตรงกันเป๊ะ
+// • ข้างนอกวงกลมจางด้วย overlay แบบมีรู (ไม่ทำภาพซีด)
+// • pinch/zoom/pan + double-tap zoom, หมุน 90° แบบตรรกะ (ลื่น) และคงจุดกึ่งกลาง
+// • Clamp ห้ามเลื่อนเกินภาพจริง, ครอป “ตรงตามที่เห็นบนเลย์เอาต์”
+// • Save ทำใน isolate (compute) + มีหน้ากำลังบันทึก
+// • ผลลัพธ์: สี่เหลี่ยมจัตุรัส, ยาวสุด 1024px, JPG q=90
 
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart'; // compute
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
@@ -27,36 +30,28 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
   final _tc = TransformationController();
 
   late Future<void> _loadFuture;
-  late img.Image _original; // รูปหลัง bake EXIF + หลังหมุน 90°
-  late Uint8List _displayBytes; // ไบต์สำหรับแสดงผล
+  late img.Image _original; // baked EXIF (ยังไม่หมุนตามพรีวิว)
+  late Uint8List _previewBytes; // พรีวิวแบบย่อ (ลื่นและประหยัดแรม)
 
-  int _srcW = 0, _srcH = 0; // ขนาดรูปปัจจุบัน
-  double _baseW = 0, _baseH = 0; // ขนาดฐานที่วางในกรอบสี่เหลี่ยมครอป
-  double _cropSize = 0; // ความกว้าง/สูงของกรอบครอป (จัตุรัส)
+  int _srcW = 0, _srcH = 0;
+  double _baseW = 0, _baseH = 0; // ขนาดภาพฐานในกรอบครอป (หลังหมุนตรรกะ)
+  double _cropSize = 0;
+  int _rotQ = 0; // 0..3
 
   bool _didInitTransform = false;
   double? _lastCropSize;
   bool _isClamping = false;
+  bool _showGrid = true;
+  bool _isSaving = false;
 
   static const double _minScale = 1.0;
-  static const double _maxScale = 6.0;
+  static const double _prefMaxScale = 6.0;
 
   @override
   void initState() {
     super.initState();
     _tc.addListener(_onTcChanged);
     _loadFuture = _load();
-  }
-
-  Future<void> _load() async {
-    final bytes = await File(widget.sourcePath).readAsBytes();
-    final decoded = img.decodeImage(bytes);
-    if (decoded == null) throw Exception('อ่านรูปไม่สำเร็จ');
-
-    _original = img.bakeOrientation(decoded);
-    _displayBytes = Uint8List.fromList(img.encodePng(_original));
-    _srcW = _original.width;
-    _srcH = _original.height;
   }
 
   @override
@@ -66,10 +61,40 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
     super.dispose();
   }
 
+  Future<void> _load() async {
+    final raw = await File(widget.sourcePath).readAsBytes();
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) throw Exception('อ่านรูปไม่สำเร็จ');
+
+    _original = img.bakeOrientation(decoded);
+    _srcW = _original.width;
+    _srcH = _original.height;
+
+    // ย่อเพื่อพรีวิว (ยาวสุด 1600px)
+    const maxPreviewSide = 1600;
+    final longest = math.max(_srcW, _srcH);
+    img.Image preview = _original;
+    if (longest > maxPreviewSide) {
+      final k = maxPreviewSide / longest;
+      preview = img.copyResize(
+        _original,
+        width: (_srcW * k).round(),
+        height: (_srcH * k).round(),
+        interpolation: img.Interpolation.cubic,
+      );
+    }
+    _previewBytes = Uint8List.fromList(img.encodeJpg(preview, quality: 92));
+  }
+
+  // ───── Geometry ─────
+  int get _logicW => (_rotQ % 2 == 0) ? _srcW : _srcH;
+  int get _logicH => (_rotQ % 2 == 0) ? _srcH : _srcW;
+
   double get _coverMinScale => math.max(_cropSize / _baseW, _cropSize / _baseH);
+  double get _dynamicMaxScale => math.max(_prefMaxScale, _coverMinScale + 2);
 
   void _computeBaseSize() {
-    final w = _srcW.toDouble(), h = _srcH.toDouble();
+    final w = _logicW.toDouble(), h = _logicH.toDouble();
     if (w >= h) {
       _baseH = _cropSize;
       _baseW = _cropSize * (w / h);
@@ -81,23 +106,20 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
 
   void _initTransform() {
     if (_didInitTransform && _lastCropSize == _cropSize) return;
-
     _computeBaseSize();
     final tx = (_cropSize - _baseW) / 2;
     final ty = (_cropSize - _baseH) / 2;
     _tc.value = Matrix4.identity()
       ..translate(tx, ty)
       ..scale(1.0);
-
     _didInitTransform = true;
     _lastCropSize = _cropSize;
-
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureCover());
   }
 
   void _onTcChanged() {
     if (!mounted || _isClamping || !_didInitTransform) {
-      if (mounted) setState(() {}); // sync slider
+      if (mounted) setState(() {});
       return;
     }
     _isClamping = true;
@@ -107,38 +129,28 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
   }
 
   void _resetAll() {
+    HapticFeedback.selectionClick();
+    _rotQ = 0;
     _didInitTransform = false;
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureCover());
   }
 
-  // หมุน 90° พร้อมรักษาซูมและจุดกึ่งกลางที่กำลังดูอยู่
+  // หมุน 90° แบบตรรกะ + คงซูม/กึ่งกลาง
   void _rotateQuarter(int quarters) {
     final q = ((quarters % 4) + 4) % 4;
     if (q == 0) return;
+    HapticFeedback.selectionClick();
 
     final m0 = _tc.value.clone();
-    final s0 = m0.getMaxScaleOnAxis().clamp(_minScale, _maxScale);
-    final tx0 = m0.storage[12];
-    final ty0 = m0.storage[13];
+    final s0 = m0.getMaxScaleOnAxis().clamp(_minScale, _dynamicMaxScale);
+    final tx0 = m0.storage[12], ty0 = m0.storage[13];
     final cx = _cropSize / 2, cy = _cropSize / 2;
+
     final relX = (cx - tx0) / (s0 * _baseW);
     final relY = (cy - ty0) / (s0 * _baseH);
 
-    setState(() {
-      img.Image cur = _original;
-      if (q == 1)
-        cur = img.copyRotate(cur, angle: 90);
-      else if (q == 2)
-        cur = img.copyRotate(cur, angle: 180);
-      else if (q == 3) cur = img.copyRotate(cur, angle: -90);
-
-      _original = cur;
-      _displayBytes = Uint8List.fromList(img.encodePng(_original));
-      _srcW = _original.width;
-      _srcH = _original.height;
-      _didInitTransform = false;
-    });
+    setState(() => _rotQ = (_rotQ + q) % 4);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _computeBaseSize();
@@ -154,20 +166,19 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
         ny = relX;
       }
 
-      final s = s0;
-      final tx = cx - nx * s * _baseW;
-      final ty = cy - ny * s * _baseH;
+      final tx = cx - nx * s0 * _baseW;
+      final ty = cy - ny * s0 * _baseH;
 
       _tc.value = Matrix4.identity()
         ..translate(tx, ty)
-        ..scale(s);
+        ..scale(s0);
       _ensureCover();
     });
   }
 
   void _setZoom(double newScale) {
     final coverMin = _coverMinScale;
-    final target = newScale.clamp(coverMin, _maxScale);
+    final target = newScale.clamp(coverMin, _dynamicMaxScale);
     final m = _tc.value.clone();
     final cur = m.getMaxScaleOnAxis();
     if (cur == 0) return;
@@ -177,9 +188,31 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
       ..scale(factor)
       ..translate(-_cropSize / 2, -_cropSize / 2);
     _tc.value = m;
+    _ensureCover();
   }
 
-  // ไม่ให้เห็นขอบว่าง: s >= coverMin และ tx/ty อยู่ในช่วงที่ครอบเต็ม
+  Offset? _lastTapPos;
+  void _onDoubleTap() {
+    final m = _tc.value.clone();
+    final cur = m.getMaxScaleOnAxis();
+    final coverMin = _coverMinScale;
+    final target = (cur < coverMin * 1.5)
+        ? math.min(coverMin * 2.0, _dynamicMaxScale)
+        : coverMin;
+
+    final focal = _lastTapPos ?? Offset(_cropSize / 2, _cropSize / 2);
+    final factor = target / cur;
+
+    m
+      ..translate(focal.dx, focal.dy)
+      ..scale(factor)
+      ..translate(-focal.dx, -focal.dy);
+    _tc.value = m;
+    _ensureCover();
+    HapticFeedback.lightImpact();
+  }
+
+  // ไม่ให้เลื่อนเกินภาพจริง
   void _ensureCover() {
     if (_cropSize <= 0) return;
 
@@ -202,83 +235,129 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
     final maxTy = 0.0;
 
     const eps = 0.001;
-    final tx = m.storage[12].clamp(minTx - eps, maxTx + eps);
-    final ty = m.storage[13].clamp(minTy - eps, maxTy + eps);
-    m.storage[12] = tx.toDouble();
-    m.storage[13] = ty.toDouble();
+    m.storage[12] = m.storage[12].clamp(minTx - eps, maxTx + eps).toDouble();
+    m.storage[13] = m.storage[13].clamp(minTy - eps, maxTy + eps).toDouble();
 
     _tc.value = m;
   }
 
-  // ───── SAVE: ครอป "สี่เหลี่ยมจัตุรัส" จากภาพจริง ─────
+  // ───── Save (isolate + loading) ─────
   Future<void> _doCrop() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
     try {
-      // แปลง viewport → พิกัดใน _original
       final m = _tc.value;
       final s = m.getMaxScaleOnAxis();
-      final tx = m.storage[12];
-      final ty = m.storage[13];
+      final tx = m.storage[12], ty = m.storage[13];
 
-      // พิกัดใน "base space"
-      final ix0 = (0 - tx) / s; // x ที่ขอบซ้ายของกรอบครอป
-      final iy0 = (0 - ty) / s; // y ที่ขอบบน
-      final ix1 = (_cropSize - tx) / s;
-      final iy1 = (_cropSize - ty) / s;
+      // พิกัด base-space (หลังหมุนตรรกะ)
+      final ix0 = (0 - tx) / s, iy0 = (0 - ty) / s;
+      final ix1 = (_cropSize - tx) / s, iy1 = (_cropSize - ty) / s;
 
-      // แปลง base → original
-      final sx = _srcW / _baseW;
-      final sy = _srcH / _baseH;
+      // base -> logical
+      final sx = _logicW / _baseW, sy = _logicH / _baseH;
 
-      int x = (ix0 * sx).floor();
-      int y = (iy0 * sy).floor();
-      int w = ((ix1 - ix0) * sx).round();
-      int h = ((iy1 - iy0) * sy).round();
+      int rx = (ix0 * sx).floor();
+      int ry = (iy0 * sy).floor();
+      int rw = ((ix1 - ix0) * sx).round();
+      int rh = ((iy1 - iy0) * sy).round();
 
-      // กันหลุดขอบ (ปกติ _ensureCover จะป้องกันไว้แล้ว)
-      x = x.clamp(0, _srcW - 1);
-      y = y.clamp(0, _srcH - 1);
-      w = w.clamp(1, _srcW - x);
-      h = h.clamp(1, _srcH - y);
+      rx = rx.clamp(0, _logicW - 1);
+      ry = ry.clamp(0, _logicH - 1);
+      rw = rw.clamp(1, _logicW - rx);
+      rh = rh.clamp(1, _logicH - ry);
 
-      img.Image cropped =
-          img.copyCrop(_original, x: x, y: y, width: w, height: h);
+      final mapped = _mapRectToOriginal(
+          rotQ: _rotQ,
+          rx: rx,
+          ry: ry,
+          rw: rw,
+          rh: rh,
+          origW: _srcW,
+          origH: _srcH);
 
-      // ย่อเพดาน 1024px
-      const maxSide = 1024;
-      if (cropped.width > maxSide || cropped.height > maxSide) {
-        cropped = img.copyResize(
-          cropped,
-          width: cropped.width >= cropped.height ? maxSide : null,
-          height: cropped.height > cropped.width ? maxSide : null,
-          interpolation: img.Interpolation.average,
-        );
-      }
-
-      // บันทึก JPG (ไม่มีโปร่งใส → ไฟล์เล็ก แสดงวงกลมด้วย UI แทน)
-      final jpg = img.encodeJpg(cropped, quality: 90);
+      final jpgBytes = await compute<_CropJob, Uint8List>(
+        _cropInIsolate,
+        _CropJob(
+          path: widget.sourcePath,
+          rectX: mapped.x,
+          rectY: mapped.y,
+          rectW: mapped.w,
+          rectH: mapped.h,
+          rotQ: _rotQ,
+          maxSide: 1024,
+          quality: 90,
+        ),
+      );
 
       final dir = await getTemporaryDirectory();
       final f = File(
           '${dir.path}/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg');
-      await f.writeAsBytes(jpg, flush: true);
+      await f.writeAsBytes(jpgBytes, flush: true);
 
       if (!mounted) return;
       Navigator.pop<File>(context, f);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
+          .showSnackBar(SnackBar(content: Text('บันทึกล้มเหลว: $e')));
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  // ───────── UI ─────────
+  _RectI _mapRectToOriginal({
+    required int rotQ,
+    required int rx,
+    required int ry,
+    required int rw,
+    required int rh,
+    required int origW,
+    required int origH,
+  }) {
+    int x = 0, y = 0, w = 0, h = 0;
+    final q = rotQ % 4;
+    if (q == 0) {
+      x = rx;
+      y = ry;
+      w = rw;
+      h = rh;
+    } else if (q == 1) {
+      x = ry;
+      y = (origW - (rx + rw)).clamp(0, origH);
+      w = rh;
+      h = rw;
+    } else if (q == 2) {
+      x = (origW - (rx + rw)).clamp(0, origW);
+      y = (origH - (ry + rh)).clamp(0, origH);
+      w = rw;
+      h = rh;
+    } else {
+      x = (origH - (ry + rh)).clamp(0, origW);
+      y = rx;
+      w = rh;
+      h = rw;
+    }
+    x = x.clamp(0, origW - 1);
+    y = y.clamp(0, origH - 1);
+    w = w.clamp(1, origW - x);
+    h = h.clamp(1, origH - y);
+    return _RectI(x, y, w, h);
+  }
+
+  // ───── UI ─────
   Widget _buildCropper() {
     _initTransform();
 
-    final rawImage = SizedBox(
+    // ภาพ “ชั้นเดียว” ให้ InteractiveViewer คุม transform
+    final baseImage = SizedBox(
       width: _baseW,
       height: _baseH,
-      child: Image.memory(_displayBytes, fit: BoxFit.cover),
+      child: RotatedBox(
+        quarterTurns: _rotQ,
+        child: Image.memory(_previewBytes,
+            fit: BoxFit.cover, gaplessPlayback: true),
+      ),
     );
 
     return SizedBox(
@@ -287,36 +366,29 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // ชั้นล่าง: ภาพ "จาง" ที่รับ gesture
-          InteractiveViewer(
-            transformationController: _tc,
-            minScale: _minScale,
-            maxScale: _maxScale,
-            boundaryMargin: EdgeInsets.all(_cropSize * 2),
-            constrained: false,
-            child: ColorFiltered(
-              colorFilter: ColorFilter.matrix(_saturationMatrix(0.35)),
-              child: Opacity(opacity: 0.78, child: rawImage),
+          GestureDetector(
+            onDoubleTapDown: (d) => _lastTapPos = d.localPosition,
+            onDoubleTap: _onDoubleTap,
+            child: InteractiveViewer(
+              transformationController: _tc,
+              minScale: _minScale,
+              maxScale: _dynamicMaxScale,
+              boundaryMargin: EdgeInsets.zero,
+              constrained: false,
+              child: baseImage,
             ),
           ),
-
-          // ชั้นบน: แสดงใน "วงกลม" สีปกติ (พรีวิวเท่านั้น)
-          IgnorePointer(
-            child: ClipOval(
-              child: Transform(
-                transform: _tc.value,
-                child: SizedBox(width: _baseW, height: _baseH, child: rawImage),
-              ),
-            ),
-          ),
-
-          // วงเส้นขอบ
+          // Overlay: ทำ “รูวงกลม” + กริด + เส้นขอบ (ไม่แตะภาพ → สีในวงกลมสด)
           IgnorePointer(
             child: CustomPaint(
               size: Size(_cropSize, _cropSize),
-              painter: _CircleOutlinePainter(
-                strokeColor: Colors.white.withOpacity(.9),
-                strokeWidth: 1.5,
+              painter: _HoleGridOverlayPainter(
+                scrimColor: Colors.black.withOpacity(0.32),
+                outlineColor: Colors.white.withOpacity(.95),
+                outlineWidth: 1.5,
+                showGrid: _showGrid,
+                gridColor: Colors.white70,
+                gridWidth: 0.9,
               ),
             ),
           ),
@@ -326,31 +398,39 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
   }
 
   Widget _buildControls() {
-    final currentScale = _tc.value.getMaxScaleOnAxis();
-    final coverMin = _coverMinScale.clamp(_minScale, _maxScale);
-
+    final cur = _tc.value.getMaxScaleOnAxis();
+    final coverMin = _coverMinScale, dynMax = _dynamicMaxScale;
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+      minimum: const EdgeInsets.fromLTRB(20, 12, 20, 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _iconBtn(Icons.rotate_left, 'หมุนซ้าย', () => _rotateQuarter(3)),
-              const SizedBox(width: 28),
-              _iconBtn(Icons.rotate_right, 'หมุนขวา', () => _rotateQuarter(1)),
-            ],
-          ),
-          const SizedBox(height: 10),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            _iconBtn(Icons.rotate_left, 'หมุนซ้าย', () => _rotateQuarter(3)),
+            const SizedBox(width: 22),
+            _iconBtn(Icons.rotate_right, 'หมุนขวา', () => _rotateQuarter(1)),
+            const SizedBox(width: 22),
+            Column(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(
+                icon: Icon(_showGrid ? Icons.grid_on : Icons.grid_off),
+                color: Theme.of(context).colorScheme.primary,
+                onPressed: () {
+                  setState(() => _showGrid = !_showGrid);
+                  HapticFeedback.selectionClick();
+                },
+              ),
+              Text('กริด', style: Theme.of(context).textTheme.bodySmall),
+            ]),
+          ]),
+          const SizedBox(height: 8),
           _sliderRow(
             iconStart: Icons.zoom_out,
             iconEnd: Icons.zoom_in,
             child: Slider(
-              value: currentScale.clamp(coverMin, _maxScale),
+              value: cur.clamp(coverMin, dynMax),
               min: coverMin,
-              max: _maxScale,
+              max: dynMax,
               onChanged: _setZoom,
             ),
           ),
@@ -366,34 +446,6 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
         ],
       ),
     );
-  }
-
-  // UI helpers
-  static List<double> _saturationMatrix(double s) {
-    const r = 0.2126, g = 0.7152, b = 0.0722;
-    final ir = (1 - s) * r, ig = (1 - s) * g, ib = (1 - s) * b;
-    return <double>[
-      ir + s,
-      ig,
-      ib,
-      0,
-      0,
-      ir,
-      ig + s,
-      ib,
-      0,
-      0,
-      ir,
-      ig,
-      ib + s,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-    ];
   }
 
   Widget _iconBtn(IconData icon, String label, VoidCallback onPressed) =>
@@ -425,16 +477,14 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
       appBar: AppBar(
         title: const Text('ครอบตัดรูปโปรไฟล์'),
         leading: IconButton(
-          tooltip: 'ยกเลิก',
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.pop(context),
-        ),
+            tooltip: 'ยกเลิก',
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.pop(context)),
         actions: [
           IconButton(
-            tooltip: 'บันทึก',
-            icon: const Icon(Icons.check),
-            onPressed: _doCrop, // ← เซฟเป็น "สี่เหลี่ยม"
-          ),
+              tooltip: 'บันทึก',
+              icon: const Icon(Icons.check),
+              onPressed: _isSaving ? null : _doCrop),
         ],
       ),
       body: FutureBuilder<void>(
@@ -446,19 +496,28 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
           if (snap.hasError) {
             return Center(child: Text('โหลดรูปไม่สำเร็จ: ${snap.error}'));
           }
-
-          return LayoutBuilder(builder: (ctx, cons) {
-            final screenW = cons.maxWidth, screenH = cons.maxHeight;
-            const bottomPanel = 200.0;
-            _cropSize = math.min(screenW, screenH - bottomPanel) - 32;
-            _cropSize = _cropSize.clamp(220.0, screenW);
-
-            return Column(
-              children: [
+          return LayoutBuilder(builder: (_, cons) {
+            final w = cons.maxWidth, h = cons.maxHeight;
+            const panel = 200.0;
+            _cropSize = math.min(w, h - panel) - 32;
+            _cropSize = _cropSize.clamp(220.0, w);
+            return Stack(children: [
+              Column(children: [
                 Expanded(child: Center(child: _buildCropper())),
                 _buildControls(),
-              ],
-            );
+              ]),
+              if (_isSaving)
+                Container(
+                    color: Colors.black.withOpacity(.35),
+                    child: const Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text('กำลังบันทึก...',
+                            style: TextStyle(color: Colors.white)),
+                      ]),
+                    )),
+            ]);
           });
         },
       ),
@@ -467,24 +526,121 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
   }
 }
 
-class _CircleOutlinePainter extends CustomPainter {
-  final Color strokeColor;
-  final double strokeWidth;
-  const _CircleOutlinePainter(
-      {required this.strokeColor, this.strokeWidth = 2});
+// ───── Painters ─────
+class _HoleGridOverlayPainter extends CustomPainter {
+  final Color scrimColor;
+  final Color outlineColor;
+  final double outlineWidth;
+  final bool showGrid;
+  final Color gridColor;
+  final double gridWidth;
+
+  const _HoleGridOverlayPainter({
+    required this.scrimColor,
+    required this.outlineColor,
+    this.outlineWidth = 2,
+    this.showGrid = true,
+    this.gridColor = Colors.white70,
+    this.gridWidth = 1,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final r = math.min(size.width, size.height) / 2;
     final c = size.center(Offset.zero);
-    final paint = Paint()
+
+    // 1) วาดม่านจาง “ทั้งจอ” แล้วเจาะรูวงกลมให้ทะลุภาพชั้นล่าง
+    final layerBounds = Offset.zero & size;
+    canvas.saveLayer(layerBounds, Paint());
+    canvas.drawRect(layerBounds, Paint()..color = scrimColor);
+    // เจาะรู
+    final clearPaint = Paint()..blendMode = BlendMode.clear;
+    canvas.drawCircle(c, r, clearPaint);
+    canvas.restore();
+
+    // 2) กริด 3x3 “เฉพาะในวงกลม”
+    if (showGrid) {
+      final gridPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = gridWidth
+        ..color = gridColor;
+      canvas.save();
+      final clip = Path()..addOval(Rect.fromCircle(center: c, radius: r));
+      canvas.clipPath(clip);
+      for (int i = 1; i <= 2; i++) {
+        final t = i / 3.0;
+        final vx = size.width * t;
+        final hy = size.height * t;
+        canvas.drawLine(Offset(vx, 0), Offset(vx, size.height), gridPaint);
+        canvas.drawLine(Offset(0, hy), Offset(size.width, hy), gridPaint);
+      }
+      canvas.restore();
+    }
+
+    // 3) เส้นขอบวงกลม
+    final border = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..color = strokeColor;
-    canvas.drawCircle(c, r - strokeWidth / 2, paint);
+      ..strokeWidth = outlineWidth
+      ..color = outlineColor;
+    canvas.drawCircle(c, r - outlineWidth / 2, border);
   }
 
   @override
-  bool shouldRepaint(covariant _CircleOutlinePainter old) =>
-      old.strokeColor != strokeColor || old.strokeWidth != strokeWidth;
+  bool shouldRepaint(covariant _HoleGridOverlayPainter old) =>
+      old.scrimColor != scrimColor ||
+      old.outlineColor != outlineColor ||
+      old.outlineWidth != outlineWidth ||
+      old.showGrid != showGrid ||
+      old.gridColor != gridColor ||
+      old.gridWidth != gridWidth;
+}
+
+class _RectI {
+  final int x, y, w, h;
+  const _RectI(this.x, this.y, this.w, this.h);
+}
+
+// ───── Isolate job ─────
+class _CropJob {
+  final String path;
+  final int rectX, rectY, rectW, rectH;
+  final int rotQ;
+  final int maxSide;
+  final int quality;
+  const _CropJob({
+    required this.path,
+    required this.rectX,
+    required this.rectY,
+    required this.rectW,
+    required this.rectH,
+    required this.rotQ,
+    required this.maxSide,
+    required this.quality,
+  });
+}
+
+Future<Uint8List> _cropInIsolate(_CropJob job) async {
+  final bytes = await File(job.path).readAsBytes();
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) throw Exception('decode fail');
+
+  img.Image base = img.bakeOrientation(decoded);
+  img.Image out = img.copyCrop(base,
+      x: job.rectX, y: job.rectY, width: job.rectW, height: job.rectH);
+
+  if (job.rotQ == 1)
+    out = img.copyRotate(out, angle: 90);
+  else if (job.rotQ == 2)
+    out = img.copyRotate(out, angle: 180);
+  else if (job.rotQ == 3) out = img.copyRotate(out, angle: -90);
+
+  if (out.width > job.maxSide || out.height > job.maxSide) {
+    out = img.copyResize(
+      out,
+      width: out.width >= out.height ? job.maxSide : null,
+      height: out.height > out.width ? job.maxSide : null,
+      interpolation: img.Interpolation.cubic,
+    );
+  }
+  return Uint8List.fromList(img.encodeJpg(out, quality: job.quality));
 }

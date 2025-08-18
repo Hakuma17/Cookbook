@@ -8,6 +8,11 @@
 // - Pull-to-refresh on this screen
 // - BottomNav logic matches other screens
 // - Better error handling & retry
+//
+// 2025-08-19 – HIDE search/tokenize section on this screen only
+// - ⛔ ซ่อนการ์ด "การค้นหา / ตัดคำภาษาไทย (ทดลอง)" เฉพาะหน้านี้
+// - ทำโดยคอมเมนต์บรรทัดที่เรียกใช้งาน _buildSearchSettingsCard()
+// - ไม่กระทบ SettingsStore หรือหน้าค้นหาอื่น ๆ
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -32,7 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _email;
   String? _errorMessage;
 
-  bool _savingTokenize = false; // guard while persisting toggle
+  bool _savingTokenize = false; // (ยังคงไว้ แม้ซ่อนไว้—เผื่อเปิดกลับ)
 
   /* ───────────────── init ───────────────── */
   @override
@@ -190,7 +195,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         _buildThemeCard(context), // ← NEW: Theme picker
         const SizedBox(height: 12),
-        _buildSearchSettingsCard(context), // Thai tokenization
+        // ────────────────────────────────────────────────
+        // HIDDEN 2025-08-19: การค้นหา/ตัดคำภาษาไทย (ทดลอง)
+        // _buildSearchSettingsCard(context),
+        // ────────────────────────────────────────────────
         const SizedBox(height: 12),
         Card(
           clipBehavior: Clip.antiAlias,
@@ -247,7 +255,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         _buildThemeCard(context), // ← NEW: Theme picker
         const SizedBox(height: 12),
-        _buildSearchSettingsCard(context), // Thai tokenization
+        // ────────────────────────────────────────────────
+        // HIDDEN 2025-08-19: การค้นหา/ตัดคำภาษาไทย (ทดลอง)
+        // _buildSearchSettingsCard(context),
+        // ────────────────────────────────────────────────
         const SizedBox(height: 16),
         Card(
           color: theme.colorScheme.primaryContainer.withOpacity(0.5),
@@ -346,6 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Thai tokenization card
+  // NOTE: ถูก “ซ่อนไว้” โดยไม่ถูกเรียกใช้งานจาก UI ใน 2025-08-19
   Widget _buildSearchSettingsCard(BuildContext context) {
     final theme = Theme.of(context);
     final store = context.watch<SettingsStore>();

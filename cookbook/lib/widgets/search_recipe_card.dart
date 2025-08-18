@@ -11,6 +11,9 @@ import '../utils/format_utils.dart';
 import '../utils/highlight_span.dart';
 import 'rank_badge.dart';
 
+// ★★★ [NEW] โหลดรูปให้ปลอดภัย (normalize URL + fallback asset)
+import '../utils/safe_image.dart';
+
 // กันยิงคำขอซ้ำตอนผู้ใช้กดหัวใจรัว ๆ ต่อเมนูเดียวกัน
 final Set<int> _favInFlightSearch = <int>{};
 
@@ -86,7 +89,7 @@ class SearchRecipeCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _buildImage(),
+                  _buildImage(), // ★★★ [NEW] ใช้ SafeImage ภายใน
                   _buildBadges(),
                 ],
               ),
@@ -183,15 +186,15 @@ class SearchRecipeCard extends StatelessWidget {
     );
   }
 
-  Widget _buildImage() => recipe.imageUrl.isNotEmpty
-      ? Image.network(
-          recipe.imageUrl,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Image.asset(
-              'assets/images/default_recipe.png',
-              fit: BoxFit.cover),
-        )
-      : Image.asset('assets/images/default_recipe.png', fit: BoxFit.cover);
+  // ★★★ [CHANGED → NEW IMPLEMENTATION]
+  // เดิมใช้ Image.network ตรง ๆ → เปลี่ยนเป็น SafeImage เพื่อ:
+  // - normalize URL (แก้เคส http://localhost และ relative path)
+  // - fallback เป็น assets เมื่อโหลดไม่ได้หรือ URL ว่าง
+  Widget _buildImage() => SafeImage(
+        url: recipe.imageUrl,
+        fit: BoxFit.cover,
+        fallbackAsset: 'assets/images/default_recipe.png',
+      );
 }
 
 /* ═══════════════════════════════════════════════════════════
