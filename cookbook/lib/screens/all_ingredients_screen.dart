@@ -15,6 +15,9 @@ import '../widgets/custom_bottom_nav.dart';
 import '../widgets/empty_result_dialog.dart';
 import 'search_screen.dart';
 
+// ★ NEW: สำหรับเรียกกล้องสแกนแล้วได้ชื่อวัตถุดิบ
+import 'ingredient_photo_screen.dart' show scanIngredient;
+
 enum ListingMode { groups, ingredients }
 
 class AllIngredientsScreen extends StatefulWidget {
@@ -117,22 +120,36 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
     _debounce = Timer(const Duration(milliseconds: 250), _applyFilter);
   }
 
+  // ★ NEW: แตกคำค้นเป็น token หลายคำ (เว้นวรรค/จุลภาค/เซมิโคลอน)
+  List<String> _tokens(String q) => q
+      .split(RegExp(r'[,\s;]+'))
+      .map((e) => e.trim().toLowerCase())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
   void _applyFilter() {
     final q = _searchCtrl.text.trim().toLowerCase();
+
     if (_mode == ListingMode.groups) {
       final clean = _allGroups.where((g) => g.groupName.trim().isNotEmpty);
-      _filteredGroups = (q.isEmpty)
+      final toks = _tokens(q);
+      _filteredGroups = (toks.isEmpty)
           ? clean.toList()
-          : clean
-              .where((g) =>
-                  g.groupName.toLowerCase().contains(q) ||
-                  (g.displayName ?? '').toLowerCase().contains(q))
-              .toList();
+          : clean.where((g) {
+              final name = g.groupName.toLowerCase();
+              final disp = (g.displayName ?? '').toLowerCase();
+              return toks.any((t) => name.contains(t) || disp.contains(t));
+            }).toList();
     } else {
       final clean = _allIng.where((i) => i.name.trim().isNotEmpty);
-      _filteredIng = (q.isEmpty)
+      final toks = _tokens(q);
+      _filteredIng = (toks.isEmpty)
           ? clean.toList()
-          : clean.where((i) => i.name.toLowerCase().contains(q)).toList();
+          : clean.where((i) {
+              final n = i.name.toLowerCase();
+              final d = (i.displayName ?? '').toLowerCase();
+              return toks.any((t) => n.contains(t) || d.contains(t));
+            }).toList();
     }
     if (mounted) setState(() {});
   }
@@ -163,6 +180,44 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ★ NEW: หา Ingredient ตามชื่อ/ชื่อแสดง แบบไม่สนตัวพิมพ์
+  Ingredient? _findIngredientByNameOrDisplay(String name) {
+    final key = name.trim().toLowerCase();
+    for (final i in _allIng) {
+      final n = i.name.trim().toLowerCase();
+      final d = (i.displayName ?? '').trim().toLowerCase();
+      if (n == key || (d.isNotEmpty && d == key)) return i;
+    }
+    return null;
+  }
+
+  // ★ NEW: กดไอคอนกล้องในช่องค้นหา
+  Future<void> _onScanFromSearch() async {
+    final names = await scanIngredient(context);
+    if (names.isEmpty) return;
+
+    // ใช้ผลลัพธ์ตัวแรกเป็นค่าเริ่มต้นของคำค้น
+    final first = names.first.trim();
+    if (_mode != ListingMode.ingredients) {
+      setState(() => _mode = ListingMode.ingredients);
+    }
+    _searchCtrl.text = names.join(' ');
+    _applyFilter();
+    _unfocus();
+
+    // ถ้าอยู่ใน selectionMode และพบชื่อที่ตรง → ส่งกลับทันที
+    if (widget.selectionMode) {
+      final matched = _findIngredientByNameOrDisplay(first);
+      if (matched != null) {
+        widget.onSelected?.call(matched);
+        Navigator.pop(context, matched);
+        return;
+      }
+      // ไม่เจอ → คงไว้เป็นคำค้น ให้ผู้ใช้เลือกเอง
+      _showSnack('ไม่พบ “$first” ในรายการวัตถุดิบ — ตรวจสอบการสะกด');
+    }
   }
 
   /* ─── PRECHECK + DIALOG (สไตล์เดียวกับหน้า Home) ───── */
@@ -371,8 +426,17 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
                         : 'คุณอยากหาวัตถุดิบอะไร?',
                     prefixIcon: const Icon(Icons.search),
                     isDense: true,
-                    suffixIcon: (_searchCtrl.text.isNotEmpty)
-                        ? IconButton(
+                    // ★ NEW: ไอคอนกล้อง + ปุ่มล้าง
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'สแกนชื่อวัตถุดิบ',
+                          icon: const Icon(Icons.camera_alt_outlined),
+                          onPressed: _onScanFromSearch,
+                        ),
+                        if (_searchCtrl.text.isNotEmpty)
+                          IconButton(
                             tooltip: 'ล้างคำค้นหา',
                             icon: const Icon(Icons.close),
                             onPressed: () {
@@ -380,8 +444,12 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
                               _applyFilter();
                               _unfocus();
                             },
-                          )
-                        : null,
+                          ),
+                      ],
+                    ),
+                    // ให้มีพื้นที่พอสำหรับ 2 ไอคอน
+                    suffixIconConstraints:
+                        const BoxConstraints(minWidth: 100, minHeight: 0),
                   ),
                 ),
               ),

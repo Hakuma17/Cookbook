@@ -1,10 +1,16 @@
 // lib/screens/otp_verification_screen.dart
 //
-// OTP Verification (รองรับกรณี OTP หมดอายุ/ผิด/ถูกล็อก ฯลฯ)
-// - แสดง error ใต้กล่อง PIN แบบอ่านง่ายตามสถานะ HTTP จาก BE
-// - เมื่อ OTP หมดอายุ (410) จะปลดคูลดาวน์ทันทีเพื่อให้กด "ส่งรหัสอีกครั้ง" ได้
-// - เมื่อพยายามผิดจนถูกล็อก (423/429) จะบอกเหตุและพากลับหน้าล็อกอินอย่างสุภาพ
+// ★ 2025-08-20 – Reset Password OTP Flow (FULL FILE)
+//   - ปุ่ม "ส่งรหัสใหม่อีกครั้ง" → เรียก ApiService.resendResetOtp()
+//     (แยกจากการยืนยันอีเมลสมัครใหม่ เพื่อไม่ให้ติดข้อความ "บัญชีนี้ยืนยันแล้ว")
+//   - รองรับ errorCode: RATE_LIMIT / LOCKED + secondsLeft (คูลดาวน์/ล็อก)
+//   - เมื่อ OTP หมดอายุ (HTTP 410) → ปลดคูลดาวน์ให้กดส่งใหม่ได้ทันที
+//   - เมื่อผิดหลายครั้งจนถูกล็อก (423/429) → แจ้งและพากลับหน้าล็อกอินอย่างสุภาพ
 //
+// หมายเหตุ:
+//   - หน้านี้ใช้ใน flow "ลืมรหัสผ่าน" และคาดหวังว่า verify สำเร็จ BE จะคืน reset_token
+//   - หลัง verify แล้วจะนำทางไป '/new_password' พร้อม {email, otp: reset_token}
+
 import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +20,8 @@ import 'package:pinput/pinput.dart';
 import '../services/api_service.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
+  static const route = '/verify_otp';
+
   final String email;
   const OtpVerificationScreen({super.key, required this.email});
 
@@ -85,6 +93,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   String? _extractResetToken(Map<String, dynamic> res) {
+    // รองรับโครงสร้างหลากหลายจาก BE
     final data = res['data'];
     if (data is Map && data['reset_token'] != null) {
       return data['reset_token'].toString();
@@ -105,17 +114,25 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     });
 
     try {
-      final result = await ApiService.resendOtp(widget.email);
+      // ⛳️ ใช้ endpoint ฝั่ง "รีเซ็ตรหัสผ่าน" เท่านั้น
+      final result = await ApiService.resendResetOtp(widget.email);
       if (!mounted) return;
 
       final msg = (result['message'] ?? 'ส่ง OTP สำเร็จ').toString();
       final code = (result['errorCode'] ?? '').toString().toUpperCase();
-      final looksLikeCooldown = code == 'RATE_LIMIT' ||
-          msg.contains('กรุณารอ') ||
-          msg.contains('วินาที');
+      final secondsLeft =
+          (result['secondsLeft'] is int) ? result['secondsLeft'] as int : null;
 
       _showSnack(msg, isError: false);
-      if (result['success'] == true || looksLikeCooldown) {
+
+      if (result['success'] == true) {
+        _startCountdown();
+      } else if ((code == 'RATE_LIMIT' || code == 'LOCKED') &&
+          secondsLeft != null &&
+          secondsLeft > 0) {
+        // ให้คูลดาวน์ตรงกับฝั่ง BE
+        _timer?.cancel();
+        setState(() => _remainingSeconds = secondsLeft);
         _startCountdown();
       }
     } on ApiException catch (e) {
@@ -140,6 +157,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     });
 
     try {
+      // ตรวจ OTP สำหรับ "รีเซ็ต" และคาดหวัง reset_token กลับมา
       final result =
           await ApiService.verifyOtp(widget.email, _otpController.text);
       if (!mounted) return;
@@ -166,7 +184,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             () => _errorMsg = result['message'] ?? 'รหัสไม่ถูกต้องหรือหมดอายุ');
       }
     } on ApiException catch (e) {
-      // ★★ ตรงนี้คือหัวใจ: map status code → ข้อความสวย ๆ ใต้ PIN ★★
+      // ★★ map status code → ข้อความสวย ๆ ใต้ PIN ★★
       final sc = e.statusCode ?? 0;
       String msg = e.message;
 
@@ -190,7 +208,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           msg = 'ขอรหัสถี่เกินไป กรุณารอสักครู่แล้วลองใหม่';
           break;
         default:
-          // ใช้ข้อความเดิม ถ้า BE ส่งมาชัดเจนอยู่แล้ว
           if (msg.isEmpty) msg = 'เกิดข้อผิดพลาด กรุณาลองใหม่';
       }
 

@@ -3,6 +3,7 @@
 // 2025-08-02 – polish: clearer validation, safer error parsing,
 //                     consistent email regex, nicer UX & navigation.
 
+import 'package:cookbook/screens/otp_verification_screen.dart';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
@@ -99,7 +100,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
       if (success || looksLikeCooldown) {
         _showSnack('ส่งรหัส OTP ไปยังอีเมลแล้ว', error: false);
-        Navigator.pushNamed(context, '/verify_otp', arguments: email);
+        Navigator.pushNamed(context, OtpVerificationScreen.route,
+            arguments: email);
         return;
       }
 

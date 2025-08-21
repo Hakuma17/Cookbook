@@ -14,8 +14,9 @@ import 'package:flutter/services.dart';
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
-  void _goToRegister(BuildContext context) {
-    Navigator.of(context).pushNamed('/register');
+  void _goToHomeAsGuest(BuildContext context) {
+    // ใช้ replacement เพื่อลบ Welcome ออกจากสแตก: กดย้อนกลับจะไม่เจอมันอีก
+    Navigator.of(context).pushReplacementNamed('/home');
   }
 
   void _goToLogin(BuildContext context) {
@@ -89,7 +90,8 @@ class WelcomeScreen extends StatelessWidget {
 
                         // --- 3) แผงควบคุมด้านล่าง ---
                         _BottomPanel(
-                          onGetStarted: () => _goToRegister(context),
+                          onGetStarted: () =>
+                              _goToHomeAsGuest(context), // ← เริ่มแบบ Guest
                           onLogin: () => _goToLogin(context),
                         ),
                       ],

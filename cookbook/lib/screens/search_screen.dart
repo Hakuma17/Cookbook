@@ -2,10 +2,14 @@
 //
 // 2025-08-11 – Fix & polish:
 // - Tag colors: include=green, exclude=red, group=default
-// - Cute dialog when group has no results (page 1)
+// - Cute dialog when group has no results (page 1)            // ⛔️ REMOVED (ดูคอมเมนต์ ★ below)
 // - Remove “กลุ่ม:” prefix on tag label
 // - FIX setState arrow returning Future -> use block {} instead
 // - Keep safer paging & hero on page 1
+//
+// 2025-08-21 – UX: No modal on empty-group + pop refresh guard
+// - ★ แทนที่ “ไดอะล็อกกลุ่มว่าง” ด้วย inline empty state ในหน้าเลย
+// - ป้องกัน didPopNext รีเฟรชเมื่อปิด dialog/bottom sheet ภายในหน้า (ไม่โหลดซ้ำไม่จำเป็น)
 
 import 'dart:async';
 import 'dart:developer';
@@ -81,9 +85,18 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   bool _isLoggedIn = false;
   String? _paginationErrorMsg;
   int _reqId = 0;
+  bool _didInitFromArgs = false; // ใช้ตรวจสอบว่าได้ init จาก args หรือไม่
 
-  // ป้องกัน dialog “กลุ่มว่าง” ซ้อน / แสดงซ้ำ
-  int? _emptyDialogShownForReq;
+  // ลบตัวแปรนี้ออก เพราะเราไม่ใช้ dialog อีกแล้ว
+  // int? _emptyDialogShownForReq;
+
+  // ★ Guard: กันไม่ให้ didPopNext รีเฟรชเมื่อปิด overlay ภายในหน้า (dialog/bottom sheet)
+  bool _suppressNextDidPopNextRefresh = false;
+
+  bool get _hasGroupFilter =>
+      _group != null ||
+      _includeGroupNames.isNotEmpty ||
+      _excludeGroupNames.isNotEmpty;
 
   /* ───────── init ───────── */
   @override
@@ -105,26 +118,33 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     }
 
     // รับ args จากหน้าอื่น (เช่น Home → กดการ์ดกลุ่ม)
-    final args = ModalRoute.of(context)?.settings.arguments;
-    if (args is Map) {
-      final g =
-          (args['group'] ?? args['Group'] ?? args['catagorynew'])?.toString();
-      if (g != null && g.trim().isNotEmpty && g.trim() != _group) {
-        _group = g.trim();
-        final myId = ++_reqId;
+    if (!_didInitFromArgs) {
+      // ← กันอ่านซ้ำ
+      _didInitFromArgs = true;
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map) {
+        final g =
+            (args['group'] ?? args['Group'] ?? args['catagorynew'])?.toString();
+        if (g != null && g.trim().isNotEmpty) {
+          _group = g.trim();
+        }
+
+        final incG = args['include_groups'] as List<String>?;
+        final excG = args['exclude_groups'] as List<String>?;
+        if (incG != null) {
+          _includeGroupNames
+            ..clear()
+            ..addAll(
+                incG.where((e) => e.trim().isNotEmpty).map((e) => e.trim()));
+        }
+        if (excG != null) {
+          _excludeGroupNames
+            ..clear()
+            ..addAll(
+                excG.where((e) => e.trim().isNotEmpty).map((e) => e.trim()));
+        }
+        final myId = ++_reqId; // ยิงครั้งแรกหลังอ่าน args
         _performSearch(isInitialLoad: false, forceReqId: myId);
-      }
-      final incG = args['include_groups'] as List<String>?;
-      final excG = args['exclude_groups'] as List<String>?;
-      if (incG != null) {
-        _includeGroupNames
-          ..clear()
-          ..addAll(incG.where((e) => e.trim().isNotEmpty).map((e) => e.trim()));
-      }
-      if (excG != null) {
-        _excludeGroupNames
-          ..clear()
-          ..addAll(excG.where((e) => e.trim().isNotEmpty).map((e) => e.trim()));
       }
     }
   }
@@ -139,6 +159,11 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   // กลับมาหน้านี้ → รีเฟรชหน้าแรก
   @override
   void didPopNext() {
+    // ★ ถ้าพึ่งปิด dialog/bottom sheet ของ "หน้านี้เอง" ไม่ต้องรีเฟรช
+    if (_suppressNextDidPopNextRefresh) {
+      _suppressNextDidPopNextRefresh = false;
+      return;
+    }
     _paginationErrorMsg = null;
     _loadingMore = false;
     final myId = ++_reqId;
@@ -188,7 +213,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         _hasMore = true;
         _paginationErrorMsg = null;
         _recipes.clear();
-        _emptyDialogShownForReq = null; // reset for this request
+        // _emptyDialogShownForReq = null; // ⛔️ ไม่ใช้แล้ว
       });
     }
 
@@ -251,26 +276,8 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         _hasMore = res.recipes.length == _pageSize;
       });
 
-      // ★★★ Cute dialog: เมื่อใช้ "กลุ่ม" แล้วหน้า 1 ว่าง → โชว์แจ้งเตือนหนึ่งครั้งต่อคำขอ
-      if (page == 1 &&
-          _recipes.isEmpty &&
-          (_group != null ||
-              _includeGroupNames.isNotEmpty ||
-              _excludeGroupNames.isNotEmpty) &&
-          _emptyDialogShownForReq != myId) {
-        _emptyDialogShownForReq = myId;
-        final label = _group ??
-            (_includeGroupNames.isNotEmpty
-                ? _includeGroupNames.first
-                : (_excludeGroupNames.isNotEmpty
-                    ? _excludeGroupNames.first
-                    : 'กลุ่มที่เลือก'));
-        if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _showEmptyGroupDialog(label);
-          });
-        }
-      }
+      // ★ เดิม: แสดง "Cute dialog" เมื่อหน้า 1 ว่างและมี group filter
+      // → ⛔️ ยกเลิก: เปลี่ยนไปแสดง inline empty state ในหน้าแทน (ไม่เด้ง dialog)
     } on UnauthorizedException {
       await AuthService.logout();
       if (mounted) {
@@ -328,46 +335,55 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   /* ───────── build ───────── */
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: FutureBuilder<void>(
-        future: _initFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              _recipes.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return _buildErrorState(context, snapshot.error.toString());
-          }
+    return WillPopScope(
+      onWillPop: () async {
+        // ถ้าเส้นทางนี้เป็น route แรก (เช่นถูกเปิดทับหน้า Welcome แบบผิด flow)
+        // ให้ไปหน้า Home แทนการ pop ไป Welcome
+        final isFirst = ModalRoute.of(context)?.isFirst ?? false;
+        if (isFirst) {
+          Navigator.pushReplacementNamed(context, '/home');
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        body: FutureBuilder<void>(
+          future: _initFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                _recipes.isEmpty) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return _buildErrorState(context, snapshot.error.toString());
+            }
 
-          return RefreshIndicator(
-            onRefresh: () async => _performSearch(),
-            child: CustomScrollView(
-              controller: _scrollCtl,
-              slivers: [
-                _buildAppBar(context),
-                if (_searchQuery.isNotEmpty) _buildResultHeading(context),
-                _buildFilterSummary(context),
-                if (_recipes.isNotEmpty) ...[
-                  if (_page == 1) _buildHero(context),
-                  _buildSortOptions(context),
-                  _buildGrid(),
+            return RefreshIndicator(
+              onRefresh: () async => _performSearch(),
+              child: CustomScrollView(
+                controller: _scrollCtl,
+                slivers: [
+                  _buildAppBar(context),
+                  if (_searchQuery.isNotEmpty) _buildResultHeading(context),
+                  _buildFilterSummary(context),
+                  if (_recipes.isNotEmpty) ...[
+                    if (_page == 1) _buildHero(context),
+                    _buildSortOptions(context),
+                    _buildGrid(),
+                  ],
+                  if (_recipes.isEmpty &&
+                      snapshot.connectionState == ConnectionState.done)
+                    _buildEmptyState(context), // ★ inline empty state
                 ],
-                if (_recipes.isEmpty &&
-                    snapshot.connectionState == ConnectionState.done)
-                  const SliverFillRemaining(
-                    child:
-                        Center(child: Text('ไม่พบสูตรอาหารที่ตรงกับเงื่อนไข')),
-                  ),
-              ],
-            ),
-          );
-        },
-      ),
-      bottomNavigationBar: CustomBottomNav(
-        selectedIndex: 1,
-        onItemSelected: _onBottomNavTap,
-        isLoggedIn: _isLoggedIn,
+              ),
+            );
+          },
+        ),
+        bottomNavigationBar: CustomBottomNav(
+          selectedIndex: 1,
+          onItemSelected: _onBottomNavTap,
+          isLoggedIn: _isLoggedIn,
+        ),
       ),
     );
   }
@@ -383,7 +399,11 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         IconButton(
           icon: const Icon(Icons.help_outline),
           tooltip: 'วิธีใช้งานการค้นหา',
-          onPressed: () => _showSearchHelp(context),
+          onPressed: () {
+            // ★ ปิดไม่ให้ didPopNext รีเฟรชตอนปิด bottom sheet นี้
+            _suppressNextDidPopNextRefresh = true;
+            _showSearchHelp(context);
+          },
         ),
       ],
       bottom: PreferredSize(
@@ -616,6 +636,9 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
       final badNames =
           backendNames.isNotEmpty ? backendNames : fallbackNames; // ✅
 
+      // ★ กันไม่ให้ didPopNext รีเฟรชเมื่อปิด dialog เตือนแพ้
+      _suppressNextDidPopNextRefresh = true;
+
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -634,12 +657,23 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   }
 
   Future<void> _navToFilterScreen() async {
+    _suppressNextDidPopNextRefresh =
+        true; // กลับมาจะไม่รีเฟรชทับก่อนเราอัปเดตฟิลเตอร์
+
+    // รวม group เดี่ยว (_group) เข้ากับลิสต์ที่จะส่งไปหน้า Filter
+    final includeGroupsArg = <String>{
+      if (_group != null) _group!, // กลุ่มที่ติดมาจากการ์ด
+      ..._includeGroupNames, // กลุ่มที่ผู้ใช้เลือกไว้ก่อนหน้า
+    }.toList();
+
     final result = await Navigator.pushNamed(
       context,
       '/ingredient_filter',
       arguments: {
         'initialInclude': _includeNames,
         'initialExclude': _excludeNames,
+        'initialIncludeGroups': includeGroupsArg, // 👈 ส่งอันที่รวมแล้ว
+        'initialExcludeGroups': _excludeGroupNames,
       },
     ) as List<dynamic>?; // ← ยอมรับ dynamic แล้วค่อย cast
 
@@ -647,6 +681,9 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
       // 0,1: ชื่อวัตถุดิบ
       _includeNames = {...(result[0] as List).cast<String>()}.toList();
       _excludeNames = {...(result[1] as List).cast<String>()}.toList();
+
+      // หลังใช้หน้าตัวกรองแล้ว ให้ถือว่าค่าที่กลับมาเป็น "ความจริง" ชุดใหม่
+      _group = null; // กันกลุ่มเดี่ยว (ที่เคยมากับ args) โผล่กลับมา
 
       // 2,3: กลุ่มวัตถุดิบ (ถ้ามี)
       _includeGroupNames
@@ -703,62 +740,80 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     );
   }
 
-  // ── Cute empty dialog for group ──────────────────────────
-  Future<void> _showEmptyGroupDialog(String groupName) async {
+  // ── ★ Inline Empty State (แทน dialog เดิม) ──────────────────────────
+  Widget _buildEmptyState(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    await showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.sentiment_dissatisfied_outlined,
-                  size: 40, color: cs.primary),
-              const SizedBox(height: 8),
-              Text('ยังไม่มีสูตรในกลุ่มนี้',
+
+    if (_hasGroupFilter) {
+      final label = _group ??
+          (_includeGroupNames.isNotEmpty
+              ? _includeGroupNames.first
+              : (_excludeGroupNames.isNotEmpty
+                  ? _excludeGroupNames.first
+                  : 'กลุ่มที่เลือก'));
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.sentiment_dissatisfied_outlined,
+                    size: 40, color: cs.primary),
+                const SizedBox(height: 8),
+                Text('ยังไม่มีสูตรในกลุ่มนี้',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(
+                  label,
                   style: Theme.of(context)
                       .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Text(
-                groupName,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: cs.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('ปิด'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
+                      .bodyMedium
+                      ?.copyWith(color: cs.onSurfaceVariant),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    OutlinedButton(
                       onPressed: () {
-                        Navigator.pop(context);
-                        setState(() => _group = null);
+                        setState(() {
+                          if (_group != null) {
+                            _group = null;
+                          } else {
+                            _includeGroupNames.clear();
+                            _excludeGroupNames.clear();
+                          }
+                        });
                         _performSearch();
                       },
-                      child: const Text('ลบแท็กนี้'),
+                      child:
+                          Text(_group != null ? 'ลบแท็กนี้' : 'ล้างแท็กกลุ่ม'),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    TextButton(
+                      onPressed: _navToFilterScreen,
+                      child: const Text('แก้ตัวกรอง'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-      ),
+      );
+    }
+
+    // กรณีว่างทั่วไป (ไม่มี group filter)
+    return const SliverFillRemaining(
+      hasScrollBody: false,
+      child: Center(child: Text('ไม่พบสูตรอาหารที่ตรงกับเงื่อนไข')),
     );
   }
+
+  // ⛔️ REMOVED: _showEmptyGroupDialog(String) – ไม่ใช้ dialog อีกต่อไป
 }

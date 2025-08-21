@@ -1,28 +1,19 @@
 // lib/screens/register_screen.dart
-//
-// สมัครสมาชิก + ชี้ไปยืนยัน OTP
-// - มิเตอร์ความแข็งแรงรหัสผ่าน (เรียลไทม์)
-// - ดึง error จาก BE ให้มากที่สุด
-// - สมัครสำเร็จ → ไป /verify_email พร้อม {email, startCooldown}
-//   + บันทึก pending verify ใน AuthService เพื่อ resume ได้
-
+import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
-import '../services/auth_service.dart'; // ← ใช้ markPendingEmailVerify
+import '../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
-
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
   /* ───── Form & Controllers ───── */
-  final _formKey = GlobalKey<FormState>(); // คีย์ฟอร์ม
-
-  // ช่องกรอก
+  final _formKey = GlobalKey<FormState>();
   final _userCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
@@ -41,10 +32,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _hideConfirm = true;
 
   /* ───── State ───── */
-  bool _isLoading = false; // โหลดระหว่าง submit
-  String? _errorMsg; // แสดง error ด้านบน
+  bool _isLoading = false;
+  String? _errorMsg;
 
-  // regex อีเมล (ยอม subdomain)
+  // ★ สถานะตรวจอีเมลแบบเรียลไทม์
+  Timer? _emailDebounce;
+  bool _emailChecking = false;
+  bool? _emailAvailable; // true=ว่างใช้ได้, false=ถูกใช้แล้ว, null=ยังไม่รู้
+  String? _emailServerError; // โชว์ใต้ช่องอีเมลเมื่อซ้ำ/ผิด
+
   final _emailReg = RegExp(r'^[\w\.\-\+]+@([\w\-]+\.)+[A-Za-z]{2,}$');
 
   // มิเตอร์ความแข็งแรง (0..1)
@@ -67,17 +63,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // พิมพ์อะไรให้เคลียร์ error
     for (final c in [_userCtrl, _emailCtrl, _passCtrl, _confirmCtrl]) {
       c.addListener(() {
-        if (_errorMsg != null && mounted) {
-          setState(() => _errorMsg = null);
-        }
+        if (_errorMsg != null && mounted) setState(() => _errorMsg = null);
       });
     }
+
+    // ★ ตรวจอีเมลแบบ debounce
+    _emailCtrl.addListener(_onEmailChanged);
   }
 
   @override
   void dispose() {
-    // ล้าง controller + listener
+    _emailDebounce?.cancel();
     _userCtrl.dispose();
+    _emailCtrl.removeListener(_onEmailChanged);
     _emailCtrl.dispose();
     _passCtrl.removeListener(_onPassChanged);
     _passCtrl.dispose();
@@ -88,9 +86,58 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailNode.dispose();
     _passNode.dispose();
     _confirmNode.dispose();
-
     _toLoginTap.dispose();
     super.dispose();
+  }
+
+  // ★ ตรวจอีเมลซ้ำเมื่อผู้ใช้พิมพ์เสร็จ (debounce 450ms)
+  void _onEmailChanged() {
+    setState(() {
+      _emailServerError = null;
+      _emailAvailable = null; // reset icon
+    });
+
+    final s = _emailCtrl.text.trim();
+    _emailDebounce?.cancel();
+
+    if (!_emailReg.hasMatch(s)) {
+      // รูปแบบยังไม่ถูก → ยังไม่ยิง
+      setState(() {
+        _emailChecking = false;
+      });
+      return;
+    }
+
+    _emailDebounce = Timer(const Duration(milliseconds: 450), () async {
+      setState(() {
+        _emailChecking = true;
+      });
+      try {
+        final res = await ApiService.checkEmailAvailability(s);
+        if (!mounted) return;
+        final exists = res['exists'] == true;
+        setState(() {
+          _emailChecking = false;
+          _emailAvailable = !exists;
+          _emailServerError = exists
+              ? (res['message'] as String? ?? 'อีเมลนี้มีอยู่แล้ว')
+              : null;
+        });
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _emailChecking = false;
+          _emailAvailable = null; // unknown
+          _emailServerError = e.message;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _emailChecking = false;
+          _emailAvailable = null;
+        });
+      }
+    });
   }
 
   /* ───── Validators ───── */
@@ -102,14 +149,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!RegExp(r'^[A-Za-z0-9_.\-ก-ฮะ-์\s]+$').hasMatch(s)) {
       return 'ใช้ได้เฉพาะอักษร/ตัวเลข/._- เท่านั้น';
     }
-    return null;
   }
 
   String? _validateEmail(String? v) {
     final s = (v ?? '').trim();
     if (s.isEmpty) return 'กรุณากรอกอีเมล';
     if (!_emailReg.hasMatch(s)) return 'รูปแบบอีเมลไม่ถูกต้อง';
-    return null;
+    return null; // ★ ซ้ำจะถูกใส่ผ่าน _emailServerError แทน
   }
 
   // เกณฑ์เดียวกับหน้าเปลี่ยนรหัสผ่าน
@@ -117,9 +163,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final s = (v ?? '').trim();
     if (s.isEmpty) return 'กรุณากรอกรหัสผ่าน';
     if (s.length < 8) return 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
-    if (!RegExp(r'(?=.*[A-Za-z])(?=.*\d)').hasMatch(s)) {
-      return 'ต้องมีทั้งตัวอักษรและตัวเลขอย่างน้อยอย่างละ 1';
-    }
+    if (!RegExp(r'(?=.*[A-Za-z])(?=.*\d)').hasMatch(s))
+      return 'ต้องมีทั้งตัวอักษรและตัวเลขอย่างละ 1';
     return null;
   }
 
@@ -156,7 +201,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return theme.colorScheme.surfaceVariant;
   }
 
-  /* ───── Error parser ───── */
   String _parseErrors(dynamic raw) {
     if (raw == null) return 'เกิดข้อผิดพลาด';
     if (raw is String) return raw;
@@ -178,9 +222,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   /* ───── Register Method ───── */
   Future<void> _register() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return; // ฟอร์มไม่ครบ
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    FocusScope.of(context).unfocus(); // ปิดคีย์บอร์ด
+    // ★ ถ้าเช็คแล้วพบว่าอีเมลซ้ำ → บล็อคก่อน
+    if (_emailAvailable == false) {
+      setState(() => _errorMsg = 'อีเมลนี้มีอยู่แล้ว');
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
     setState(() {
       _isLoading = true;
       _errorMsg = null;
@@ -203,11 +253,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         // จำสถานะ “รอยืนยัน” เพื่อ resume
         await AuthService.markPendingEmailVerify(
-          email: email,
-          startCooldown: sent, // ส่งเมลติด → เริ่มคูลดาวน์
-        );
-
-        // ไปจอ OTP เสมอ (ถ้าไม่ติด ให้กด resend เอง)
+            email: email, startCooldown: sent);
         Navigator.pushReplacementNamed(
           context,
           '/verify_email',
@@ -215,8 +261,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
         return;
       }
-
-      // success=false → รวม msg จาก backend
+      // ถ้าไม่สำเร็จ → แสดงข้อความผิดพลาด
       final msgDyn = res['message'];
       final errs = res['errors'];
       final msg = (msgDyn is String && msgDyn.trim().isNotEmpty)
@@ -224,12 +269,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
           : _parseErrors(errs);
       setState(() => _errorMsg = msg);
     } on ApiException catch (e) {
-      setState(() => _errorMsg = e.message); // error ชั้น API
+      setState(() => _errorMsg = e.message);
     } catch (_) {
-      setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้'); // ทั่วไป
+      setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
     } finally {
-      if (mounted) setState(() => _isLoading = false); // ปิดโหลด
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // ★ ไอคอนสถานะท้ายช่องอีเมล
+  Widget? _buildEmailSuffix() {
+    if (_emailChecking) {
+      return const SizedBox(
+        width: 20,
+        height: 20,
+        child: Padding(
+          padding: EdgeInsets.all(2),
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    if (_emailAvailable == true) {
+      return const Icon(Icons.check_circle_outline);
+    }
+    if (_emailAvailable == false) {
+      return const Icon(Icons.error_outline);
+    }
+    return null;
   }
 
   /* ───── Build UI ───── */
@@ -240,10 +306,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final s = _strength;
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent, // หัวโปร่ง
-        elevation: 0,
-      ),
+      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
       backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
         child: Center(
@@ -252,7 +315,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
             child: Form(
               key: _formKey,
-              autovalidateMode: AutovalidateMode.onUserInteraction, // ตรวจสด
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -263,9 +326,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   Text(
                     'สร้างบัญชีใหม่',
                     textAlign: TextAlign.center,
-                    style: textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: textTheme.headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 32),
 
@@ -290,9 +352,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) => _passNode.requestFocus(),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'อีเมล',
-                      prefixIcon: Icon(Icons.email_outlined),
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      suffixIcon: _buildEmailSuffix(), // ★
+                      errorText: _emailServerError, // ★
                     ),
                     validator: _validateEmail,
                   ),
@@ -342,9 +406,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       Text(
                         _strengthLabel(s),
                         style: textTheme.bodySmall?.copyWith(
-                          color: _strengthColor(theme, s),
-                          fontWeight: FontWeight.w600,
-                        ),
+                            color: _strengthColor(theme, s),
+                            fontWeight: FontWeight.w600),
                       ),
                     ],
                   ),
@@ -377,51 +440,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   if (_errorMsg != null)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(
-                        _errorMsg!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
+                      child: Text(_errorMsg!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: theme.colorScheme.error)),
                     ),
 
                   // ปุ่มสมัคร
                   ElevatedButton(
                     onPressed: _isLoading ? null : _register,
                     style: ElevatedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                    ),
+                        minimumSize: const Size.fromHeight(48)),
                     child: _isLoading
                         ? const SizedBox(
                             height: 24,
                             width: 24,
                             child: CircularProgressIndicator(
-                              strokeWidth: 3,
-                              color: Colors.white,
-                            ),
-                          )
+                                strokeWidth: 3, color: Colors.white))
                         : const Text('สมัครสมาชิก'),
                   ),
                   const SizedBox(height: 24),
 
                   // ลิงก์กลับไป Login
                   Center(
-                    child: Text.rich(
-                      TextSpan(
-                        text: 'มีบัญชีอยู่แล้ว? ',
-                        style: textTheme.bodyMedium,
-                        children: [
-                          TextSpan(
-                            text: 'กลับไปลงชื่อเข้าใช้',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: theme.colorScheme.primary,
-                              decoration: TextDecoration.underline,
-                            ),
-                            recognizer: _toLoginTap,
+                    child: Text.rich(TextSpan(
+                      text: 'มีบัญชีอยู่แล้ว? ',
+                      style: textTheme.bodyMedium,
+                      children: [
+                        TextSpan(
+                          text: 'กลับไปลงชื่อเข้าใช้',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.primary,
+                            decoration: TextDecoration.underline,
                           ),
-                        ],
-                      ),
-                    ),
+                          recognizer: _toLoginTap,
+                        ),
+                      ],
+                    )),
                   ),
                   const SizedBox(height: 8),
                 ],
