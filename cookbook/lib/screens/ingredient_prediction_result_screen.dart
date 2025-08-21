@@ -30,15 +30,15 @@ const _bgColor = Color(0xFFFFE8CB); // ครีมอ่อน
 const _ink = Color(0xFF3D2B1F); // น้ำตาลเข้ม
 const _cta = Color(0xFF8C5E3C); // Cocoa (ปุ่มหลัก/บวก)
 const _ctaHover = Color(0xFF7A4E2D); // Cocoa เข้มตอนกด
-const _chipBg = Color(0xFFFFF7EE); // พื้นหลังชิป
-const _chipLine = Color(0xFFB58763); // เส้นขอบชิป
+const _chipBg = Color(0xFFFFF7EE); // พื้นหลังชิป (เดิม) – ยังเก็บไว้เผื่อใช้
+const _chipLine = Color(0xFFB58763); // เส้นขอบชิป (เดิม)
 const _chipText = Color(0xFF5B3E2B); // ตัวอักษรชิป
 
-// สีแท่งผลทำนาย (พาสเทล)
+// ★ สีแท่งผลทำนาย (สดขึ้น) – ใช้โทนอุ่น/ชัดขึ้น แต่ยังเข้าธีม
 const _barColors = [
-  Color(0xFFF2B36A), // ส้มพาสเทล
-  Color(0xFFE9928B), // คอรัลนุ่ม
-  Color(0xFFC7B3D6), // ลาเวนเดอร์อ่อน
+  Color(0xFFF59E0B), // Amber 500 (ส้มสด)
+  Color(0xFFEF4444), // Red 500 (คอรัลสด)
+  Color(0xFF8B5CF6), // Violet 500 (ม่วงสด)
 ];
 
 class IngredientPredictionResultScreen extends StatefulWidget {
@@ -200,11 +200,12 @@ class _IngredientPredictionResultScreenState
           foregroundColor: _ink,
           elevation: 0,
           title: const Text('ผลการสแกน'),
-          leading: TextButton(
-            child: const Text('ยกเลิก'),
+          // ★ แก้ “ยกเลิก” ให้เป็นปุ่มกากบาท ดูเนียน/คุ้นตา และยังถามยืนยันก่อนออก
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'ยกเลิก',
             onPressed: () async {
               if (await _confirmCancelIfNeeded()) {
-                // ออก
                 // ignore: use_build_context_synchronously
                 Navigator.pop(context);
               }
@@ -273,6 +274,21 @@ class _IngredientPredictionResultScreenState
                   ),
 
                 const SizedBox(height: 24),
+
+                // ★ ข้อความบอกเกณฑ์ ≥80%
+                Row(
+                  children: [
+                    Icon(Icons.tips_and_updates_outlined,
+                        size: 18, color: _ink.withOpacity(.7)),
+                    const SizedBox(width: 6),
+                    Text(
+                      'กรอกให้อัตโนมัติเมื่อความมั่นใจ ≥ ${(_kAutoFillThreshold * 100).toInt()}%',
+                      style:
+                          tt.bodySmall?.copyWith(color: _ink.withOpacity(.75)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
 
                 // ───────── ช่องกรอก + ปุ่มบวก ─────────
                 Row(
@@ -388,7 +404,7 @@ class _IngredientPredictionResultScreenState
 
   Widget _buildPredictionBar(Map<String, dynamic> p, int i) {
     final fill = _barColors[i % _barColors.length];
-    final bg = fill.withOpacity(0.18);
+    final bg = fill.withOpacity(0.12); // ★ ทำแทร็กจางลง เพื่อให้สีแท่งดู “สด”
     final label = _mapLabel(p['label'] as String);
     final score = (p['confidence'] as num).toDouble();
 
@@ -479,36 +495,35 @@ class _IngredientPredictionResultScreenState
           ],
         ),
         const SizedBox(height: 8),
+        // ★ เอากรอบพื้นหลังขาวของ “กล่อง” ออก เหลือเฉพาะชิป
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
-          child: Container(
+          child: Wrap(
             key: ValueKey(_selected.length),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.black12),
-            ),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _selected
-                  .map(
-                    (n) => Chip(
-                      label: Text(n,
-                          style: TextStyle(
-                              color: _chipText, fontWeight: FontWeight.w600)),
-                      backgroundColor: _chipBg,
-                      side: BorderSide(color: _chipLine.withOpacity(.8)),
-                      deleteIcon: const Icon(Icons.close, size: 18),
-                      onDeleted: () => _removeFromList(n),
-                      shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
+            spacing: 8,
+            runSpacing: 8,
+            children: _selected
+                .map(
+                  (n) => Chip(
+                    label: Text(
+                      n,
+                      // ★ ใช้โทนเข้มอ่านชัด และคุมโทนกับขอบน้ำตาล
+                      style: TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  )
-                  .toList(),
-            ),
+                    // ★ ทำชิป “ขอบน้ำตาล – พื้นขาว”
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: _cta, width: 1.2),
+                    deleteIcon: const Icon(Icons.close, size: 18, color: _cta),
+                    onDeleted: () => _removeFromList(n),
+                    shape: const StadiumBorder(),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  ),
+                )
+                .toList(),
           ),
         ),
       ],

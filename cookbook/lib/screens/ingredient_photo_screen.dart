@@ -352,7 +352,7 @@ class _IngredientPhotoScreenState
 
   PreferredSizeWidget _buildAppBar(ThemeData theme) {
     return AppBar(
-      backgroundColor: Colors.transparent,
+      backgroundColor: const Color.fromARGB(255, 251, 182, 126),
       foregroundColor: Colors.white,
       elevation: 0,
       title: const Text('ถ่ายรูปวัตถุดิบ'),

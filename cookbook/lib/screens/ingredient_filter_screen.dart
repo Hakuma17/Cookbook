@@ -1,4 +1,12 @@
 // lib/screens/ingredient_filter_screen.dart
+//
+// ✅ รวมคอมเมนต์เดิม + คอมเมนต์ใหม่ (ทำเครื่องหมายด้วย ★ NEW)
+// ประเด็นที่แก้:
+// - ★ NEW ใส่ key ให้แต่ละ TypeAhead เพื่อให้ instance แยกกันจริง ๆ เวลาเปลี่ยนโหมด (กัน overlay/handler เก่าค้าง)
+// - ★ NEW เวลาเลือกจากคำแนะนำ onSelected จะเคลียร์ controller แน่ ๆ และรีโฟกัส (ลดเคสข้อความไม่หาย)
+// - ★ NEW เปลี่ยน onSelectionChanged ของสวิตช์โหมด ให้ปิดคีย์บอร์ด/overlay เดิมก่อนสลับ
+// - ★ NEW ใน _addGroupTo() ลบรายการในชุด "ชื่อวัตถุดิบ" ที่สะกดเหมือนกลุ่มออก เพื่อลดความสับสนชื่อซ้ำ
+// - รองรับค่าเริ่มต้นของ “กลุ่มวัตถุดิบ” (initialIncludeGroups/initialExcludeGroups)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
@@ -19,12 +27,16 @@ class IngredientFilterScreen extends StatefulWidget {
   final List<String>? initialInclude;
   final List<String>? initialExclude;
   final List<String>? initialIngredients;
+  final List<String>? initialIncludeGroups; // ← ใหม่
+  final List<String>? initialExcludeGroups; // ← ใหม่
 
   const IngredientFilterScreen({
     super.key,
     this.initialInclude,
     this.initialExclude,
     this.initialIngredients,
+    this.initialIncludeGroups,
+    this.initialExcludeGroups,
   });
 
   @override
@@ -96,6 +108,17 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty));
     }
+    if (widget.initialIncludeGroups != null) {
+      _haveGroupSet.addAll(widget.initialIncludeGroups!
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty));
+    }
+    if (widget.initialExcludeGroups != null) {
+      _notHaveGroupSet.addAll(widget.initialExcludeGroups!
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty));
+    }
+
     if (widget.initialExclude != null) {
       _notHaveSet.addAll(widget.initialExclude!
           .map((e) => e.trim())
@@ -168,6 +191,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
     for (final g in groups) {
       final key = _norm(g);
 
+      // เอาออกจากชุดกลุ่มฝั่งตรงข้าม
       final toRemove = opposite.firstWhere(
         (e) => _norm(e) == key,
         orElse: () => '',
@@ -177,6 +201,17 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         changed = true;
       }
 
+      // ★ NEW: กันสับสนชื่อซ้ำ — ถ้าชื่อกลุ่มตรงกับ "ชื่อวัตถุดิบ" ที่มีอยู่ ให้ลบออก
+      final beforeHave = _haveSet.length;
+      _haveSet.removeWhere((e) => _norm(e) == key);
+      final removedName1 = beforeHave != _haveSet.length;
+
+      final beforeNotHave = _notHaveSet.length;
+      _notHaveSet.removeWhere((e) => _norm(e) == key);
+      final removedName2 = beforeNotHave != _notHaveSet.length;
+      if (removedName1 || removedName2) changed = true;
+
+      // กันซ้ำใน target (เทียบแบบไม่สนตัวพิมพ์)
       final exists = target.any((e) => _norm(e) == key);
       if (!exists) {
         target.add(g);
@@ -459,6 +494,8 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
                       if (_groupMode)
                         _TypeAheadBox(
+                          // ★ NEW: key เฉพาะ instance (กัน overlay เก่าค้าง)
+                          key: const ValueKey('inc-group'),
                           // กลุ่มวัตถุดิบ
                           controller: _haveGroupCtrl,
                           focusNode: _haveGroupFocus,
@@ -476,6 +513,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                         )
                       else
                         _TypeAheadBox(
+                          key: const ValueKey('inc-name'), // ★ NEW
                           // ชื่อวัตถุดิบ
                           controller: _haveCtrl,
                           focusNode: _haveFocus,
@@ -546,6 +584,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
                       if (_groupMode)
                         _TypeAheadBox(
+                          key: const ValueKey('exc-group'), // ★ NEW
                           controller: _notHaveGroupCtrl,
                           focusNode: _notHaveGroupFocus,
                           hint: 'พิมพ์ชื่อกลุ่มวัตถุดิบที่ต้องการยกเว้น',
@@ -561,6 +600,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                         )
                       else
                         _TypeAheadBox(
+                          key: const ValueKey('exc-name'), // ★ NEW
                           controller: _notHaveCtrl,
                           focusNode: _notHaveFocus,
                           hint: 'พิมพ์ชื่อวัตถุดิบเพื่อยกเว้น',
@@ -670,7 +710,11 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
             ],
             selected: {_groupMode},
             onSelectionChanged: (set) {
-              setState(() => _groupMode = set.first);
+              // ★ NEW: ปิดคีย์บอร์ด/overlay เดิมก่อนสลับโหมด (กัน state เก่าค้าง)
+              if (_groupMode != set.first) {
+                _dismissKb();
+                setState(() => _groupMode = set.first);
+              }
             },
             showSelectedIcon: false,
             style: ButtonStyle(
@@ -742,9 +786,11 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
  * - ควบคุมด้วยพารามิเตอร์ suggestionsCallback และ showCamera
  * - เมื่อ submit/เลือก suggestion จะเรียก onAdd แล้วเคลียร์ controller ให้
  * - [NEW] รองรับ onCamera (ถ้าส่งมา) เพื่อปรับพฤติกรรมปุ่มกล้องได้ (เช่น mapIngredientsToGroups)
+ * - ★ NEW ใส่ super.key เพื่อใช้ ValueKey แยก instance ใน parent
  */
 class _TypeAheadBox extends StatelessWidget {
   const _TypeAheadBox({
+    super.key, // ★ NEW
     required this.controller,
     required this.focusNode,
     required this.hint,
@@ -809,9 +855,13 @@ class _TypeAheadBox extends StatelessWidget {
 
             // แสดงรายการ
             itemBuilder: (_, s) => ListTile(title: Text(s)),
+
+            // ★ NEW: เคลียร์ให้ชัวร์ และคงโฟกัสเพื่อพิมพ์ต่อได้ทันที
             onSelected: (s) {
               onAdd(s);
+              // เคลียร์ทั้ง controller ที่ส่งเข้ามา และขอคีย์บอร์ดอยู่ต่อ
               controller.clear();
+              focusNode.requestFocus();
             },
 
             // ว่าง
