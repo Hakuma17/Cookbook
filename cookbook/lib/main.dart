@@ -35,7 +35,6 @@ import 'screens/welcome_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 
-// ⚠️ มี 2 หน้าชื่อคล้ายกัน แยก route ชัดเจน
 import 'screens/verify_otp_screen.dart'
     show VerifyOtpScreen; // ยืนยันอีเมลหลังสมัคร
 import 'screens/otp_verification_screen.dart'
@@ -339,7 +338,7 @@ class MyApp extends StatelessWidget {
       // ยืนยัน OTP (ลืมรหัสผ่าน) — รับ String หรือ Map(email)
       case '/verify_otp':
         {
-          // 👇 ยืดหยุ่น: รับ email ได้ทั้ง String และ Map{'email':...}
+          // ยืดหยุ่น: รับ email ได้ทั้ง String และ Map{'email':...}
           String email = '';
           if (args is String) {
             email = args.trim();
@@ -442,6 +441,8 @@ class MyApp extends StatelessWidget {
           IngredientFilterScreen(
             initialInclude: p?['initialInclude'],
             initialExclude: p?['initialExclude'],
+            initialIncludeGroups: p?['initialIncludeGroups'],
+            initialExcludeGroups: p?['initialExcludeGroups'],
           ),
           settings,
         );
