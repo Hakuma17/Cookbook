@@ -31,7 +31,7 @@ class ApiException implements Exception {
   /// เก็บ errorCode (เช่น OTP_EXPIRED / RATE_LIMIT) ถ้า BE ส่งมา
   final String? code;
 
-  /// แนบ payload ดิบไว้เผื่อ debug
+  /// แนบ payload ดิบไว้เผื่อ debug / UI ใช้งาน
   final Map<String, dynamic>? data;
 
   ApiException(this.message, {this.statusCode, this.code, this.data});
@@ -169,6 +169,51 @@ class ApiService {
     };
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // ★ Utilities สำหรับ error ที่ “ไม่ทิ้งข้อความ”
+  // ─────────────────────────────────────────────────────────────
+
+  // ★ ดึง JSON แบบไม่พัง แม้ไม่ใช่ JSON แท้
+  static dynamic _decodeJsonSafely(String body) {
+    try {
+      final trimmed = body.trim();
+      if (trimmed.isEmpty) return null;
+      return jsonDecode(trimmed);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ★ รวมกติกาดึงข้อความ error จากรูปแบบยอดฮิตใน BE หลายสไตล์
+  static String _extractServerMessage(dynamic parsed, int statusCode,
+      {String? fallback}) {
+    if (parsed is Map) {
+      final m = parsed['message'] ?? parsed['msg'] ?? parsed['error_message'];
+      if (m is String && m.trim().isNotEmpty) return m.trim();
+
+      final errs = parsed['errors'];
+      if (errs is List && errs.isNotEmpty) {
+        return errs.map((e) => e.toString()).join('\n');
+      }
+      if (errs is String && errs.trim().isNotEmpty) {
+        return errs.trim();
+      }
+
+      final detail =
+          parsed['detail'] ?? parsed['description'] ?? parsed['reason'];
+      if (detail is String && detail.trim().isNotEmpty) return detail.trim();
+
+      // รูปแบบ { error: { message, code } }
+      final errObj = parsed['error'];
+      if (errObj is Map) {
+        final em =
+            errObj['message'] ?? errObj['description'] ?? errObj['detail'];
+        if (em is String && em.trim().isNotEmpty) return em.trim();
+      }
+    }
+    return fallback ?? 'เกิดข้อผิดพลาดจาก Server (HTTP $statusCode)';
+  }
+
   /* ─── low-level GET / POST ─── */
 
   // GET พื้นฐาน (public=true จะตัด Cookie ออก)
@@ -210,13 +255,24 @@ class ApiService {
         map401ToUnauthorized: map401ToUnauthorized);
   }
 
-  /// ★★★ Lenient POST: สำหรับ OTP endpoints
-  /// - ยอมรับโค้ด 4xx บางประเภทแล้ว "คืน JSON" ให้ FE แสดงผลเอง
-  /// - ใช้กรณีต้องโชว์ error จำเพาะ (OTP_EXPIRED / RATE_LIMIT ฯลฯ)
+  /// ★★★ Lenient POST: สำหรับ endpoints ที่ต้อง “แสดงข้อความฝั่งเซิร์ฟเวอร์แม้เป็น 4xx”
+  /// - คืน JSON กลับให้จอเสมอถ้า body เป็น JSON และ status ∈ okStatuses
+  /// - แนบ `_httpStatus` ไว้ใน payload เพื่อให้ UI ใช้ตัดสิน flow
   static Future<Map<String, dynamic>> _postLenient(
     String path,
     Map<String, String> body, {
-    Set<int> okStatuses = const {200, 400, 401, 403, 404, 410, 422, 423, 429},
+    Set<int> okStatuses = const {
+      200,
+      400,
+      401,
+      403,
+      404,
+      409,
+      410,
+      422,
+      423,
+      429
+    },
   }) async {
     final uri = Uri.parse('$baseUrl$path');
     final r = await _client
@@ -224,42 +280,32 @@ class ApiService {
         .timeout(_timeout);
     await _captureCookie(r);
 
-    Map<String, dynamic>? json;
-    try {
-      json = (jsonDecode(r.body) as Map?)?.cast<String, dynamic>();
-    } catch (_) {
-      json = null;
+    Map<String, dynamic>? jsonMap;
+    final parsed = _decodeJsonSafely(r.body);
+    if (parsed is Map<String, dynamic>) {
+      jsonMap = parsed;
     }
 
-    if (okStatuses.contains(r.statusCode) && json != null) {
-      // แนบสถานะไว้ใน payload เผื่อจออยากใช้
-      json.putIfAbsent('_httpStatus', () => r.statusCode);
-      return json;
+    if (okStatuses.contains(r.statusCode) && jsonMap != null) {
+      jsonMap.putIfAbsent('_httpStatus', () => r.statusCode);
+      return jsonMap;
     }
 
-    // กรณีอื่น โยนรวม แต่ยังพยายามดึง message/errorCode จาก body
-    final msg = (json?['message'] ??
-            (json?['errors'] is List && (json!['errors'] as List).isNotEmpty
-                ? (json['errors'] as List).join('\n')
-                : 'POST $path ผิดพลาด'))
-        .toString();
-    final code = json?['errorCode']?.toString();
-    throw ApiException(msg, statusCode: r.statusCode, code: code, data: json);
+    // กรณีอื่น ๆ → โยน แต่พยายามดึงข้อความก่อน
+    final msg = _extractServerMessage(parsed, r.statusCode,
+        fallback: 'POST $path ผิดพลาด');
+    final code = (parsed is Map && parsed['errorCode'] != null)
+        ? parsed['errorCode'].toString()
+        : null;
+    throw ApiException(msg,
+        statusCode: r.statusCode, code: code, data: jsonMap);
   }
 
   /* ─── Response & Error Processing ─── */
 
   // ตัวช่วยดึงข้อความจาก backend (message หรือ errors[])
   static String _serverMsg(dynamic parsed, http.Response r) {
-    if (parsed is Map<String, dynamic>) {
-      final m = parsed['message'];
-      if (m is String && m.trim().isNotEmpty) return m.trim();
-      final errs = parsed['errors'];
-      if (errs is List && errs.isNotEmpty) {
-        return errs.map((e) => e.toString()).join('\n');
-      }
-    }
-    return 'เกิดข้อผิดพลาดจาก Server (HTTP ${r.statusCode})';
+    return _extractServerMessage(parsed, r.statusCode);
   }
 
   // แปลง/ตรวจ response จาก server (รองรับปิดการแมป 401)
@@ -267,33 +313,32 @@ class ApiService {
     http.Response r, {
     bool map401ToUnauthorized = true,
   }) {
-    try {
-      final parsed = jsonDecode(r.body.trim());
-
-      // แมป 401 → Unauthorized เฉพาะกรณีต้องการ
-      if (map401ToUnauthorized && r.statusCode == 401) {
-        throw UnauthorizedException('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
-      }
-
-      if (parsed is Map<String, dynamic>) {
-        final code = parsed['status'] ?? parsed['code'];
-        if (map401ToUnauthorized && (code == 401 || code == '401')) {
-          throw UnauthorizedException('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
-        }
-        if (parsed['success'] == false) {
-          throw ApiException(
-            _serverMsg(parsed, r),
-            statusCode: r.statusCode,
-            code: parsed['errorCode']?.toString(),
-            data: parsed,
-          );
-        }
-      }
-      return parsed; // อนุญาตให้เป็น List/primitive ได้
-    } on FormatException {
+    final parsed = _decodeJsonSafely(r.body); // ★ ใช้ตัว decode ใหม่
+    if (parsed == null) {
       throw ApiException('ไม่สามารถประมวลผลข้อมูลจาก Server ได้',
           statusCode: r.statusCode);
     }
+
+    // แมป 401 → Unauthorized เฉพาะกรณีต้องการ
+    if (map401ToUnauthorized && r.statusCode == 401) {
+      throw UnauthorizedException('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+    }
+
+    if (parsed is Map<String, dynamic>) {
+      final code = parsed['status'] ?? parsed['code'];
+      if (map401ToUnauthorized && (code == 401 || code == '401')) {
+        throw UnauthorizedException('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+      }
+      if (parsed['success'] == false) {
+        throw ApiException(
+          _serverMsg(parsed, r),
+          statusCode: r.statusCode,
+          code: parsed['errorCode']?.toString(),
+          data: parsed,
+        );
+      }
+    }
+    return parsed; // อนุญาตให้เป็น List/primitive ได้
   }
 
   // โยนข้อผิดพลาดเมื่อ HTTP code >= 300 (พยายามอ่าน message ก่อน)
@@ -305,22 +350,19 @@ class ApiService {
     if (map401ToUnauthorized && r.statusCode == 401) {
       throw UnauthorizedException('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่ (401)');
     }
-    try {
-      final json = jsonDecode(r.body);
-      if (json is Map) {
-        // ลองอ่าน message / errors จาก body + แนบ errorCode
-        final msg = json['message'] ??
-            ((json['errors'] is List && (json['errors'] as List).isNotEmpty)
-                ? (json['errors'] as List).join('\n')
-                : null);
-        if (msg != null) {
-          throw ApiException(msg.toString(),
-              statusCode: r.statusCode,
-              code: json['errorCode']?.toString(),
-              data: json.cast<String, dynamic>());
-        }
-      }
-    } catch (_) {}
+    final parsed = _decodeJsonSafely(r.body); // ★
+    if (parsed != null) {
+      // ★ ดึงข้อความแบบรวมศูนย์
+      final msg = _extractServerMessage(parsed, r.statusCode,
+          fallback: '$what ผิดพลาด');
+      final Map<String, dynamic>? data =
+          (parsed is Map<String, dynamic>) ? parsed : null;
+      final code = (parsed is Map && parsed['errorCode'] != null)
+          ? parsed['errorCode'].toString()
+          : null;
+      throw ApiException(msg, statusCode: r.statusCode, code: code, data: data);
+    }
+    // non-JSON → ข้อความ fallback
     throw ApiException('$what ผิดพลาด', statusCode: r.statusCode);
   }
 
@@ -464,6 +506,7 @@ class ApiService {
   }
 
   // ───────── AUTH ─────────
+
   static Future<Map<String, dynamic>> login(String email, String pwd) async {
     final r = await _client.post(Uri.parse('${baseUrl}login.php'),
         headers: await _headers(),
@@ -474,20 +517,20 @@ class ApiService {
     return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
   }
 
+  // ★ เปลี่ยน register() ให้ lenient → เคสซ้ำอีเมล (400/409/422) จะ “คืน JSON” ให้จอแสดงเอง
   static Future<Map<String, dynamic>> register(
       String email, String pwd, String cPwd, String name) async {
-    // register: public endpoint → ปิดการแมป 401
-    final r = await _post(
-        'register.php',
-        {
-          'email': email,
-          'password': pwd,
-          'confirm_password': cPwd,
-          'username': name,
-        },
-        map401ToUnauthorized: false);
-    final j = _processResponse(r, map401ToUnauthorized: false);
-    return (j is Map<String, dynamic>) ? j : <String, dynamic>{'data': j};
+    final j = await _postLenient(
+      'register.php',
+      {
+        'email': email,
+        'password': pwd,
+        'confirm_password': cPwd,
+        'username': name,
+      },
+      okStatuses: const {200, 400, 409, 422}, // เคส validation ทั้งหลาย
+    );
+    return j;
   }
 
   static Future<Map<String, dynamic>> googleSignIn(String idToken) async {
@@ -967,5 +1010,83 @@ class ApiService {
       await _post('logout.php', {}); // แจ้งเซิร์ฟเวอร์ให้เคลียร์เซสชัน
     } catch (_) {}
     await clearSession(); // เคลียร์ token ฝั่งแอปเสมอ
+  }
+
+  // ★ ตรวจว่าอีเมลถูกใช้แล้วหรือยัง (lenient)
+  static Future<Map<String, dynamic>> checkEmailAvailability(
+      String email) async {
+    final e = email.trim();
+    if (e.isEmpty) return {'exists': false};
+    try {
+      // check_email.php
+      final j = await _postLenient(
+        'check_email.php',
+        {'email': e},
+        okStatuses: const {
+          200,
+          400,
+          404
+        }, // เผื่อ BE เลือกใช้ 400/404 สำหรับ invalid
+      );
+      final exists = j['exists'] == true ||
+          j['duplicate'] == true ||
+          j['available'] == false;
+      final msg = (j['message'] as String?) ??
+          (exists ? 'อีเมลนี้มีอยู่แล้ว' : 'อีเมลนี้ใช้ได้');
+      return {
+        'exists': exists,
+        'message': msg,
+        '_httpStatus': j['_httpStatus']
+      };
+    } on ApiException catch (e) {
+      // ถ้า BE ตอบเป็น 409 พร้อมข้อความ ก็ถือว่า "ซ้ำ"
+      return {'exists': true, 'message': e.message};
+    } catch (_) {
+      // เงียบถ้าตรวจไม่ได้ (ไม่บล็อคผู้ใช้)
+      return {'exists': false};
+    }
+  }
+
+  static Future<Map<String, dynamic>> resendResetOtp(String email) async {
+    final e = email.trim();
+    if (e.isEmpty) {
+      throw ApiException('กรุณาระบุอีเมล');
+    }
+
+    // ยิงไปที่ reset_password.php เหมือนตอนส่งครั้งแรก
+    final j = await _postLenient(
+      'reset_password.php',
+      {'email': e},
+      okStatuses: const {200, 400, 401, 404, 409, 410, 422, 423, 429},
+    );
+
+    // ---- normalize fields สำหรับ UI ----
+    // แปลง secondsLeft เป็น int หากส่งมาเป็น string
+    if (j['secondsLeft'] is String) {
+      final v = int.tryParse(j['secondsLeft'] as String);
+      if (v != null) j['secondsLeft'] = v;
+    }
+
+    // ถ้าไม่มี secondsLeft แต่ข้อความมีตัวเลข "xx วินาที" → ดึงมาให้
+    if (j['secondsLeft'] == null && j['message'] is String) {
+      final m = RegExp(r'(\d+)\s*(วินาที|secs?|seconds?)')
+          .firstMatch((j['message'] as String));
+      if (m != null) {
+        j['secondsLeft'] = int.tryParse(m.group(1)!);
+      }
+    }
+
+    // กำหนด errorCode ให้สม่ำเสมอ: 429 → RATE_LIMIT (หรือ LOCKED หากพบคำว่า "ล็อก")
+    final httpStatus = j['_httpStatus'] as int?; // ใส่โดย _postLenient
+    final msg = (j['message'] ?? '').toString();
+    if (httpStatus == 429) {
+      if (j['errorCode'] == null) {
+        j['errorCode'] = msg.contains('ล็อก') ? 'LOCKED' : 'RATE_LIMIT';
+      }
+    } else if (httpStatus == 423) {
+      j['errorCode'] ??= 'LOCKED';
+    }
+
+    return j;
   }
 }

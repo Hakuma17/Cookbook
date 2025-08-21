@@ -2,11 +2,11 @@
 1 Bai Yi Ra
 2 Hom Daeng
 3 Kaprao
-4 Krathiam
-5 Makrut
-6 Manao
-7 Prik Chi Fa
-8 Prik Khi Nu
-9 Takhrai
-10 Krachai
-11 Kha
+4 Kha
+5 Krachai
+6 Krathiam
+7 Makrut
+8 Manao
+9 Prik Chi Fa
+10 Prik Khi Nu
+11 Takhrai
