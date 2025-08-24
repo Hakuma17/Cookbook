@@ -17,7 +17,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // --- State ---
   String _username = 'ผู้ใช้';
   String _email = '';
-  String? _profileImageUrl;
+  String? _profileImageUrl; // URL เต็มไว้แสดง
   List<Ingredient> _allergyList = [];
 
   bool _isLoggedIn = false;
@@ -50,12 +50,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /// รวม baseUrl อย่างปลอดภัย ไม่เกิด // ซ้อน และกันค่าว่าง
+  // ---- path utils ----
+  String? _normalizeServerPath(String? p) {
+    if (p == null || p.isEmpty) return null;
+    var s = p.replaceAll('\\', '/');
+    final idx = s.indexOf('/uploads/');
+    if (idx >= 0) s = s.substring(idx);
+    final q = s.indexOf('?');
+    if (q >= 0) s = s.substring(0, q);
+    return s;
+  }
+
   String? _composeFullUrl(String? maybePath) {
     if (maybePath == null || maybePath.isEmpty) return null;
-    if (maybePath.startsWith('http')) return maybePath;
+    final p = maybePath.replaceAll('\\', '/');
+    if (p.startsWith('http')) return p;
     try {
-      return Uri.parse(ApiService.baseUrl).resolve(maybePath).toString();
+      final rel = p.startsWith('/') ? p.substring(1) : p;
+      return Uri.parse(ApiService.baseUrl).resolve(rel).toString();
     } catch (_) {
       return maybePath;
     }
@@ -69,11 +81,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final rawEmail = (data['email'] ?? '').toString().trim();
     final rawImage = (data['profileImage'] ?? '').toString();
 
+    final norm = _normalizeServerPath(rawImage);
+    final full = _composeFullUrl(norm);
+
     setState(() {
-      _isLoggedIn = data['isLoggedIn'] ?? true; // หน้านี้อยู่หลัง AuthGuard
+      _isLoggedIn = data['isLoggedIn'] ?? true;
       _username = rawName.isEmpty ? 'ผู้ใช้' : rawName;
       _email = rawEmail;
-      _profileImageUrl = _composeFullUrl(rawImage);
+      _profileImageUrl = full;
     });
   }
 
@@ -82,7 +97,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted) return;
 
     final adjustedList = list.map((ing) {
-      final full = _composeFullUrl(ing.imageUrl);
+      final full = _composeFullUrl(_normalizeServerPath(ing.imageUrl));
       return ing.copyWith(imageUrl: full ?? '');
     }).toList();
 
@@ -90,7 +105,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _handleLogout() async {
-    // กัน Snack ซ้อนๆ
     if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
     await AuthService.logout();
     if (mounted) {
@@ -100,13 +114,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _navToEditProfile() async {
     final result = await Navigator.pushNamed(context, '/edit_profile');
-    if (result == true && mounted) {
-      // bust cache แล้วรีโหลดข้อมูล
+    if (!mounted) return;
+
+    // ★ รองรับ Optimistic UI จากหน้าก่อนหน้า
+    if (result is Map && (result['updated'] == true)) {
+      final newName = (result['newName'] ?? '').toString();
+      final newPath =
+          _normalizeServerPath((result['newImagePath'] ?? '').toString());
+      final newUrl = (result['newImageUrl'] is String &&
+              (result['newImageUrl'] as String).isNotEmpty)
+          ? result['newImageUrl'] as String
+          : _composeFullUrl(newPath);
+
       setState(() {
-        _profileImageUrl = null;
-        _initFuture = _initialize();
+        if (newName.isNotEmpty) _username = newName;
+        _profileImageUrl = newUrl; // ใส่ cache-buster มาด้วยอยู่แล้ว (ถ้าให้มา)
       });
     }
+
+    // จะให้รีเฟรชจากเซิร์ฟเวอร์จริง ๆ ด้วยก็ได้ (แต่ UI เห็นผลทันทีแล้ว)
+    setState(() {
+      _initFuture = _initialize();
+    });
   }
 
   Future<void> _navToAllergyScreen() async {
@@ -120,9 +149,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _onNavItemTapped(int index) {
     if (index == 3) {
-      // หน้าปัจจุบัน → refresh
       setState(() {
-        _initFuture = _initialize(); // ✅ ไม่คืน Future ออกไป
+        _initFuture = _initialize();
       });
       return;
     }
@@ -161,7 +189,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          // Error UI พร้อมปุ่มลองใหม่
           if (_errorMessage != null || snapshot.hasError) {
             return Center(
               child: Padding(
@@ -188,7 +215,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             );
           }
 
-          // เนื้อหา + ดึงรีเฟรชได้เสมอ
           return RefreshIndicator(
             onRefresh: _initialize,
             child: SingleChildScrollView(
@@ -212,14 +238,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileHeader(ThemeData theme, TextTheme textTheme) {
-    // cache-buster เพื่อดึงรูปใหม่หลังแก้ไข
-    final imageUrlWithCacheBuster = _profileImageUrl != null
-        ? '$_profileImageUrl?v=${DateTime.now().millisecondsSinceEpoch}'
-        : null;
-
-    final ImageProvider provider = (imageUrlWithCacheBuster != null)
-        ? NetworkImage(imageUrlWithCacheBuster)
-        : const AssetImage('assets/images/default_avatar.png');
+    // cache-buster ถ้าต้องการ สามารถเติมจากฝั่ง Edit มาแล้วใน result
+    final provider = (_profileImageUrl != null && _profileImageUrl!.isNotEmpty)
+        ? NetworkImage(_profileImageUrl!)
+        : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
 
     return Column(
       children: [

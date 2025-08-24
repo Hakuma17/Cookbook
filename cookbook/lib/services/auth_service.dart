@@ -1,7 +1,7 @@
 // lib/services/auth_service.dart
 //
 // Service จัดการสถานะการล็อกอิน + คุกกี้ + SharedPreferences
-// เพิ่ม helpers: resume หน้ากรอก OTP (เก็บอีเมลที่ยังไม่ยืนยัน + เวลาเริ่มคูลดาวน์)
+// เพิ่มการเก็บ/อ่าน googleId เพื่อให้ UI รู้ว่าบัญชีเชื่อม Google หรือไม่
 
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,13 +15,14 @@ class AuthService {
   static const _kProfileName = 'profileName'; // ชื่อโปรไฟล์
   static const _kProfileImage = 'profileImage'; // รูปโปรไฟล์
   static const _kEmail = 'email'; // อีเมล
+  static const _kGoogleId = 'googleId'; // ★ ใหม่: เก็บ google_id
   static const _kHasSeenOnboarding = 'hasSeenOnboarding'; // ผ่าน onboarding?
 
   // ↓ ใหม่: ใช้ “จำอีเมลที่ยังไม่ยืนยัน” เพื่อ resume flow
   static const _kPendingVerifyEmail =
       'pendingVerifyEmail'; // อีเมลที่ต้องยืนยัน
   static const _kPendingVerifyAtEpoch =
-      'pendingVerifyAtEpoch'; // เวลาเริ่มคูลดาวน์ (ms epoch)
+      'pendingVerifyAtEpoch'; // เวลาเริ่มคูลดาวน์
   static const int _kOtpCooldownSeconds = 60; // คูลดาวน์มาตรฐาน 60 วิ
 
   /* ───── prefs cache ───── */
@@ -41,35 +42,32 @@ class AuthService {
   }
 
   /* ───────────── auth helpers ───────────── */
-  /// เช็คล็อกอิน (async จาก prefs)
   static Future<bool> isLoggedIn() async {
     final p = await _prefs;
     return p.getBool(_kIsLoggedIn) ?? false;
   }
 
-  /// เช็คล็อกอินแบบเร็ว (อ่านจากแคชในหน่วยความจำ)
   static bool isLoggedInSync() => _cachedLoggedIn;
 
-  /// getters ทั่วไป
+  /* ───────────── getters ───────────── */
   static Future<int?> getUserId() async => (await _prefs).getInt(_kUserId);
   static Future<String?> getProfileName() async =>
       (await _prefs).getString(_kProfileName);
   static Future<String?> getProfileImage() async =>
       (await _prefs).getString(_kProfileImage);
   static Future<String?> getEmail() async => (await _prefs).getString(_kEmail);
+  static Future<String?> getGoogleId() async =>
+      (await _prefs).getString(_kGoogleId);
 
   /* ───────────── Token Helpers ───────────── */
-  /// บันทึกคุกกี้เซสชัน
   static Future<void> saveToken(String token) async {
     final p = await _prefs;
     await p.setString(_kAuthToken, token);
   }
 
-  /// ดึงคุกกี้เซสชัน
   static Future<String?> getToken() async =>
       (await _prefs).getString(_kAuthToken);
 
-  /// ลบคุกกี้เซสชัน
   static Future<void> clearToken() async => (await _prefs).remove(_kAuthToken);
 
   /* ───────── Onboarding Helpers ───────── */
@@ -86,6 +84,7 @@ class AuthService {
     required String profileName,
     required String profileImage,
     required String email,
+    String? googleId, // ★ optional
   }) async {
     final p = await _prefs;
     await p.setBool(_kIsLoggedIn, true);
@@ -93,19 +92,28 @@ class AuthService {
     await p.setString(_kProfileName, profileName);
     await p.setString(_kProfileImage, profileImage);
     await p.setString(_kEmail, email.trim());
+    // เก็บ googleId ถ้ามี (ถ้า null/ว่าง = ลบออก)
+    if (googleId != null && googleId.trim().isNotEmpty) {
+      await p.setString(_kGoogleId, googleId.trim());
+    } else {
+      await p.remove(_kGoogleId);
+    }
 
-    // เคลียร์สถานะรอยืนยัน หากเข้าระบบได้แล้ว
-    await clearPendingEmailVerify();
-
+    await clearPendingEmailVerify(); // เคลียร์สถานะรอยืนยัน หากเข้าระบบได้แล้ว
     _cachedLoggedIn = true; // อัปเดตแคช
   }
 
   /// แปลง map จาก BE → saveLogin
+  /// รองรับคีย์ทั้ง snake_case และ camelCase
   static Future<void> saveLoginData(Map<String, dynamic> d) => saveLogin(
-        userId: int.tryParse(d['user_id'].toString()) ?? 0,
-        profileName: d['profile_name'] ?? '',
-        profileImage: d['path_imgProfile'] ?? '',
-        email: d['email'] ?? '',
+        userId: int.tryParse(
+                d['user_id']?.toString() ?? d['userId']?.toString() ?? '0') ??
+            0,
+        profileName: (d['profile_name'] ?? d['profileName'] ?? '').toString(),
+        profileImage:
+            (d['path_imgProfile'] ?? d['profileImage'] ?? '').toString(),
+        email: (d['email'] ?? '').toString(),
+        googleId: (d['google_id'] ?? d['googleId'])?.toString(), // ★
       );
 
   /// อัปเดตข้อมูลโปรไฟล์ที่เก็บใน prefs เมื่อผู้ใช้แก้ไข
@@ -113,11 +121,19 @@ class AuthService {
     String? profileName,
     String? profileImage,
     String? email,
+    String? googleId, // เผื่อใช้ในอนาคต
   }) async {
     final p = await _prefs;
     if (profileName != null) await p.setString(_kProfileName, profileName);
     if (profileImage != null) await p.setString(_kProfileImage, profileImage);
     if (email != null) await p.setString(_kEmail, email.trim());
+    if (googleId != null) {
+      if (googleId.trim().isEmpty) {
+        await p.remove(_kGoogleId);
+      } else {
+        await p.setString(_kGoogleId, googleId.trim());
+      }
+    }
   }
 
   /// ล็อกเอาท์ (ล้างทุกอย่าง)
@@ -129,21 +145,25 @@ class AuthService {
     await p.remove(_kProfileName);
     await p.remove(_kProfileImage);
     await p.remove(_kEmail);
-    await clearPendingEmailVerify(); // ล้างสถานะรอยืนยันด้วย
+    await p.remove(_kGoogleId); // ★
+    await clearPendingEmailVerify();
 
-    _cachedLoggedIn = false; // เคลียร์แคช
+    _cachedLoggedIn = false;
   }
 
   /* ───────────── misc helpers ───────────── */
-  /// คืนสรุปข้อมูลล็อกอิน
+  /// คืนสรุปข้อมูลล็อกอิน (รวม googleId ด้วย)
   static Future<Map<String, dynamic>> getLoginData() async {
     final p = await _prefs;
+    final gid = p.getString(_kGoogleId);
     return {
       'isLoggedIn': await isLoggedIn(),
       'userId': p.getInt(_kUserId),
       'profileName': p.getString(_kProfileName),
       'profileImage': p.getString(_kProfileImage),
       'email': p.getString(_kEmail),
+      'googleId': gid, // camelCase
+      'google_id': gid, // snake_case (ให้หน้า UI ใช้ได้ทั้งสองแบบ)
     };
   }
 
@@ -167,37 +187,27 @@ class AuthService {
   }
 
   /* ═════════════ OTP SECTION ═════════════ */
-  /// เรียก verify OTP ผ่าน ApiService
   static Future<Map<String, dynamic>> verifyOtp(String email, String otp) =>
       ApiService.verifyOtp(email, otp);
 
-  /// ขอรหัสใหม่ (resend)
   static Future<Map<String, dynamic>> resendOtp(String email) =>
       ApiService.resendOtp(email);
 
-  /* ═════════════ Pending Email Verify (resume flow) ═════════════
-     ใช้กรณี: สมัครสำเร็จแต่ยังไม่ยืนยัน, หรือ login แล้วถูกแจ้ง UNVERIFIED
-     เก็บอีเมล + เวลาที่เริ่มคูลดาวน์ เพื่อเปิดแอปมาใหม่จะพากลับไปหน้า OTP ได้
-  */
-
-  /// บันทึกอีเมลที่ต้องยืนยัน + เริ่มคูลดาวน์ถ้าต้องการ
+  /* ═════════════ Pending Email Verify (resume flow) ═════════════ */
   static Future<void> markPendingEmailVerify({
     required String email,
-    bool startCooldown = true, // true = เริ่มจับเวลา 60 วิ
+    bool startCooldown = true,
   }) async {
     final p = await _prefs;
     await p.setString(_kPendingVerifyEmail, email.trim());
     if (startCooldown) {
       await p.setInt(
-        _kPendingVerifyAtEpoch,
-        DateTime.now().millisecondsSinceEpoch,
-      );
+          _kPendingVerifyAtEpoch, DateTime.now().millisecondsSinceEpoch);
     } else {
       await p.remove(_kPendingVerifyAtEpoch);
     }
   }
 
-  /// อ่านสถานะรอยืนยัน (คืน: {email, secondsLeft} หรือ null ถ้าไม่มี)
   static Future<Map<String, dynamic>?> getPendingEmailVerify() async {
     final p = await _prefs;
     final email = (p.getString(_kPendingVerifyEmail) ?? '').trim();
@@ -214,7 +224,6 @@ class AuthService {
     return {'email': email, 'secondsLeft': secondsLeft};
   }
 
-  /// ล้างสถานะรอยืนยัน (เรียกหลัง verify สำเร็จ/ล็อกอินสำเร็จ/ล็อกเอาท์)
   static Future<void> clearPendingEmailVerify() async {
     final p = await _prefs;
     await p.remove(_kPendingVerifyEmail);

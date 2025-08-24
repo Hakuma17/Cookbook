@@ -308,8 +308,8 @@ class _PasswordTextField extends StatelessWidget {
           validator: validatorOverride ??
               (v) {
                 if (v == null || v.trim().isEmpty) return 'กรุณากรอกรหัสผ่าน';
-                if (v.trim().length < 6) {
-                  return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+                if (v.trim().length < 8) {
+                  return 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
                 }
                 return null;
               },

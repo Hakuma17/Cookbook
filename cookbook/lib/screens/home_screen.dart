@@ -2,6 +2,8 @@
 import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/material.dart';
+// ✨ NEW: ใช้สำหรับตัดตัวอักษรแบบปลอดภัย (ภาษาไทย/อีโมจิ)
+import 'package:characters/characters.dart';
 
 // Store กลางไว้ sync รายการโปรด
 import 'package:provider/provider.dart';
@@ -571,12 +573,79 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
+  // ✨ NEW: ฟังก์ชันคำนวณข้อความ “พอดี 1 บรรทัด” แบบไม่ขึ้น …
+  String _fitOneLine({
+    required String prefix, // "สวัสดี "
+    required String name, // ชื่อผู้ใช้
+    required TextStyle style,
+    required double maxWidth,
+    required double textScale,
+    required TextDirection direction,
+    void Function(int shownNameChars)? onCount,
+  }) {
+    final painter = TextPainter(
+      maxLines: 1,
+      textScaleFactor: textScale,
+      textDirection: direction,
+    );
+
+    String full = '$prefix$name';
+    painter.text = TextSpan(text: full, style: style);
+    painter.layout(maxWidth: maxWidth);
+    if (!painter.didExceedMaxLines) {
+      onCount?.call(name.characters.length);
+      return full;
+    }
+
+    final units = name.characters.toList();
+    int lo = 0, hi = units.length, best = 0;
+
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final candidate = '$prefix${units.take(mid).join()}';
+      painter.text = TextSpan(text: candidate, style: style);
+      painter.layout(maxWidth: maxWidth);
+      if (!painter.didExceedMaxLines) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    String result = '$prefix${units.take(best).join()}';
+    if (result.isEmpty) {
+      final preUnits = prefix.characters.toList();
+      lo = 0;
+      hi = preUnits.length;
+      int bestPre = 0;
+      while (lo <= hi) {
+        final mid = (lo + hi) >> 1;
+        final cand = preUnits.take(mid).join();
+        painter.text = TextSpan(text: cand, style: style);
+        painter.layout(maxWidth: maxWidth);
+        if (!painter.didExceedMaxLines) {
+          bestPre = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      result = preUnits.take(bestPre).join();
+      onCount?.call(0);
+    } else {
+      onCount?.call(best);
+    }
+    return result;
+  }
+
   // แถบบนสุด (รูปโปรไฟล์ + ปุ่มล็อกอิน/ออก)
   Widget _buildCustomAppBar() {
     final theme = Theme.of(context);
     final imageUrl = (_isLoggedIn && (_profileImageBusted?.isNotEmpty ?? false))
         ? _profileImageBusted!
         : '';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -585,30 +654,67 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       ),
       child: Row(
         children: [
-          ClipOval(
-            child: SizedBox.square(
-              dimension: 48,
-              child: SafeImage(
-                key: ValueKey(
-                    imageUrl), // เปลี่ยนคีย์เพื่อบังคับรีบิลด์เมื่อ bust เปลี่ยน
-                url: imageUrl,
-                fit: BoxFit.cover,
-                error: Image.asset(
-                  'assets/images/default_avatar.png',
+          // ✨ NEW: แตะรูปเพื่อไปหน้าโปรไฟล์/ล็อกอิน
+          InkWell(
+            onTap: () => Navigator.pushNamed(
+                context, _isLoggedIn ? '/profile' : '/login'),
+            customBorder: const CircleBorder(),
+            child: ClipOval(
+              child: SizedBox.square(
+                dimension: 48,
+                child: SafeImage(
+                  key: ValueKey(
+                      imageUrl), // เปลี่ยนคีย์เพื่อบังคับรีบิลด์เมื่อ bust เปลี่ยน
+                  url: imageUrl,
                   fit: BoxFit.cover,
+                  error: Image.asset(
+                    'assets/images/default_avatar.png',
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 12),
+
+          // ✨ NEW: บรรทัดเดียวแบบ "พอดีจริง" (ไม่ใช้ …)
           Expanded(
-            child: Text(
-              _isLoggedIn ? 'สวัสดี ${_profileName ?? ''}' : 'ผู้เยี่ยมชม',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-              overflow: TextOverflow.ellipsis,
+            child: LayoutBuilder(
+              builder: (ctx, cons) {
+                final style = theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold) ??
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold);
+                final scale = MediaQuery.textScaleFactorOf(ctx);
+                final dir = Directionality.of(ctx);
+
+                final prefix = _isLoggedIn ? 'สวัสดี ' : '';
+                final rawName =
+                    _isLoggedIn ? (_profileName ?? '') : 'ผู้เยี่ยมชม';
+
+                // optional: เอา count ไปใช้อย่างอื่นได้
+                int shown = 0;
+                final text = _fitOneLine(
+                  prefix: prefix,
+                  name: rawName,
+                  style: style,
+                  maxWidth: cons.maxWidth,
+                  textScale: scale,
+                  direction: dir,
+                  onCount: (n) => shown = n,
+                );
+                // debugPrint('AppBar shows name chars: $shown / ${rawName.characters.length}');
+
+                return Text(
+                  text,
+                  style: style,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.clip, // ไม่ขึ้น …
+                );
+              },
             ),
           ),
+
           IconButton(
             tooltip: _isLoggedIn ? 'ออกจากระบบ' : 'เข้าสู่ระบบ',
             icon: Icon(

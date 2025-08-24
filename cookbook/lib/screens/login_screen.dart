@@ -1,9 +1,8 @@
 // lib/screens/login_screen.dart
 import 'dart:async';
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../services/api_service.dart';
@@ -17,10 +16,13 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   /* ── controllers & keys ───────────────────────────────────────── */
-  final _formKey = GlobalKey<FormState>(); // คีย์ฟอร์ม
-  final _emailCtrl = TextEditingController(); // อีเมล
-  final _passCtrl = TextEditingController(); // รหัสผ่าน
-  final _emailReg = RegExp(r'^[\w\.\-]+@[\w\-]+\.[A-Za-z]{2,}$'); // regex เมล
+  final _formKey = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+
+  // ★ ใช้ regex อีเมลแบบเดียวกับฟอร์มสมัคร (กว้างและกันช่องว่าง)
+  final _emailReg = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+  static const int _kEmailDbMax = 100;
 
   // โฟกัส + toggle รหัสผ่าน
   final _emailFocus = FocusNode();
@@ -32,20 +34,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /* ── Google ───────────────────────────────────────────────────── */
   final _googleSignIn = GoogleSignIn(
-    scopes: ['email', 'profile', 'openid'],
+    scopes: const ['email', 'profile', 'openid'],
     serverClientId:
         '84901598956-dui13r3k1qmvo0t0kpj6h5mhjrjbvoln.apps.googleusercontent.com',
   );
 
   /* ── UI state ─────────────────────────────────────────────────── */
-  bool _isLoading = false; // โหลดระหว่างยิง API
+  bool _isLoading = false;
   String? _errorMsg; // error ลอย (กรณีอื่น ๆ)
-  String? _emailVerifyError; // ★ ข้อความ “ต้องยืนยันก่อน” ใต้ช่องอีเมล
+  String? _emailVerifyError; // ข้อความ “ต้องยืนยันก่อน” ใต้ช่องอีเมล
 
   @override
   void initState() {
     super.initState();
-    // พิมพ์อีเมลใหม่ → เคลียร์ error ใต้ช่อง
     _emailCtrl.addListener(() {
       if (_emailVerifyError != null) setState(() => _emailVerifyError = null);
     });
@@ -58,7 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _passCtrl.dispose();
     _emailFocus.dispose();
     _passFocus.dispose();
-    _verifyTapRecognizer.dispose(); // สำคัญ
+    _verifyTapRecognizer.dispose();
     super.dispose();
   }
 
@@ -71,7 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() {
       _isLoading = v;
-      if (v) _errorMsg = null; // เริ่มโหลดล้าง error ลอย
+      if (v) _errorMsg = null;
     });
   }
 
@@ -82,7 +83,6 @@ class _LoginScreenState extends State<LoginScreen> {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // ตรวจว่าดูเหมือน “ยังไม่ยืนยันอีเมล”
   bool _looksLikeEmailNotVerified(Map resOrData) {
     final code = (resOrData['errorCode'] ??
             resOrData['code'] ??
@@ -112,6 +112,34 @@ class _LoginScreenState extends State<LoginScreen> {
         (s.contains('ยืนยัน') && s.contains('อีเมล')) ||
         s.toLowerCase().contains('verify');
     return cand.any(hasKW);
+  }
+
+  Widget _dangerBanner(String msg) {
+    final cs = Theme.of(context).colorScheme;
+    return Semantics(
+      liveRegion: true,
+      label: 'ข้อผิดพลาด',
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cs.errorContainer,
+          border: Border.all(color: cs.error.withOpacity(.7)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: cs.error),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                msg,
+                style: TextStyle(color: cs.onErrorContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /* ── actions ─────────────────────────────────────────────────── */
@@ -153,7 +181,6 @@ class _LoginScreenState extends State<LoginScreen> {
       await AuthService.saveLoginData(res['data']);
       _navToHome();
     } on ApiException catch (e) {
-      // ★ เคส BE ตอบ 403 แล้วโยน exception → จับให้โชว์ใต้ช่องอีเมล
       final msg = e.message;
       final looksUnverified = (e.statusCode == 403) ||
           msg.contains('ยืนยันอีเมล') ||
@@ -190,13 +217,15 @@ class _LoginScreenState extends State<LoginScreen> {
         throw ApiException('ไม่สามารถดึง Google ID Token ได้');
       }
 
+      // ถ้าใส่ helper googleSignInAndStore() ตามที่เพิ่มไว้ ให้ใช้บรรทัดนี้แทนสองบรรทัดล่าง
+      // await ApiService.googleSignInAndStore(token);
+
       final res = await ApiService.googleSignIn(token);
       if (res['success'] != true) {
         setState(
             () => _errorMsg = res['message'] ?? 'ล็อกอินด้วย Google ล้มเหลว');
         return;
       }
-
       await AuthService.saveLoginData(res['data']);
       _navToHome();
     } on ApiException catch (e) {
@@ -217,8 +246,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _showSnack('กรุณากรอกอีเมลก่อน');
       return;
     }
-    final pending =
-        await AuthService.getPendingEmailVerify(); // {email, secondsLeft}?
+    final pending = await AuthService.getPendingEmailVerify();
     final secondsLeft = (pending != null && pending['email'] == currentEmail)
         ? (pending['secondsLeft'] ?? 0)
         : 0;
@@ -256,7 +284,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // --- Logo + Title ---
                       const SizedBox(height: 6),
                       Image.asset('assets/images/logo.png', height: 96),
                       const SizedBox(height: 14),
@@ -280,20 +307,27 @@ class _LoginScreenState extends State<LoginScreen> {
                           AutofillHints.username,
                           AutofillHints.email
                         ],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                          LengthLimitingTextInputFormatter(_kEmailDbMax),
+                        ],
                         decoration: const InputDecoration(
                           labelText: 'อีเมล',
-                          // ไม่ใช้ errorText เพื่อให้เราวาง RichText ที่มีลิงก์ได้
                         ),
                         validator: (v) {
                           final t = v?.trim() ?? '';
                           if (t.isEmpty) return 'กรุณากรอกอีเมล';
-                          if (!_emailReg.hasMatch(t))
+                          if (!_emailReg.hasMatch(t)) {
                             return 'รูปแบบอีเมลไม่ถูกต้อง';
+                          }
+                          if (t.length > _kEmailDbMax) {
+                            return 'อีเมลต้องไม่เกิน $_kEmailDbMax ตัวอักษร';
+                          }
                           return null;
                         },
                       ),
 
-                      // ★ ข้อความ “ต้องยืนยัน” + ลิงก์ ไปยืนยัน (บรรทัดเดียว)
+                      // ★ ข้อความ “ต้องยืนยัน” + ลิงก์ ไปยืนยัน
                       if (_emailVerifyError != null) ...[
                         const SizedBox(height: 8),
                         RichText(
@@ -352,13 +386,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         validator: (v) {
                           final t = v ?? '';
                           if (t.isEmpty) return 'กรุณากรอกรหัสผ่าน';
-                          if (t.length < 6)
-                            return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+
                           return null;
                         },
                       ),
 
-                      // --- แถวลิงก์ขวา (เว้นระยะให้โล่งขึ้น) ---
                       const SizedBox(height: 6),
                       Align(
                         alignment: Alignment.centerRight,
@@ -371,17 +403,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
-                      // --- Error ลอย (เฉพาะกรณีอื่น) ---
+                      // --- Error banner (กรณีอื่น ๆ) ---
                       if (_errorMsg != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          _errorMsg!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: cs.error),
-                        ),
+                        const SizedBox(height: 6),
+                        _dangerBanner(_errorMsg!),
                       ],
 
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
+
                       // --- Login Button ---
                       ElevatedButton(
                         onPressed: _isLoading ? null : _loginWithEmail,
@@ -444,12 +473,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         label: 'เข้าสู่ระบบด้วย Google',
                         child: OutlinedButton.icon(
                           onPressed: _isLoading ? null : _loginWithGoogle,
-                          icon: SvgPicture.asset('assets/icons/google.svg',
-                              width: 22),
+                          icon:
+                              Image.asset('assets/icons/google.png', width: 22),
                           label: const Text('ดำเนินการต่อด้วย Google'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: cs.onSurface,
-                            side: const BorderSide(color: Colors.black26),
+                            side:
+                                BorderSide(color: Colors.black.withOpacity(.2)),
                           ),
                         ),
                       ),

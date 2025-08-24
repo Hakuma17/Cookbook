@@ -169,6 +169,26 @@ class ApiService {
     };
   }
 
+  /// ใช้ในหน้าล็อกอินกรณี Google: ยิง endpoint แล้วบันทึกลง AuthService ให้เรียบร้อย
+  static Future<Map<String, dynamic>> googleSignInAndStore(
+      String idToken) async {
+    final res = await googleSignIn(idToken); // เรียกของเดิม
+    // แกะ payload ให้เป็น Map data เดียว
+    final data = (res is Map && res['data'] is Map)
+        ? Map<String, dynamic>.from(res['data'] as Map)
+        : (res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{});
+
+    // ปรับ URL รูปภาพให้เข้ากับ emulator/host (ถ้าจำเป็น)
+    if (data['path_imgProfile'] is String) {
+      data['path_imgProfile'] = normalizeUrl(data['path_imgProfile'] as String);
+    }
+
+    // บันทึกลง SharedPreferences (รองรับ google_id ด้วย – เราเพิ่มไว้ใน AuthService แล้ว)
+    await AuthService.saveLoginData(data);
+
+    return data; // เผื่อจอจะเอาไปใช้อย่างอื่นต่อ
+  }
+
   // ─────────────────────────────────────────────────────────────
   // ★ Utilities สำหรับ error ที่ “ไม่ทิ้งข้อความ”
   // ─────────────────────────────────────────────────────────────
