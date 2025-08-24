@@ -1,26 +1,30 @@
 // lib/screens/edit_profile_screen.dart
 //
-// ★★★ Updated: 2025-08-18 – Avatar display, loading & upload polish ★★★
-//   • วงกลมโปรไฟล์: ClipOval + Image (สีปกติในวงกลม) + gaplessPlayback
-//   • หน้าโหลด 3 ชั้น:
-//       1) _bootLoading  : โหลดข้อมูลผู้ใช้ครั้งแรก
-//       2) _blockingText : โหลดชั่วคราวตอนเตรียมไฟล์หลังครอป (บีบอัด ฯลฯ)
-//       3) _isLoading    : ตอนกด "บันทึก" อัปเดตโปรไฟล์/อัปโหลดรูปขึ้นเซิร์ฟเวอร์
-//   • หลังอัปโหลดรูป เติม cache-buster กันรูปเก่าคาแคช
-//   • เก็บไฟล์ฝั่งเซิร์ฟเวอร์แบบ “สี่เหลี่ยมเต็ม” (วงกลมเป็นหน้าที่ UI)
+// 2025-08-25 — Google-linked only button + polished UI
+// • แสดงปุ่ม “คืนค่าโปรไฟล์จาก Google” เฉพาะบัญชีที่เชื่อม Google (google_id ไม่ว่าง)
+// • ปรับปุ่มเป็นการ์ดสวยๆ พร้อมไอคอน Google และคำอธิบายย่อ
+// • ปรับ overlay แยกข้อความระหว่าง "กำลังบันทึก..." กับ "กำลังดึงข้อมูลจาก Google..."
+//
+// ต้องมีไฟล์: assets/icons/google.png, assets/images/default_avatar.png
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cookbook/screens/crop_avatar_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:image/image.dart' as img;
+import 'package:flutter/services.dart';
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+
+const int kNameUiMax = 25;
+const int kNameDbMaxBytes = 100;
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -35,26 +39,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _nameCtrl = TextEditingController();
 
   // ───── Avatar state ─────
-  String? _currentImageUrl; // URL ที่ใช้งานอยู่ (จากเซิร์ฟเวอร์ หรือค่าว่าง)
-  File? _newImageFile; // ไฟล์ใหม่ที่เพิ่งเลือก (ผ่าน cropper แล้ว) พร้อมอัปโหลด
+  String? _currentImageUrl; // Full URL for display (e.g., https://...)
+  String? _currentImagePathRaw; // Path for backend (e.g., uploads/...)
+  File? _newImageFile; // Cropped file ready for upload
 
   // ───── Loading flags ─────
-  bool _bootLoading = true; // หน้าโหลดครั้งแรก: ระหว่างดึงข้อมูลผู้ใช้
-  bool _isLoading = false; // ระหว่างกด "บันทึก" ส่งข้อมูลขึ้นเซิร์ฟเวอร์
-  String?
-      _blockingText; // หน้าโหลดชั่วคราว: ตอนเตรียมไฟล์หลังครอป (บีบอัด/ตรวจข้อจำกัด)
+  bool _bootLoading = true;
+  bool _isLoading = false; // กำลังทำงานอยู่ (save/restore)
+  String? _blockingText; // บล็อกชั่วคราว (เช่น เปิด crop)
+  String? _busyText; // ข้อความบน overlay ระหว่างงานยาว ๆ
 
   // ───── Helpers ─────
   late final _ImagePickerHelper _picker;
+  final _googleSignIn = GoogleSignIn();
 
-  // ───── Initial snapshot (ไว้ตรวจว่ามีการเปลี่ยนแปลงไหม) ─────
+  // ───── Initial snapshot ─────
   String _initialName = '';
-  String _initialImageUrl = '';
+  String _initialImagePathRaw = '';
+
+  // ───── Google link flag ─────
+  bool _isGoogleLinked = false; // โชว์ปุ่มเฉพาะเมื่อ true
 
   @override
   void initState() {
     super.initState();
-    _picker = _ImagePickerHelper(context: context);
+    _picker = _ImagePickerHelper(context: context, onBlocking: _setBlocking);
+    _nameCtrl.addListener(() => setState(() {}));
     _loadUserProfile();
   }
 
@@ -64,47 +74,91 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
-  // ───────────────────────────────── Data ─────────────────────────────────
+  // ───────────────────────────── Utilities ─────────────────────────────
+  String? _normalizeServerPath(String? p) {
+    if (p == null || p.isEmpty) return null;
 
+    // หากเป็นลิงก์ภายนอก (ไม่มี /uploads/) ให้ถือว่าไม่มี path ฝั่งเซิร์ฟเวอร์เรา
+    final isExternalUrl = p.startsWith('http://') || p.startsWith('https://');
+    if (isExternalUrl && !p.contains('/uploads/')) return null;
+
+    var s = p.replaceAll('\\', '/');
+    final idx = s.indexOf('/uploads/');
+    if (idx >= 0) s = s.substring(idx);
+
+    final q = s.indexOf('?');
+    if (q >= 0) s = s.substring(0, q);
+
+    if (s.startsWith('/')) s = s.substring(1);
+
+    return s.isEmpty ? null : s;
+  }
+
+  String? _composeFullUrl(String? maybePath) {
+    if (maybePath == null || maybePath.isEmpty) return null;
+    final p = maybePath.replaceAll('\\', '/');
+    if (p.startsWith('http://') || p.startsWith('https://')) return p;
+    try {
+      final rel = p.startsWith('/') ? p.substring(1) : p;
+      return Uri.parse(ApiService.baseUrl).resolve(rel).toString();
+    } catch (_) {
+      return maybePath;
+    }
+  }
+
+  // ───────────────────────────── Data Load & Actions ─────────────────────────────
   Future<void> _loadUserProfile() async {
     try {
       final data = await AuthService.getLoginData();
       if (!mounted) return;
+
+      // ชื่อ + รูป
+      final rawName = (data['profileName'] ?? '').toString().trim();
+      final rawImage = (data['profileImage'] ?? '').toString();
+      final normPath = _normalizeServerPath(rawImage);
+      final String? uiUrl =
+          rawImage.startsWith('http') ? rawImage : _composeFullUrl(normPath);
+
+      // ตรวจว่าเชื่อม Google ไหม (รองรับทั้ง google_id และ googleId)
+      final rawGoogleId =
+          ((data['google_id'] ?? data['googleId']) ?? '').toString().trim();
+      final linked = rawGoogleId.isNotEmpty &&
+          rawGoogleId.toLowerCase() != 'null' &&
+          rawGoogleId != '0';
+
       setState(() {
-        _nameCtrl.text = data['profileName'] ?? '';
-        _currentImageUrl = data['profileImage'];
+        _nameCtrl.text = rawName;
+        _currentImagePathRaw = normPath;
+        _currentImageUrl = uiUrl;
+
         _initialName = _nameCtrl.text;
-        _initialImageUrl = _currentImageUrl ?? '';
-        _bootLoading = false; // ปิดโหลดครั้งแรก
+        _initialImagePathRaw = _currentImagePathRaw ?? '';
+
+        _isGoogleLinked = linked;
+        _bootLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
-      _showSnack('โหลดโปรไฟล์ล้มเหลว: $e');
+      _showSnack('ไม่สามารถโหลดโปรไฟล์ได้: $e');
       setState(() => _bootLoading = false);
     }
   }
 
-  // หน้าโหลดชั่วคราว (เช่น ขณะบีบอัดรูป) — ส่งข้อความ null เพื่อซ่อน
   void _setBlocking(String? text) {
     if (!mounted) return;
     setState(() => _blockingText = text);
   }
 
   Future<void> _pickImage() async {
-    // เปิด bottom sheet → ไปหน้า crop → ได้ไฟล์กลับมา (หรือ null ถ้ายกเลิก)
     final file = await _picker.showPickerSheet();
     if (file == null || !mounted) return;
 
-    // แสดงหน้าโหลดระหว่าง "เตรียมไฟล์" (บีบอัด/ลดขนาด ให้ผ่านข้อจำกัด)
-    _setBlocking('กำลังเตรียมรูป...');
+    _setBlocking('กำลังเตรียมรูปภาพ...');
     try {
-      // หมายเหตุ: ถ้า _ImagePickerHelper ครอป/บีบอัดมาแล้วพอดี
-      // และคุณไม่อยากบีบอัดซ้ำ ให้แทนที่ด้วย:
-      //   final ready = file;
       final ready = await _picker.enforceConstraints(file);
       setState(() => _newImageFile = ready);
     } catch (e) {
-      _showSnack('เตรียมรูปไม่สำเร็จ: $e');
+      _showSnack('เตรียมรูปภาพไม่สำเร็จ: $e');
     } finally {
       _setBlocking(null);
     }
@@ -113,8 +167,46 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void _removeImage() {
     setState(() {
       _newImageFile = null;
+      _currentImagePathRaw = null;
       _currentImageUrl = null;
     });
+  }
+
+  // ★ คืนค่าจาก Google — แสดงเฉพาะบัญชีที่เชื่อม Google
+  Future<void> _restoreFromGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _busyText = 'กำลังดึงข้อมูลจาก Google...';
+    });
+    try {
+      // พยายาม sign-in แบบเงียบก่อน ถ้าไม่ได้ ให้เปิดหน้าต่างลงชื่อเข้าใช้
+      var account = await _googleSignIn.signInSilently();
+      account ??= await _googleSignIn.signIn();
+
+      if (account == null) {
+        _showSnack('ไม่สามารถดึงข้อมูลจาก Google ได้ กรุณาลองอีกครั้ง');
+        return;
+      }
+      final googleName = account.displayName ?? '';
+      final googleImage = account.photoUrl;
+
+      setState(() {
+        _nameCtrl.text = googleName;
+        _newImageFile = null; // ล้างไฟล์ที่เพิ่งครอปไว้
+        _currentImageUrl = googleImage; // ใช้รูปจาก Google แสดงผล
+        _currentImagePathRaw = null; // รูปภายนอก ไม่มี path บนเซิร์ฟเวอร์
+      });
+      _showSnack('คืนค่าข้อมูลจาก Google สำเร็จ', isError: false);
+    } catch (e) {
+      _showSnack('เกิดข้อผิดพลาด: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _busyText = null;
+        });
+      }
+    }
   }
 
   Future<void> _saveProfile() async {
@@ -123,63 +215,89 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     final newName = _nameCtrl.text.trim();
     final login = await AuthService.getLoginData();
-    final oldName = login['profileName'] ?? '';
-    final oldImg = login['profileImage'] ?? '';
+    final oldName = (login['profileName'] ?? '').toString();
+    final oldImgRaw =
+        _normalizeServerPath((login['profileImage'] ?? '').toString()) ?? '';
 
-    // ไม่มีอะไรเปลี่ยน → ข้าม
-    if (newName == oldName &&
+    final noChange = newName == oldName &&
         _newImageFile == null &&
-        ((_currentImageUrl ?? '') == oldImg)) {
+        ((_currentImagePathRaw ?? '') == oldImgRaw);
+    if (noChange) {
       _showSnack('ไม่มีการเปลี่ยนแปลง', isError: false);
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _busyText = 'กำลังบันทึก...';
+    });
 
     try {
-      String imgUrl = oldImg;
+      String? serverPath = _currentImagePathRaw;
+      String? uiUrl;
 
-      // กรณีลบรูป (ไม่ตั้งไฟล์ใหม่ + URL ปัจจุบันว่าง)
-      if (_newImageFile == null && (_currentImageUrl ?? '').isEmpty) {
-        imgUrl = '';
-      }
-
-      // อัปโหลดรูปใหม่
       if (_newImageFile != null) {
-        // (เผื่อบางอุปกรณ์ไฟล์ยังใหญ่ ให้บังคับลงเงื่อนไขอีกครั้ง)
         final constrained = await _picker.enforceConstraints(_newImageFile!);
-        imgUrl = await ApiService.uploadProfileImage(constrained);
-
-        // ป้องกันรูปเก่าคาแคชด้วย query param เวลาแสดงผล
-        final sep = imgUrl.contains('?') ? '&' : '?';
-        imgUrl = '$imgUrl${sep}t=${DateTime.now().millisecondsSinceEpoch}';
+        final uploaded = await ApiService.uploadProfileImage(constrained);
+        serverPath = _normalizeServerPath(uploaded);
+        final base = _composeFullUrl(serverPath);
+        if (base != null) {
+          final sep = base.contains('?') ? '&' : '?';
+          uiUrl = '$base${sep}t=${DateTime.now().millisecondsSinceEpoch}';
+        }
       }
 
-      // อัปเดตโปรไฟล์ฝั่งเซิร์ฟเวอร์
       final updated = await ApiService.updateProfile(
         profileName: newName,
-        imageUrl: imgUrl,
+        imageUrl: serverPath ?? '',
       );
 
-      // เซฟลง local/session
+      final originalImage = (login['profileImage'] ?? '').toString();
+      final isOriginalExternal = originalImage.startsWith('http') &&
+          !originalImage.contains('/uploads/');
+
+      String finalPathToSave;
+      String? finalShowUrl;
+
+      if (isOriginalExternal &&
+          _newImageFile == null &&
+          _currentImageUrl != null) {
+        finalPathToSave = originalImage;
+        finalShowUrl = originalImage;
+      } else {
+        final serverResponsePath =
+            _normalizeServerPath(updated['image_url'] ?? serverPath) ?? '';
+        finalPathToSave = serverResponsePath;
+        finalShowUrl = uiUrl ?? _composeFullUrl(finalPathToSave);
+      }
+
       await AuthService.saveLogin(
         userId: login['userId'],
         profileName: updated['profile_name'] ?? newName,
-        profileImage: updated['image_url'] ?? imgUrl,
+        profileImage: finalPathToSave,
         email: login['email'],
       );
 
       if (!mounted) return;
-      _showSnack('บันทึกโปรไฟล์สำเร็จ', isError: false);
+      _showSnack('บันทึกโปรไฟล์เรียบร้อยแล้ว', isError: false);
+
       setState(() {
         _newImageFile = null;
-        _currentImageUrl = imgUrl;
+        _currentImagePathRaw =
+            finalPathToSave.startsWith('http') ? null : finalPathToSave;
+        _currentImageUrl = finalShowUrl;
         _initialName = newName;
-        _initialImageUrl = imgUrl;
+        _initialImagePathRaw = _currentImagePathRaw ?? '';
       });
-      Navigator.pop(context, true);
+
+      Navigator.pop(context, {
+        'updated': true,
+        'newName': newName,
+        'newImagePath': _currentImagePathRaw,
+        'newImageUrl': finalShowUrl,
+      });
     } on UnauthorizedException {
-      _showSnack('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+      _showSnack('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง');
       await AuthService.logout();
       if (mounted) {
         Navigator.of(context)
@@ -190,12 +308,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     } catch (e) {
       _showSnack('เกิดข้อผิดพลาด: $e');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _busyText = null;
+        });
+      }
     }
   }
 
   // ─────────────────────────────── Helpers ───────────────────────────────
-
   void _showSnack(String m, {bool isError = true}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -207,8 +329,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   bool get _hasChanges {
     final nameChanged = _nameCtrl.text.trim() != _initialName.trim();
-    final imageChanged =
-        _newImageFile != null || (_currentImageUrl ?? '') != _initialImageUrl;
+    final imageChanged = _newImageFile != null ||
+        (_currentImagePathRaw ?? '') != _initialImagePathRaw;
     return nameChanged || imageChanged;
   }
 
@@ -217,7 +339,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
-            title: const Text('ยังไม่ได้บันทึก'),
+            title: const Text('มีข้อมูลที่ยังไม่ได้บันทึก'),
             content:
                 const Text('คุณต้องการออกโดยไม่บันทึกการเปลี่ยนแปลงหรือไม่?'),
             actions: [
@@ -233,7 +355,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         false;
   }
 
-  // รูปโปรไฟล์พร้อม fallback และตัว Loading builder
   Widget _buildAvatarWidget() {
     if (_newImageFile != null) {
       return Image.file(
@@ -263,12 +384,103 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Image.asset('assets/images/default_avatar.png', fit: BoxFit.cover);
   }
 
-  // ───────────────────────────────── Build ─────────────────────────────────
+  Widget _buildLoadingOverlay({String? text}) {
+    return Container(
+      color: Colors.black.withOpacity(.35),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            if (text != null) ...[
+              const SizedBox(height: 12),
+              Text(text,
+                  style: const TextStyle(color: Colors.white),
+                  textAlign: TextAlign.center),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
+  // ปุ่ม “คืนค่าโปรไฟล์จาก Google” แบบการ์ด
+  Widget _buildGoogleRestoreCard() {
+    if (!_isGoogleLinked) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final onSurfaceVar = theme.colorScheme.onSurfaceVariant;
+
+    return Semantics(
+      button: true,
+      label: 'คืนค่าโปรไฟล์จาก Google',
+      child: InkWell(
+        onTap: _isLoading ? null : _restoreFromGoogle,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              // ไอคอน Google จาก assets
+              Image.asset(
+                'assets/icons/google.png',
+                width: 22,
+                height: 22,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('คืนค่าโปรไฟล์จาก Google',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        )),
+                    const SizedBox(height: 2),
+                    Text(
+                      'ดึงชื่อและรูปโปรไฟล์จากบัญชี Google ที่เชื่อมไว้',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: onSurfaceVar,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (_isLoading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(Icons.chevron_right, color: onSurfaceVar),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ───────────────────────────────── Build ─────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final vp = MediaQuery.of(context).viewPadding;
+    final String? overlayText =
+        _blockingText ?? (_isLoading ? _busyText : null);
 
     return WillPopScope(
       onWillPop: _confirmDiscardIfNeeded,
@@ -285,8 +497,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             },
           ),
         ),
-
-        // ① หน้าโหลดครั้งแรก
         body: _bootLoading
             ? const Center(child: CircularProgressIndicator())
             : Stack(
@@ -301,7 +511,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
-                              // วงแหวนตกแต่ง
                               Container(
                                 width: 120,
                                 height: 120,
@@ -319,14 +528,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                 ),
                               ),
-                              // รูปจริง (วงกลม)
                               ClipOval(
                                 child: SizedBox.square(
                                   dimension: 104,
                                   child: _buildAvatarWidget(),
                                 ),
                               ),
-                              // ปุ่มเปลี่ยนรูป
                               Positioned(
                                 bottom: 2,
                                 right: 8,
@@ -358,7 +565,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                 ),
                               ),
-                              // ปุ่มลบรูป
                               if ((_newImageFile != null) ||
                                   ((_currentImageUrl ?? '').isNotEmpty))
                                 Positioned(
@@ -381,55 +587,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 30),
-
-                        // ชื่อผู้ใช้
                         TextFormField(
                           controller: _nameCtrl,
                           decoration:
                               const InputDecoration(labelText: 'ชื่อผู้ใช้'),
                           textInputAction: TextInputAction.done,
+                          maxLength: kNameUiMax,
+                          maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                          inputFormatters: [
+                            LengthLimitingTextInputFormatter(kNameUiMax)
+                          ],
                           validator: (v) {
                             final t = (v ?? '').trim();
                             if (t.isEmpty) return 'กรุณากรอกชื่อ';
                             if (t.length < 2) return 'ชื่อสั้นเกินไป';
-                            if (t.length > 50) return 'ชื่อยาวเกินไป';
+                            final bytes = utf8.encode(t).length;
+                            if (bytes > kNameDbMaxBytes) {
+                              return 'ชื่อต้องมีความยาวไม่เกิน $kNameDbMaxBytes ไบต์';
+                            }
                             return null;
                           },
                           onFieldSubmitted: (_) =>
                               !_isLoading ? _saveProfile() : null,
                         ),
+
+                        // ★ ปุ่มคืนค่าโปรไฟล์จาก Google (แสดงเฉพาะคนที่เชื่อม Google)
+                        const SizedBox(height: 16),
+                        _buildGoogleRestoreCard(),
                       ],
                     ),
                   ),
-
-                  // ② หน้าโหลดตอนกด "บันทึก"
-                  if (_isLoading)
-                    Container(
-                      color: Colors.black.withOpacity(.3),
-                      child: const Center(child: CircularProgressIndicator()),
-                    ),
-
-                  // ③ หน้าโหลดชั่วคราวตอนเตรียมไฟล์หลังครอป
-                  if (_blockingText != null)
-                    Container(
-                      color: Colors.black.withOpacity(.35),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const CircularProgressIndicator(),
-                            const SizedBox(height: 12),
-                            Text(_blockingText!,
-                                style: const TextStyle(color: Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
+                  if (overlayText != null)
+                    Positioned.fill(
+                        child: _buildLoadingOverlay(text: overlayText)),
                 ],
               ),
-
         bottomNavigationBar: SafeArea(
           minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: FilledButton.icon(
@@ -450,16 +643,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 }
 
 /* ────────────────────────────────────────────────────────────── */
-/* Helper class for Image Picking & Processing                   */
+/* Helper class for Image Picking & Processing                    */
 /* ────────────────────────────────────────────────────────────── */
 
 class _ImagePickerHelper {
   final BuildContext context;
   final ImagePicker _picker = ImagePicker();
+  final ValueChanged<String?>? onBlocking;
 
-  _ImagePickerHelper({required this.context});
+  _ImagePickerHelper({required this.context, this.onBlocking});
 
-  // แผ่นล่างเลือกแหล่งรูป: กล้อง / คลังรูป → ส่งไฟล์ที่ครอปกลับ
   Future<File?> showPickerSheet() async {
     return await showModalBottomSheet<File?>(
       context: context,
@@ -469,18 +662,18 @@ class _ImagePickerHelper {
           children: [
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('ถ่ายรูป'),
+              title: const Text('ถ่ายภาพ'),
               onTap: () async {
                 final f = await _pickImage(ImageSource.camera);
-                Navigator.pop(sheetCtx, f);
+                if (context.mounted) Navigator.pop(sheetCtx, f);
               },
             ),
             ListTile(
               leading: const Icon(Icons.photo_library),
-              title: const Text('เลือกรูปจากคลัง'),
+              title: const Text('เลือกจากคลังภาพ'),
               onTap: () async {
                 final f = await _pickImage(ImageSource.gallery);
-                Navigator.pop(sheetCtx, f);
+                if (context.mounted) Navigator.pop(sheetCtx, f);
               },
             ),
           ],
@@ -489,7 +682,6 @@ class _ImagePickerHelper {
     );
   }
 
-  // เลือกรูป → ไปหน้า crop → ได้ไฟล์กลับ (หรือ null)
   Future<File?> _pickImage(ImageSource src) async {
     final ok = src == ImageSource.camera
         ? await _ensureCamera()
@@ -505,22 +697,22 @@ class _ImagePickerHelper {
       );
       if (x == null) return null;
 
+      onBlocking?.call('กำลังเปิดเครื่องมือตัดรูป...');
       final cropped = await _cropImage(x.path);
-      if (cropped == null) return null;
+      onBlocking?.call(null);
 
-      // คืนไฟล์ “ที่ผ่านข้อจำกัด” กลับไป (เช่น ≤2MB)
+      if (cropped == null) return null;
       return await enforceConstraints(cropped);
     } catch (e) {
-      _snack('เลือกรูปไม่สำเร็จ: $e');
+      _snack('ไม่สามารถเลือกรูปได้: $e');
+      onBlocking?.call(null);
       return null;
     }
   }
 
-  // เผย public method เผื่อภายนอกอยาก enforce ซ้ำ (ใช้อยู่ใน _pickImage() ของหน้าหลัก)
   Future<File> enforceConstraints(File input) =>
       _enforceImageConstraints(input);
 
-  // เปิดหน้า crop แบบ custom ของเรา
   Future<File?> _cropImage(String path) async {
     return Navigator.push<File?>(
       context,
@@ -528,7 +720,6 @@ class _ImagePickerHelper {
     );
   }
 
-  // ───── Permissions (Android friendly) ─────
   Future<bool> _ensurePhotos() async {
     if (Platform.isIOS) return _ask(Permission.photos);
     final info = await DeviceInfoPlugin().androidInfo;
@@ -545,14 +736,14 @@ class _ImagePickerHelper {
       _openSettingsDialog();
       return false;
     }
-    return await p.request().isGranted;
+    return (await p.request()).isGranted;
   }
 
   void _openSettingsDialog() => showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('ไม่ได้รับสิทธิ์'),
-          content: const Text('โปรดเปิดสิทธิ์ในหน้าตั้งค่าแอป'),
+          title: const Text('ไม่อนุญาต'),
+          content: const Text('กรุณาอนุญาตสิทธิ์ที่จำเป็นในการตั้งค่าแอป'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -573,10 +764,9 @@ class _ImagePickerHelper {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
-  // ───── Enforce image constraints (≤ ~2MB แบบคมชัด) ─────
   Future<File> _enforceImageConstraints(
     File file, {
-    int maxBytes = 2 * 1024 * 1024, // 2MB
+    int maxBytes = 2 * 1024 * 1024,
     int firstMaxSide = 2048,
   }) async {
     try {
@@ -584,9 +774,9 @@ class _ImagePickerHelper {
       img.Image? image = img.decodeImage(original);
       if (image == null) return file;
 
-      image = img.bakeOrientation(image); // เคารพ EXIF
+      image = img.bakeOrientation(image);
 
-      // ลดคุณภาพก่อน (ไม่ลดขนาด)
+      // ลองบีบอัดก่อน
       for (final q in const [85, 75, 65, 55, 45, 35]) {
         final jpg = img.encodeJpg(image, quality: q);
         if (jpg.lengthInBytes <= maxBytes) {
@@ -594,7 +784,7 @@ class _ImagePickerHelper {
         }
       }
 
-      // ลดขนาด + คุณภาพทีละขั้น
+      // ถ้ายังเกิน ลองย่อขนาดและบีบอัดใหม่
       final candidates = <int>[firstMaxSide, 1600, 1200];
       for (final side in candidates) {
         final resized = img.copyResize(
@@ -603,7 +793,6 @@ class _ImagePickerHelper {
           height: image.height > image.width ? side : null,
           interpolation: img.Interpolation.average,
         );
-
         for (final q in const [80, 70, 60, 50, 40]) {
           final jpg = img.encodeJpg(resized, quality: q);
           if (jpg.lengthInBytes <= maxBytes) {
@@ -612,12 +801,11 @@ class _ImagePickerHelper {
         }
       }
 
-      // สำรองกรณีสุดท้าย
+      // ทางเลือกสุดท้าย
       final finalImg = img.copyResize(image, width: 1200);
       final jpg = img.encodeJpg(finalImg, quality: 50);
       return file.writeAsBytes(jpg, flush: true);
     } catch (_) {
-      // ถ้ามีปัญหาก็คืนไฟล์เดิม (อย่าบล็อกฟลว์ผู้ใช้)
       return file;
     }
   }
