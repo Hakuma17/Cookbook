@@ -1,7 +1,9 @@
 // lib/screens/register_screen.dart
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 
@@ -12,63 +14,64 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  /* ───── Form & Controllers ───── */
   final _formKey = GlobalKey<FormState>();
   final _userCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
 
-  // โฟกัส
+  // ลิมิต (ให้ตรงกับ BE)
+  static const int _kNameUiMax = 25; // จำกัดบน UI เท่านั้น
+  static const int _kNameDbMaxBytes = 100; // หลังบ้านตรวจจริง (ไบต์)
+  static const int _kEmailDbMax = 100;
+
   final _userNode = FocusNode();
   final _emailNode = FocusNode();
   final _passNode = FocusNode();
   final _confirmNode = FocusNode();
 
-  late final TapGestureRecognizer _toLoginTap; // ลิงก์กลับหน้า Login
+  late final TapGestureRecognizer _toLoginTap;
 
-  // ซ่อน/โชว์รหัสผ่าน
   bool _hidePass = true;
   bool _hideConfirm = true;
 
-  /* ───── State ───── */
   bool _isLoading = false;
   String? _errorMsg;
 
-  // ★ สถานะตรวจอีเมลแบบเรียลไทม์
+  // ตรวจอีเมลซ้ำ (debounce)
   Timer? _emailDebounce;
   bool _emailChecking = false;
-  bool? _emailAvailable; // true=ว่างใช้ได้, false=ถูกใช้แล้ว, null=ยังไม่รู้
-  String? _emailServerError; // โชว์ใต้ช่องอีเมลเมื่อซ้ำ/ผิด
+  bool? _emailAvailable;
+  String? _emailServerError;
 
-  final _emailReg = RegExp(r'^[\w\.\-\+]+@([\w\-]+\.)+[A-Za-z]{2,}$');
+  // อีเมล: รูปแบบกว้าง ไม่อนุญาตช่องว่าง
+  final _emailReg = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
-  // มิเตอร์ความแข็งแรง (0..1)
+  // [ปรับปรุง] ลบ RegExp ที่เคยจำกัดอักขระชื่อโปรไฟล์ออกทั้งหมด
+  // static final RegExp _usernameAllowedOneChar =
+  //     RegExp(r'[A-Za-z0-9_.\-ก-ฮะ-์ \t]');
+  // static final RegExp _usernameAllowedWhole =
+  //     RegExp(r'^[A-Za-z0-9_.\-ก-ฮะ-์ \t]+$');
+
+  // มิเตอร์ความแข็งแรง
   double get _strength => _calcStrength(_passCtrl.text);
   void _onPassChanged() {
-    if (mounted) setState(() {}); // อัปเดตมิเตอร์
+    if (mounted) setState(() {});
   }
 
   @override
   void initState() {
     super.initState();
-    // แตะ “กลับไปลงชื่อเข้าใช้”
-    _toLoginTap = TapGestureRecognizer()
-      ..onTap = () {
-        if (!mounted) return;
-        Navigator.pop(context);
-      };
-    _passCtrl.addListener(_onPassChanged); // อัปเดตมิเตอร์เรียลไทม์
+    _toLoginTap = TapGestureRecognizer()..onTap = () => Navigator.pop(context);
+    _passCtrl.addListener(_onPassChanged);
 
-    // พิมพ์อะไรให้เคลียร์ error
     for (final c in [_userCtrl, _emailCtrl, _passCtrl, _confirmCtrl]) {
       c.addListener(() {
         if (_errorMsg != null && mounted) setState(() => _errorMsg = null);
       });
     }
-
-    // ★ ตรวจอีเมลแบบ debounce
     _emailCtrl.addListener(_onEmailChanged);
+    _userCtrl.addListener(() => setState(() {})); // อัปเดตตัวนับ 0/25
   }
 
   @override
@@ -80,8 +83,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _passCtrl.removeListener(_onPassChanged);
     _passCtrl.dispose();
     _confirmCtrl.dispose();
-
-    // ล้าง focus
     _userNode.dispose();
     _emailNode.dispose();
     _passNode.dispose();
@@ -90,30 +91,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  // ★ ตรวจอีเมลซ้ำเมื่อผู้ใช้พิมพ์เสร็จ (debounce 450ms)
   void _onEmailChanged() {
     setState(() {
       _emailServerError = null;
-      _emailAvailable = null; // reset icon
+      _emailAvailable = null;
     });
 
     final s = _emailCtrl.text.trim();
     _emailDebounce?.cancel();
 
-    if (!_emailReg.hasMatch(s)) {
-      // รูปแบบยังไม่ถูก → ยังไม่ยิง
-      setState(() {
-        _emailChecking = false;
-      });
+    if (!_emailReg.hasMatch(s) || s.length > _kEmailDbMax) {
+      setState(() => _emailChecking = false);
       return;
     }
 
     _emailDebounce = Timer(const Duration(milliseconds: 450), () async {
-      setState(() {
-        _emailChecking = true;
-      });
+      setState(() => _emailChecking = true);
       try {
-        final res = await ApiService.checkEmailAvailability(s);
+        final res = await ApiService.checkEmailAvailability(s.toLowerCase());
         if (!mounted) return;
         final exists = res['exists'] == true;
         setState(() {
@@ -127,7 +122,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         if (!mounted) return;
         setState(() {
           _emailChecking = false;
-          _emailAvailable = null; // unknown
+          _emailAvailable = null;
           _emailServerError = e.message;
         });
       } catch (_) {
@@ -140,31 +135,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
-  /* ───── Validators ───── */
+  // ===== Validators (ตรงกับ BE ที่จำเป็น) =====
   String? _validateUsername(String? v) {
     final s = (v ?? '').trim();
-    if (s.isEmpty) return 'กรุณากรอกชื่อผู้ใช้';
-    if (s.length < 3) return 'ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร';
-    // อักษร/ตัวเลข/._- + ไทย
-    if (!RegExp(r'^[A-Za-z0-9_.\-ก-ฮะ-์\s]+$').hasMatch(s)) {
-      return 'ใช้ได้เฉพาะอักษร/ตัวเลข/._- เท่านั้น';
+    if (s.isEmpty) return 'กรุณากรอกชื่อโปรไฟล์';
+    if (utf8.encode(s).length > _kNameDbMaxBytes) {
+      return 'ชื่อยาวเกินไป (เกิน 100 ไบต์)';
     }
+    // [ปรับปรุง] ลบการตรวจสอบชนิดอักขระ ให้ตรงกับ BE
+    // if (!_usernameAllowedWhole.hasMatch(s)) {
+    //   return 'มีอักขระไม่ถูกต้อง';
+    // }
+    return null;
   }
 
   String? _validateEmail(String? v) {
     final s = (v ?? '').trim();
     if (s.isEmpty) return 'กรุณากรอกอีเมล';
     if (!_emailReg.hasMatch(s)) return 'รูปแบบอีเมลไม่ถูกต้อง';
-    return null; // ★ ซ้ำจะถูกใส่ผ่าน _emailServerError แทน
+    if (s.length > _kEmailDbMax) return 'อีเมลยาวเกินไป';
+    return null;
   }
 
-  // เกณฑ์เดียวกับหน้าเปลี่ยนรหัสผ่าน
   String? _validatePassword(String? v) {
-    final s = (v ?? '').trim();
+    final s = v ?? ''; // ไม่ trim เพื่อให้เช็ค space ได้
     if (s.isEmpty) return 'กรุณากรอกรหัสผ่าน';
     if (s.length < 8) return 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
-    if (!RegExp(r'(?=.*[A-Za-z])(?=.*\d)').hasMatch(s))
-      return 'ต้องมีทั้งตัวอักษรและตัวเลขอย่างละ 1';
+    if (!RegExp(r'(?=.*[A-Za-z])(?=.*\d)').hasMatch(s)) {
+      return 'ต้องมีทั้งตัวอักษรและตัวเลข';
+    }
     return null;
   }
 
@@ -174,7 +173,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return null;
   }
 
-  /* ───── Strength logic ───── */
+  // (ส่วน Strength meter, _parseErrors และ UI คงเดิม ไม่มีการเปลี่ยนแปลง)
+  // ...
+  // ===== Strength meter =====
   double _calcStrength(String p) {
     if (p.isEmpty) return 0.0;
     int score = 0;
@@ -220,13 +221,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return raw.toString();
   }
 
-  /* ───── Register Method ───── */
+  // ===== Register =====
   Future<void> _register() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // ★ ถ้าเช็คแล้วพบว่าอีเมลซ้ำ → บล็อคก่อน
     if (_emailAvailable == false) {
-      setState(() => _errorMsg = 'อีเมลนี้มีอยู่แล้ว');
+      setState(() => _errorMsg = 'อีเมลนี้ถูกใช้งานแล้ว');
       return;
     }
 
@@ -236,22 +236,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _errorMsg = null;
     });
 
-    // อ่านค่าจากฟอร์ม
-    final email = _emailCtrl.text.trim();
+    final email = _emailCtrl.text.trim().toLowerCase();
     final username = _userCtrl.text.trim();
     final pass = _passCtrl.text;
     final confirm = _confirmCtrl.text;
 
     try {
-      // ยิงสมัคร
       final res = await ApiService.register(email, pass, confirm, username);
       if (!mounted) return;
 
       if (res['success'] == true) {
-        // ส่งเมลสำเร็จไหม?
         final sent = res['email_sent'] == true;
-
-        // จำสถานะ “รอยืนยัน” เพื่อ resume
         await AuthService.markPendingEmailVerify(
             email: email, startCooldown: sent);
         Navigator.pushReplacementNamed(
@@ -261,7 +256,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
         return;
       }
-      // ถ้าไม่สำเร็จ → แสดงข้อความผิดพลาด
       final msgDyn = res['message'];
       final errs = res['errors'];
       final msg = (msgDyn is String && msgDyn.trim().isNotEmpty)
@@ -277,7 +271,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // ★ ไอคอนสถานะท้ายช่องอีเมล
   Widget? _buildEmailSuffix() {
     if (_emailChecking) {
       return const SizedBox(
@@ -290,20 +283,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     }
     if (_emailAvailable == true) {
-      return const Icon(Icons.check_circle_outline);
+      return const Icon(Icons.check_circle_outline, color: Colors.green);
     }
     if (_emailAvailable == false) {
-      return const Icon(Icons.error_outline);
+      return Icon(Icons.error_outline,
+          color: Theme.of(context).colorScheme.error);
     }
     return null;
   }
 
-  /* ───── Build UI ───── */
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final s = _strength;
+
+    // ใช้ utf8.encode().length เพื่อให้ได้จำนวน byte ที่ถูกต้องสำหรับตัวนับ
+    // แต่เพื่อ UX ที่ดี เราจะแสดงเป็นจำนวนตัวอักษร (rune)
+    final charCount = _userCtrl.text.runes.length;
+    final counterText = '$charCount/$_kNameUiMax';
 
     return Scaffold(
       appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
@@ -312,57 +310,91 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: Center(
           child: SingleChildScrollView(
             padding:
-                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
             child: Form(
               key: _formKey,
               autovalidateMode: AutovalidateMode.onUserInteraction,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // โลโก้ + หัวเรื่อง
-                  Image.asset('assets/images/logo.png', height: 100),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 6),
+                  Image.asset('assets/images/logo.png', height: 90),
+                  const SizedBox(height: 12),
                   Text(
                     'สร้างบัญชีใหม่',
                     textAlign: TextAlign.center,
                     style: textTheme.headlineMedium
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
 
-                  // Username
+                  // ===== [ปรับปรุง] ชื่อโปรไฟล์ (แยก Label กับ Counter) =====
+                  Row(
+                    mainAxisAlignment:
+                        MainAxisAlignment.end, // จัดให้ตัวนับชิดขวา
+                    children: [
+                      // เอา Label แบบเก่า 'Text('ชื่อโปรไฟล์'...)' ออกไปจากตรงนี้
+                      Text(counterText, // เหลือแค่ตัวนับไว้
+                          style: textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
                   TextFormField(
                     controller: _userCtrl,
                     focusNode: _userNode,
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) => _emailNode.requestFocus(),
+                    // ซ่อน counter ของ TextFormField เอง
+                    buildCounter: (_,
+                            {required currentLength,
+                            required isFocused,
+                            maxLength}) =>
+                        null,
+                    inputFormatters: [
+                      // [ปรับปรุง] ลบ FilteringTextInputFormatter ที่จำกัดอักขระออก
+                      // FilteringTextInputFormatter.allow(_usernameAllowedOneChar),
+
+                      // ใช้ LengthLimitingTextInputFormatter เพื่อจำกัด 'จำนวนตัวอักษร' ที่พิมพ์ได้บน UI
+                      LengthLimitingTextInputFormatter(_kNameUiMax),
+                    ],
+                    // [ปรับปรุง] ใส่ labelText ที่นี่เพื่อให้มัน animate ได้
                     decoration: const InputDecoration(
-                      labelText: 'ชื่อผู้ใช้',
+                      labelText: 'ชื่อโปรไฟล์', // << เพิ่มตรงนี้
+                      // hintText: 'ชื่อที่จะแสดงในโปรไฟล์', // เอา hintText ออก
                       prefixIcon: Icon(Icons.person_outline),
                     ),
                     validator: _validateUsername,
+                    autofillHints: const [AutofillHints.username],
                   ),
-                  const SizedBox(height: 16),
 
-                  // Email
+                  const SizedBox(height: 12),
+
+                  // ===== อีเมล =====
                   TextFormField(
                     controller: _emailCtrl,
                     focusNode: _emailNode,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) => _passNode.requestFocus(),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                      LengthLimitingTextInputFormatter(_kEmailDbMax),
+                    ],
                     decoration: InputDecoration(
                       labelText: 'อีเมล',
+                      helperText: 'สำหรับรับ OTP',
                       prefixIcon: const Icon(Icons.email_outlined),
-                      suffixIcon: _buildEmailSuffix(), // ★
-                      errorText: _emailServerError, // ★
+                      suffixIcon: _buildEmailSuffix(),
+                      errorText: _emailServerError,
                     ),
                     validator: _validateEmail,
+                    autofillHints: const [AutofillHints.email],
                   ),
-                  const SizedBox(height: 16),
 
-                  // Password
+                  const SizedBox(height: 12),
+
+                  // ===== รหัสผ่าน =====
                   TextFormField(
                     controller: _passCtrl,
                     focusNode: _passNode,
@@ -370,7 +402,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) => _confirmNode.requestFocus(),
                     decoration: InputDecoration(
-                      labelText: 'รหัสผ่าน (อย่างน้อย 8 ตัวอักษร)',
+                      labelText: 'รหัสผ่าน',
+                      helperText: 'อย่างน้อย 8 ตัวอักษร, ต้องมีตัวเลข',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         icon: Icon(_hidePass
@@ -381,10 +414,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     validator: _validatePassword,
+                    autofillHints: const [AutofillHints.newPassword],
                   ),
 
-                  // Strength meter
-                  const SizedBox(height: 8),
+                  // มิเตอร์ความแข็งแรง
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
@@ -402,7 +436,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Text(
                         _strengthLabel(s),
                         style: textTheme.bodySmall?.copyWith(
@@ -411,9 +445,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
 
-                  // Confirm Password
+                  const SizedBox(height: 12),
+
+                  // ===== ยืนยันรหัสผ่าน =====
                   TextFormField(
                     controller: _confirmCtrl,
                     focusNode: _confirmNode,
@@ -433,50 +468,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     validator: _validateConfirm,
+                    autofillHints: const [AutofillHints.newPassword],
                   ),
-                  const SizedBox(height: 16),
 
-                  // Error รวม
+                  const SizedBox(height: 12),
+
                   if (_errorMsg != null)
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(_errorMsg!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: theme.colorScheme.error)),
+                      padding: const EdgeInsets.symmetric(vertical: 6.0),
+                      child: Text(
+                        _errorMsg!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: theme.colorScheme.error),
+                      ),
                     ),
 
-                  // ปุ่มสมัคร
+                  const SizedBox(height: 6),
+
                   ElevatedButton(
                     onPressed: _isLoading ? null : _register,
                     style: ElevatedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(48)),
+                      minimumSize: const Size.fromHeight(48),
+                    ),
                     child: _isLoading
                         ? const SizedBox(
                             height: 24,
                             width: 24,
                             child: CircularProgressIndicator(
-                                strokeWidth: 3, color: Colors.white))
+                                strokeWidth: 3, color: Colors.white),
+                          )
                         : const Text('สมัครสมาชิก'),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
 
-                  // ลิงก์กลับไป Login
                   Center(
-                    child: Text.rich(TextSpan(
-                      text: 'มีบัญชีอยู่แล้ว? ',
-                      style: textTheme.bodyMedium,
-                      children: [
-                        TextSpan(
-                          text: 'กลับไปลงชื่อเข้าใช้',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.primary,
-                            decoration: TextDecoration.underline,
+                    child: Text.rich(
+                      TextSpan(
+                        text: 'มีบัญชีอยู่แล้ว? ',
+                        style: textTheme.bodyMedium,
+                        children: [
+                          TextSpan(
+                            text: 'ลงชื่อเข้าใช้',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: _toLoginTap,
                           ),
-                          recognizer: _toLoginTap,
-                        ),
-                      ],
-                    )),
+                        ],
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 8),
                 ],
