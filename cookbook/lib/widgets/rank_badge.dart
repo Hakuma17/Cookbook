@@ -7,7 +7,7 @@ class RankBadge extends StatelessWidget {
   /// แสดงวงกลมเตือนสีแดง + ไอคอน ⚠
   final bool showWarning;
 
-  /// ✅ 1. เพิ่ม parameter สำหรับกำหนดขนาดโดยตรงจาก Parent
+  ///   1. เพิ่ม parameter สำหรับกำหนดขนาดโดยตรงจาก Parent
   final double radius;
 
   const RankBadge({
@@ -19,7 +19,7 @@ class RankBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 2. ลบ Manual Responsive Calculation และใช้ Theme
+    //   2. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
@@ -48,14 +48,14 @@ class RankBadge extends StatelessWidget {
           )
         : Text(
             '$rank',
-            // ✅ 3. ใช้ TextStyle จาก Theme ส่วนกลาง
+            //   3. ใช้ TextStyle จาก Theme ส่วนกลาง
             style: textTheme.labelSmall?.copyWith(
               color: Colors.white, // สีขาวยังคงเหมาะสมกับพื้นหลังสีๆ
               fontWeight: FontWeight.bold,
             ),
           );
 
-    // ✅ 4. เปลี่ยนมาใช้ CircleAvatar ซึ่งเป็น Widget ที่เหมาะสมที่สุด
+    //   4. เปลี่ยนมาใช้ CircleAvatar ซึ่งเป็น Widget ที่เหมาะสมที่สุด
     return CircleAvatar(
       radius: radius,
       backgroundColor: backgroundColor,
