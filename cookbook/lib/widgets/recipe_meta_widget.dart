@@ -22,7 +22,7 @@ class RecipeMetaWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 2. ใช้ Theme จาก context
+    //   2. ใช้ Theme จาก context
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
@@ -47,12 +47,12 @@ class RecipeMetaWidget extends StatelessWidget {
             Flexible(
               child: Text(
                 name,
-                // ✅ 4. ใช้ TextStyle จาก Theme ส่วนกลาง
+                //   4. ใช้ TextStyle จาก Theme ส่วนกลาง
                 style: textTheme.headlineSmall?.copyWith(height: 1.2),
               ),
             ),
             const SizedBox(width: 8),
-            // ✅ 5. เปลี่ยนมาใช้ Chip Widget ที่สวยงามและจัดการง่าย
+            //   5. เปลี่ยนมาใช้ Chip Widget ที่สวยงามและจัดการง่าย
             Chip(
               avatar: Icon(Icons.star_rounded,
                   size: 18, color: Colors.amber.shade800),
