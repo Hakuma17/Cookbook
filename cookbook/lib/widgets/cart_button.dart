@@ -18,7 +18,7 @@ class CartButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
+    //   1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
@@ -26,7 +26,7 @@ class CartButton extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // ✅ 2. เปลี่ยนมาใช้ IconButton มาตรฐาน
+        //   2. เปลี่ยนมาใช้ IconButton มาตรฐาน
         // IconButton สามารถกำหนดสไตล์ได้หลากหลายและจัดการ state ได้ดีกว่า
         IconButton(
           onPressed: onAddToCart,
@@ -43,7 +43,7 @@ class CartButton extends StatelessWidget {
         ),
         const SizedBox(width: 8),
 
-        // ✅ 3. เปลี่ยนมาใช้ OutlinedButton มาตรฐาน
+        //   3. เปลี่ยนมาใช้ OutlinedButton มาตรฐาน
         // OutlinedButton เหมาะสำหรับปุ่มที่มีลักษณะเป็นกรอบ
         OutlinedButton(
           onPressed: () async {
@@ -78,7 +78,7 @@ class CartButton extends StatelessWidget {
 }
 
 /*──────────────── picker จำนวนเสิร์ฟ (1–10) ────────────────*/
-/// ✅ 4. ปรับปรุง Picker ให้ใช้ Theme ด้วย
+///   4. ปรับปรุง Picker ให้ใช้ Theme ด้วย
 class _ServingsPicker extends StatelessWidget {
   final int initialServings;
 
