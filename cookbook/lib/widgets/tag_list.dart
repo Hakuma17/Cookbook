@@ -19,20 +19,20 @@ class TagList extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
+    //   1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
 
-    // ✅ 2. ใช้ Wrap Widget ซึ่งเหมาะสมที่สุดสำหรับการแสดง Tag
+    //   2. ใช้ Wrap Widget ซึ่งเหมาะสมที่สุดสำหรับการแสดง Tag
     return Wrap(
       spacing: 8.0, // ระยะห่างแนวนอนระหว่าง Chip
       runSpacing: 8.0, // ระยะห่างแนวตั้งเมื่อขึ้นบรรทัดใหม่
       children: tags.map((tag) {
-        // ✅ 3. เปลี่ยนจาก Container ที่สร้างเอง มาเป็น Chip Widget มาตรฐาน
+        //   3. เปลี่ยนจาก Container ที่สร้างเอง มาเป็น Chip Widget มาตรฐาน
         return Chip(
           label: Text(tag),
-          // ✅ 4. ใช้สไตล์จาก Theme ส่วนกลางทั้งหมด
+          //   4. ใช้สไตล์จาก Theme ส่วนกลางทั้งหมด
           labelStyle: textTheme.labelLarge?.copyWith(
             color: colorScheme.primary,
             fontWeight: FontWeight.bold,
