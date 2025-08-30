@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-// ✅ 1. ย้าย Helper function ออกมาเป็น Top-level
+//   1. ย้าย Helper function ออกมาเป็น Top-level
 double _toDouble(dynamic v) =>
     v is num ? v.toDouble() : (double.tryParse(v.toString()) ?? 0.0);
 
@@ -35,7 +35,7 @@ class Nutrition {
         'carbs': carbs,
       };
 
-  // ✅ 2. เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
+  //   2. เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
   Nutrition copyWith({
     double? calories,
     double? fat,
