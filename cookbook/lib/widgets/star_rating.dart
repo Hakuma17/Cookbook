@@ -19,16 +19,16 @@ class StarRating extends StatelessWidget {
     super.key,
     this.rating = 0.0,
     this.starCount = 5,
-    this.size = 24.0, // ✅ 1. ปรับขนาดเริ่มต้นให้เหมาะสม
+    this.size = 24.0, //   1. ปรับขนาดเริ่มต้นให้เหมาะสม
     this.filledColor,
     this.emptyColor,
-    this.spacing = 4.0, // ✅ 2. ปรับระยะห่างเริ่มต้นให้เหมาะสม
+    this.spacing = 4.0, //   2. ปรับระยะห่างเริ่มต้นให้เหมาะสม
     this.onRatingChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 3. ลบ LayoutBuilder และการคำนวณทั้งหมด
+    //   3. ลบ LayoutBuilder และการคำนวณทั้งหมด
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -37,7 +37,7 @@ class StarRating extends StatelessWidget {
     final finalEmptyColor =
         emptyColor ?? colorScheme.onSurface.withOpacity(0.3);
 
-    // ✅ 4. ใช้ for loop ใน Row children เพื่อสร้าง UI ที่สะอาดและอ่านง่าย
+    //   4. ใช้ for loop ใน Row children เพื่อสร้าง UI ที่สะอาดและอ่านง่าย
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
