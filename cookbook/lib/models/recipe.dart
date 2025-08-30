@@ -66,7 +66,7 @@ class Recipe {
   /// จำนวนคนกด “❤”
   final int favoriteCount;
 
-  /// ✅⭐️ เพิ่ม property นี้กลับเข้ามา
+  ///  ⭐️ เพิ่ม property นี้กลับเข้ามา
   /// ผู้ใช้คนปัจจุบันกดถูกใจสูตรนี้หรือไม่
   final bool isFavorited;
 
@@ -97,7 +97,7 @@ class Recipe {
     required this.averageRating,
     required this.reviewCount,
     required this.favoriteCount,
-    required this.isFavorited, // ✅⭐️ เพิ่มใน constructor
+    required this.isFavorited, //  ⭐️ เพิ่มใน constructor
     required this.shortIngredients,
     required this.hasAllergy,
     this.rank,
@@ -148,7 +148,7 @@ class Recipe {
       averageRating: _toDouble(j['average_rating']),
       reviewCount: _toInt(j['review_count']),
       favoriteCount: _toInt(j['favorite_count'], fallback: 0),
-      // ✅⭐️ อ่านค่า is_favorited จาก JSON (รองรับทั้ง boolean และ integer)
+      //  ⭐️ อ่านค่า is_favorited จาก JSON (รองรับทั้ง boolean และ integer)
       isFavorited: j['is_favorited'] == true || j['is_favorited'] == 1,
       shortIngredients: _toString(j['short_ingredients']),
       hasAllergy: j['has_allergy'] == true || j['has_allergy'] == 1,
@@ -169,7 +169,7 @@ class Recipe {
         'average_rating': averageRating,
         'review_count': reviewCount,
         'favorite_count': favoriteCount,
-        'is_favorited': isFavorited, // ✅⭐️ เพิ่มใน toJson
+        'is_favorited': isFavorited, //  ⭐️ เพิ่มใน toJson
         'short_ingredients': shortIngredients,
         'has_allergy': hasAllergy,
         'rank': rank,
@@ -187,7 +187,7 @@ class Recipe {
     double? averageRating,
     int? reviewCount,
     int? favoriteCount,
-    bool? isFavorited, // ✅⭐️ เพิ่มใน copyWith
+    bool? isFavorited, //  ⭐️ เพิ่มใน copyWith
     String? shortIngredients,
     bool? hasAllergy,
     int? rank,
@@ -204,7 +204,7 @@ class Recipe {
       averageRating: averageRating ?? this.averageRating,
       reviewCount: reviewCount ?? this.reviewCount,
       favoriteCount: favoriteCount ?? this.favoriteCount,
-      isFavorited: isFavorited ?? this.isFavorited, // ✅⭐️ เพิ่มใน copyWith
+      isFavorited: isFavorited ?? this.isFavorited, //  ⭐️ เพิ่มใน copyWith
       shortIngredients: shortIngredients ?? this.shortIngredients,
       hasAllergy: hasAllergy ?? this.hasAllergy,
       rank: rank ?? this.rank,
