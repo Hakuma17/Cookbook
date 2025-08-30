@@ -1,11 +1,13 @@
+// lib/models/cart_ingredient.dart
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'json_parser.dart';
 
 /// วัตถุดิบ 1 รายการที่ถูก “รวม” เข้ามาอยู่ในตะกร้า
 ///
-/// ใช้กับผลลัพธ์จาก `get_cart_items.php`
+/// ใช้กับผลลัพธ์จาก `get_cart_items.php` / `get_cart_ingredients.php`
 /// - หลังบ้านจะคูณสัดส่วนเสิร์ฟให้เรียบร้อยแล้ว
-/// - ถ้ามีหลายเมนูใช้วัตถุดิบเดียวกันแต่คนละหน่วย จะถูกแยกคนละรายการ
+/// - ถ้ามีหลายเมนูใช้วัตถุดิบเดียวกันแต่คนละหน่วย จะถูกแยกคนละรายการ (unit-based)
 class CartIngredient extends Equatable {
   /* ───── fields ───── */
 
@@ -27,11 +29,21 @@ class CartIngredient extends Equatable {
   /// ธงว่ามีเมนูอื่นในตะกร้าใช้ “หน่วยคนละชนิด” กับรายการนี้หรือไม่
   final bool unitConflict;
 
-  /// [NEW] ธงว่า “ผู้ใช้แพ้วัตถุดิบในกลุ่มนี้” หรือไม่
-  ///
-  /// มาจากการคำนวณฝั่งเซิร์ฟเวอร์โดยเทียบกลุ่ม `newcatagory`
-  /// ของวัตถุดิบบนเมนูกับกลุ่มของรายการแพ้ (`allergyinfo`)
+  /// ธงว่า “ผู้ใช้แพ้วัตถุดิบในกลุ่มนี้” หรือไม่ (มาจาก BE)
   final bool hasAllergy;
+
+  /// [NEW] กรัมจริงของรายการนี้ (ถ้า BE ส่งมา) — ใช้โชว์โหมด “กรัม”
+  /// - ถ้า BE ไม่ส่งมา ให้เป็น null เพื่อให้ FE ประมาณ (≈) ตาม unit แทน
+  final double? gramsActual;
+
+  /// [GROUP] กลุ่มวัตถุดิบแบบรหัส 2 หลัก (เช่น '04' = ผัก)
+  final String? groupCode;
+
+  /// [GROUP] ชื่อกลุ่มแบบสั้น ๆ (เช่น 'ผัก')
+  final String? groupName;
+
+  /// [GROUP] รหัสโภชนาการดิบที่มาจากตาราง nutrition (เช่น '04250')
+  final String? nutritionId;
 
   const CartIngredient({
     required this.ingredientId,
@@ -40,20 +52,40 @@ class CartIngredient extends Equatable {
     required this.unit,
     required this.imageUrl,
     this.unitConflict = false,
-    this.hasAllergy = false, // [NEW]
+    this.hasAllergy = false,
+    this.gramsActual,
+    this.groupCode,
+    this.groupName,
+    this.nutritionId,
   });
 
   /* ───── factories ───── */
 
   factory CartIngredient.fromJson(Map<String, dynamic> json) {
     return CartIngredient(
-      ingredientId: JsonParser.parseInt(json['ingredient_id']),
+      // รองรับทั้ง ingredient_id และ id จาก BE
+      ingredientId: JsonParser.parseInt(json['ingredient_id'] ?? json['id']),
       name: JsonParser.parseString(json['name']),
       quantity: JsonParser.parseDouble(json['quantity']),
       unit: JsonParser.parseString(json['unit']),
       imageUrl: JsonParser.parseString(json['image_url']),
       unitConflict: JsonParser.parseBool(json['unit_conflict']) ?? false,
-      hasAllergy: JsonParser.parseBool(json['has_allergy']) ?? false, // [NEW]
+      hasAllergy: JsonParser.parseBool(json['has_allergy']) ?? false,
+
+      // ถ้าไม่มี key ให้คงเป็น null เพื่อให้ FE ใช้ค่าประมาณ (≈)
+      gramsActual: json['grams_actual'] == null
+          ? null
+          : JsonParser.parseDouble(json['grams_actual']),
+
+      groupCode: json['group_code'] == null
+          ? null
+          : JsonParser.parseString(json['group_code']),
+      groupName: json['group_name'] == null
+          ? null
+          : JsonParser.parseString(json['group_name']),
+      nutritionId: json['nutrition_id'] == null
+          ? null
+          : JsonParser.parseString(json['nutrition_id']),
     );
   }
 
@@ -61,12 +93,17 @@ class CartIngredient extends Equatable {
 
   Map<String, dynamic> toJson() => {
         'ingredient_id': ingredientId,
+        'id': ingredientId, // เผื่อระบบที่อ่านเป็น id
         'name': name,
         'quantity': quantity,
         'unit': unit,
         'image_url': imageUrl,
         'unit_conflict': unitConflict,
-        'has_allergy': hasAllergy, // [NEW]
+        'has_allergy': hasAllergy,
+        'grams_actual': gramsActual,
+        'group_code': groupCode,
+        'group_name': groupName,
+        'nutrition_id': nutritionId,
       };
 
   /* ───── util: copyWith ───── */
@@ -78,7 +115,12 @@ class CartIngredient extends Equatable {
     String? unit,
     String? imageUrl,
     bool? unitConflict,
-    bool? hasAllergy, // [NEW]
+    bool? hasAllergy,
+    // ★ แก้ไข: ใช้ ValueGetter เพื่อให้สามารถตั้งค่ากลับไปเป็น null ได้
+    ValueGetter<double?>? gramsActual,
+    ValueGetter<String?>? groupCode,
+    ValueGetter<String?>? groupName,
+    ValueGetter<String?>? nutritionId,
   }) {
     return CartIngredient(
       ingredientId: ingredientId ?? this.ingredientId,
@@ -88,46 +130,30 @@ class CartIngredient extends Equatable {
       imageUrl: imageUrl ?? this.imageUrl,
       unitConflict: unitConflict ?? this.unitConflict,
       hasAllergy: hasAllergy ?? this.hasAllergy,
+      // ★ แก้ไข: ตรวจสอบว่ามีการส่งค่าใหม่มาหรือไม่ ถ้ามีให้ใช้ค่าใหม่ (ซึ่งอาจเป็น null)
+      gramsActual: gramsActual != null ? gramsActual() : this.gramsActual,
+      groupCode: groupCode != null ? groupCode() : this.groupCode,
+      groupName: groupName != null ? groupName() : this.groupName,
+      nutritionId: nutritionId != null ? nutritionId() : this.nutritionId,
     );
   }
 
-  /* ───── static helper: aggregate ─────
-   * รวมวัตถุดิบจากเมนูหลายจาน → หาผลรวมปริมาณ และตั้งธง unitConflict
-   *
-   * หมายเหตุ:
-   * - ถ้ารายการที่รวมกันมี hasAllergy อย่างน้อย 1 รายการ ให้ผลลัพธ์เป็น true
-   * - แยกคีย์รวมด้วย ingredientId+unit เพื่อไม่รวมหน่วยต่างชนิดเข้าด้วยกัน
-   */
-  static List<CartIngredient> aggregate(List<CartIngredient> list) {
-    final Map<String, CartIngredient> merged = {};
-    final Map<int, Set<String>> unitTracker = {};
-
-    for (final ing in list) {
-      final key = '${ing.ingredientId}_${ing.unit}';
-
-      merged.update(
-        key,
-        (existing) => existing.copyWith(
-          quantity: existing.quantity + ing.quantity,
-          // [NEW] OR ธงแพ้ ถ้ามีรายการใดรายการหนึ่งเป็น true
-          hasAllergy: existing.hasAllergy || ing.hasAllergy,
-        ),
-        ifAbsent: () => ing,
-      );
-
-      unitTracker.putIfAbsent(ing.ingredientId, () => {}).add(ing.unit);
-    }
-
-    // ตั้งธงหน่วยไม่ตรงกันระดับ ingredientId
-    return merged.values.map((e) {
-      final hasConflict = (unitTracker[e.ingredientId]?.length ?? 0) > 1;
-      return hasConflict ? e.copyWith(unitConflict: true) : e;
-    }).toList();
-  }
+  // ★ ลบ: เมธอด aggregate ถูกลบออกไป เพราะ Logic การรวมถูกย้ายไปที่ Backend แล้ว
 
   /* ───── equatable ───── */
 
   @override
-  List<Object?> get props =>
-      [ingredientId, name, quantity, unit, imageUrl, unitConflict, hasAllergy];
+  List<Object?> get props => [
+        ingredientId,
+        name,
+        quantity,
+        unit,
+        imageUrl,
+        unitConflict,
+        hasAllergy,
+        gramsActual,
+        groupCode,
+        groupName,
+        nutritionId,
+      ];
 }
