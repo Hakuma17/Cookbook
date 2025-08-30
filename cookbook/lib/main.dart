@@ -425,7 +425,7 @@ class MyApp extends StatelessWidget {
         return _material(const SettingsScreen(), settings);
       case '/edit_profile':
         return _material(
-            const AuthGuard(child: edit_profile.EditProfileScreen()), settings);
+            AuthGuard(child: edit_profile.EditProfileScreen()), settings);
       case '/change_password':
         return _material(
             const AuthGuard(child: ChangePasswordScreen()), settings);
