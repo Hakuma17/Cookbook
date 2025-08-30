@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-// ✅ 1. เพิ่ม Helper functions เพื่อการ Parse ที่ปลอดภัย
+//   1. เพิ่ม Helper functions เพื่อการ Parse ที่ปลอดภัย
 int _toInt(dynamic v) => v is int ? v : (int.tryParse(v.toString()) ?? 0);
 String _toString(dynamic v) => v?.toString() ?? '';
 
@@ -35,7 +35,7 @@ class UserProfile {
     };
   }
 
-  /// ✅ 2. เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
+  ///   2. เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
   UserProfile copyWith({
     int? userId,
     String? name,

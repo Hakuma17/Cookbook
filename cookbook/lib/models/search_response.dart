@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'recipe.dart';
 
-// ✅ 1. เพิ่ม Helper functions เพื่อการ Parse ที่ปลอดภัยและสอดคล้องกับ Model อื่นๆ
+//   1. เพิ่ม Helper functions เพื่อการ Parse ที่ปลอดภัยและสอดคล้องกับ Model อื่นๆ
 int _toInt(dynamic v, {int fallback = 1}) {
   if (v == null) return fallback;
   if (v is int) return v;
@@ -27,7 +27,7 @@ class SearchResponse {
   /// รายการสูตรอาหารในหน้าปัจจุบัน
   final List<Recipe> recipes;
 
-  /// ✅ 2. เพิ่ม factory constructor สำหรับสร้าง Object จาก JSON
+  ///   2. เพิ่ม factory constructor สำหรับสร้าง Object จาก JSON
   factory SearchResponse.fromJson(Map<String, dynamic> json) {
     // [Compat] บางเวอร์ชันอาจใช้ key 'current_page'
     final page = _toInt(json['page'] ?? json['current_page'], fallback: 1);
@@ -55,7 +55,7 @@ class SearchResponse {
     );
   }
 
-  /// ✅ 3. เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
+  ///   3. เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
   SearchResponse copyWith({
     int? page,
     List<String>? token,
