@@ -1,89 +1,86 @@
 import 'package:flutter/material.dart';
 import '../models/cart_ingredient.dart';
+import '../models/unit_display_mode.dart';
+import '../utils/unit_convert.dart';
 
 class CartIngredientTile extends StatelessWidget {
   final CartIngredient ingredient;
-  const CartIngredientTile({super.key, required this.ingredient});
 
-  // จัดรูปแบบจำนวนให้สวย (จำนวนเต็มไม่โชว์จุดทศนิยม)
-  String _formatQuantity(double q) =>
-      (q == q.roundToDouble()) ? q.toInt().toString() : q.toStringAsFixed(2);
+  /// โหมดแสดงผลหน่วย
+  final UnitDisplayMode unitMode;
+
+  const CartIngredientTile({
+    super.key,
+    required this.ingredient,
+    this.unitMode = UnitDisplayMode.original,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final text = theme.textTheme;
     final cs = theme.colorScheme;
 
-    final quantityText = _formatQuantity(ingredient.quantity);
-    final unitText = ingredient.unit;
+    final amountText = _formatAmount();
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6.0),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant, width: 1),
+      ),
       child: ListTile(
-        // รูปตัวอย่างวัตถุดิบ
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.network(
-            ingredient.imageUrl,
-            width: 56,
-            height: 56,
-            fit: BoxFit.cover,
-            // ขณะโหลดรูป
-            loadingBuilder: (context, child, progress) {
-              if (progress == null) return child;
-              return Container(
-                width: 56,
-                height: 56,
-                color: cs.surfaceVariant,
-                alignment: Alignment.center,
-                child: const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              );
-            },
-            // โหลดพลาด → แสดงไอคอนแทน
-            errorBuilder: (_, __, ___) => Container(
-              width: 56,
-              height: 56,
-              color: cs.surfaceVariant,
-              alignment: Alignment.center,
-              child: Icon(Icons.image_not_supported_outlined,
-                  color: cs.onSurfaceVariant),
-            ),
-          ),
-        ),
-
-        // ชื่อวัตถุดิบ: “ไม่หนา” แต่ขนาดเดิม (titleMedium)
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        leading: _leadingImage(),
         title: Text(
           ingredient.name,
-          style: text.titleMedium?.copyWith(fontWeight: FontWeight.w400),
-          maxLines: 2,
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium,
         ),
-
-        // จำนวน + หน่วย: “ไม่หนา” แต่ขนาดเดิม (bodyMedium)
-        trailing: Text.rich(
-          TextSpan(
-            style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w400),
-            children: [
-              TextSpan(text: quantityText), // ตัวเลข (ไม่หนา)
-              TextSpan(
-                // เว้นวรรค + หน่วย
-                text: ' $unitText',
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-            ],
+        trailing: Text(
+          amountText,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
           ),
-          textAlign: TextAlign.right,
         ),
-
-        // ช่องไฟภายใน tile
-        contentPadding:
-            const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
       ),
     );
+  }
+
+  Widget _leadingImage() {
+    final url = ingredient.imageUrl;
+    if (url.isEmpty) {
+      return const SizedBox(
+        width: 48,
+        height: 48,
+        child: Icon(Icons.image_outlined),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Image.network(url, width: 48, height: 48, fit: BoxFit.cover),
+    );
+  }
+
+  String _formatAmount() {
+    switch (unitMode) {
+      case UnitDisplayMode.original:
+        return '${UnitConvert.fmtNum(ingredient.quantity)} ${ingredient.unit}';
+      case UnitDisplayMode.grams:
+        // 1) ถ้ามี gramsActual ใช้เลย
+        if ((ingredient.gramsActual ?? 0) > 0) {
+          return UnitConvert.fmtGrams(ingredient.gramsActual!);
+        }
+        // 2) ลองประมาณค่าจาก unit ที่รู้จัก
+        final g = UnitConvert.approximateGrams(
+          ingredient.quantity,
+          ingredient.unit,
+        );
+        if (g != null) return '≈ ${UnitConvert.fmtGrams(g)}';
+        // 3) แปลงไม่ได้ → หน่วยเดิม
+        return '${UnitConvert.fmtNum(ingredient.quantity)} ${ingredient.unit}';
+    }
   }
 }

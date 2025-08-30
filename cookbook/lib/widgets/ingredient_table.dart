@@ -85,7 +85,7 @@ class _IngredientTableState extends State<IngredientTable> {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
 
-    // ✨ สร้างสไตล์ "มีเดียมแต่ไม่หนา" ไว้ใช้ซ้ำ
+    //   สร้างสไตล์ "มีเดียมแต่ไม่หนา" ไว้ใช้ซ้ำ
     final TextStyle nameStyle = (textTheme.titleMedium ?? textTheme.bodyLarge!)
         .copyWith(fontWeight: FontWeight.w400);
     final TextStyle qtyStyle = (textTheme.titleMedium ?? textTheme.bodyLarge!)
@@ -111,7 +111,7 @@ class _IngredientTableState extends State<IngredientTable> {
           flex: 3,
           child: Text(
             item.description.isNotEmpty ? item.description : item.name,
-            style: nameStyle.copyWith(color: textColor), // ✨
+            style: nameStyle.copyWith(color: textColor), //
           ),
         ),
         const SizedBox(width: 16),
@@ -121,7 +121,7 @@ class _IngredientTableState extends State<IngredientTable> {
           child: Text(
             '$quantityString ${item.unit}',
             textAlign: TextAlign.end,
-            style: qtyStyle.copyWith(color: textColor), // ✨
+            style: qtyStyle.copyWith(color: textColor), //
             /* โค้ดเดิม (ตัวหนา)
             style: textTheme.bodyLarge?.copyWith(
               fontWeight: FontWeight.bold,
