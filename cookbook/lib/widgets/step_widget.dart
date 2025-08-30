@@ -28,7 +28,7 @@ class _StepWidgetState extends State<StepWidget> {
       return const SizedBox.shrink();
     }
 
-    // ✅ 1. ลบ Manual Responsive Calculation และใช้ Theme
+    //   1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
@@ -79,7 +79,7 @@ class _StepWidgetState extends State<StepWidget> {
     );
   }
 
-  /// ✅ 2. แยก UI ของแต่ละแถวออกมาเป็น Helper Function และใช้ Theme
+  ///   2. แยก UI ของแต่ละแถวออกมาเป็น Helper Function และใช้ Theme
   Widget _buildStepRow({
     required BuildContext context,
     required RecipeStep step,
