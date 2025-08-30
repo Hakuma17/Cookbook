@@ -143,6 +143,38 @@ class ApiService {
     return u.toString();
   }
 
+  // ★ เพิ่มเติม: ตัวช่วย sanitize/คลี่ชั้น JSON ให้ทนโครงสร้างหลากหลาย
+  static String _safeStr(dynamic v) {
+    if (v == null) return '';
+    final s = v.toString().trim();
+    const nullLikes = {'null', 'NULL', '(null)', 'undefined'};
+    return nullLikes.contains(s) ? '' : s;
+  }
+
+  static Map<String, dynamic> _asMap(dynamic v) =>
+      v is Map ? Map<String, dynamic>.from(v as Map) : <String, dynamic>{};
+
+  /// ★ คลี่ชั้นให้เหลือ Map ชั้นในสุด (ลอง data → user → me)
+  static Map<String, dynamic> _unwrapUser(dynamic raw) {
+    var m = _asMap(raw);
+    for (var i = 0; i < 4; i++) {
+      if (m['data'] is Map) {
+        m = _asMap(m['data']);
+        continue;
+      }
+      if (m['user'] is Map) {
+        m = _asMap(m['user']);
+        continue;
+      }
+      if (m['me'] is Map) {
+        m = _asMap(m['me']);
+        continue;
+      }
+      break;
+    }
+    return m;
+  }
+
   /* ─── cookie & headers ─── */
   static Future<void> clearSession() async =>
       AuthService.clearToken(); // เคลียร์ token
@@ -638,20 +670,84 @@ class ApiService {
     return path;
   }
 
-  static Future<Map<String, dynamic>> updateProfile(
-      {required String profileName, required String imageUrl}) async {
+  static Future<Map<String, dynamic>> updateProfile({
+    required String profileName,
+    String? imageUrl,
+    String? profileInfo,
+  }) async {
+    // สร้าง payload ตามคีย์ที่ BE รองรับ (snake_case)
+    final payload = <String, dynamic>{
+      'profile_name': profileName,
+    };
+
+    // หมายเหตุ:
+    // - ส่ง imageUrl เป็น "" เพื่อ "ลบรูป" (BE จะเซ็ตเป็นค่า default)
+    // - ถ้า imageUrl == null จะไม่ส่งคีย์นี้ -> BE ไม่แตะรูป
+    if (imageUrl != null) {
+      payload['profile_image'] = imageUrl;
+    }
+
+    // profileInfo: null = ไม่แตะ, "" = ลบค่า
+    if (profileInfo != null) {
+      payload['profile_info'] = profileInfo;
+    }
+
     final r = await _client
-        .post(Uri.parse('${baseUrl}update_profile.php'),
-            headers: await _headers(json: true),
-            body: jsonEncode(
-                {'profile_name': profileName, 'profile_image': imageUrl}))
+        .post(
+          Uri.parse('${baseUrl}update_profile.php'),
+          headers: await _headers(json: true),
+          body: jsonEncode(payload),
+        )
         .timeout(_timeout);
+
     await _captureCookie(r);
 
     final json = _processResponse(r);
-    return (json is Map && json['data'] is Map<String, dynamic>)
-        ? json['data']
-        : {};
+    // BE ตอบ {"success":true,"data":{...}}
+    if (json is Map && json['data'] is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(json['data'] as Map);
+    }
+    return {};
+  }
+
+  // เพิ่มใน class ApiService
+  static Future<Map<String, dynamic>> fetchMyProfile() async {
+    // เปลี่ยนชื่อไฟล์ตามที่ฝั่ง PHP คุณมีจริง (เช่น me.php)
+    final uri = Uri.parse('${baseUrl}get_profile.php');
+
+    final r = await _get(uri); // แนบคุกกี้อัตโนมัติ
+    final j = _processResponse(r); // จัดการ error / message
+
+    // ★ คลี่ JSON ให้เป็น Map เดียว (ลอง data → user → me)
+    final d = _unwrapUser(j);
+
+    // รองรับหลายชื่อคีย์จาก BE
+    final name = _safeStr(d['profile_name'] ?? d['profileName'] ?? '');
+    final info = _safeStr(d['profile_info'] ?? d['profileInfo'] ?? '');
+
+    final rawPath = _safeStr(
+        d['path_imgProfile'] ?? d['profile_image'] ?? d['image_path'] ?? '');
+
+    final rawUrl = _safeStr(d['image_url'] ?? d['profileImage'] ?? '');
+
+    // แปลงให้กลายเป็น URL ที่เรียกดูได้แน่นอน (relative → absolute, localhost → host ของ baseUrl)
+    String imageUrl = '';
+    if (rawUrl.isNotEmpty) {
+      imageUrl = normalizeUrl(rawUrl);
+    } else if (rawPath.isNotEmpty) {
+      imageUrl = normalizeUrl(rawPath);
+    }
+
+    // ใส่ email ให้ด้วยถ้าฝั่งเซิร์ฟเวอร์ส่งมา
+    final email = _safeStr(d['email']);
+
+    return {
+      'profile_name': name,
+      'profile_info': info,
+      'path_imgProfile': rawPath, // เก็บ path ดิบไว้เผื่อส่งกลับไปอัปเดต
+      'image_url': imageUrl, // URL สำหรับแสดงผลทันที
+      if (email.isNotEmpty) 'email': email,
+    };
   }
 
   // ───────── SEARCH ─────────

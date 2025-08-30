@@ -18,6 +18,9 @@ class AuthService {
   static const _kGoogleId = 'googleId'; // ★ ใหม่: เก็บ google_id
   static const _kHasSeenOnboarding = 'hasSeenOnboarding'; // ผ่าน onboarding?
 
+  // ★ ใหม่: โปรไฟล์ข้อความใต้ชื่อ
+  static const _kProfileInfo = 'profileInfo';
+
   // ↓ ใหม่: ใช้ “จำอีเมลที่ยังไม่ยืนยัน” เพื่อ resume flow
   static const _kPendingVerifyEmail =
       'pendingVerifyEmail'; // อีเมลที่ต้องยืนยัน
@@ -58,6 +61,9 @@ class AuthService {
   static Future<String?> getEmail() async => (await _prefs).getString(_kEmail);
   static Future<String?> getGoogleId() async =>
       (await _prefs).getString(_kGoogleId);
+  // ★ getter ใหม่
+  static Future<String?> getProfileInfo() async =>
+      (await _prefs).getString(_kProfileInfo);
 
   /* ───────────── Token Helpers ───────────── */
   static Future<void> saveToken(String token) async {
@@ -85,6 +91,7 @@ class AuthService {
     required String profileImage,
     required String email,
     String? googleId, // ★ optional
+    String? profileInfo, // ★ ใหม่: เก็บข้อความใต้โปรไฟล์
   }) async {
     final p = await _prefs;
     await p.setBool(_kIsLoggedIn, true);
@@ -92,6 +99,9 @@ class AuthService {
     await p.setString(_kProfileName, profileName);
     await p.setString(_kProfileImage, profileImage);
     await p.setString(_kEmail, email.trim());
+    if (profileInfo != null) {
+      await p.setString(_kProfileInfo, profileInfo);
+    }
     // เก็บ googleId ถ้ามี (ถ้า null/ว่าง = ลบออก)
     if (googleId != null && googleId.trim().isNotEmpty) {
       await p.setString(_kGoogleId, googleId.trim());
@@ -114,6 +124,8 @@ class AuthService {
             (d['path_imgProfile'] ?? d['profileImage'] ?? '').toString(),
         email: (d['email'] ?? '').toString(),
         googleId: (d['google_id'] ?? d['googleId'])?.toString(), // ★
+        profileInfo:
+            (d['profile_info'] ?? d['profileInfo'] ?? '').toString(), // ★
       );
 
   /// อัปเดตข้อมูลโปรไฟล์ที่เก็บใน prefs เมื่อผู้ใช้แก้ไข
@@ -122,6 +134,7 @@ class AuthService {
     String? profileImage,
     String? email,
     String? googleId, // เผื่อใช้ในอนาคต
+    String? profileInfo, // ★ ใหม่
   }) async {
     final p = await _prefs;
     if (profileName != null) await p.setString(_kProfileName, profileName);
@@ -133,6 +146,9 @@ class AuthService {
       } else {
         await p.setString(_kGoogleId, googleId.trim());
       }
+    }
+    if (profileInfo != null) {
+      await p.setString(_kProfileInfo, profileInfo);
     }
   }
 
@@ -146,6 +162,7 @@ class AuthService {
     await p.remove(_kProfileImage);
     await p.remove(_kEmail);
     await p.remove(_kGoogleId); // ★
+    await p.remove(_kProfileInfo); // ★
     await clearPendingEmailVerify();
 
     _cachedLoggedIn = false;
@@ -164,6 +181,9 @@ class AuthService {
       'email': p.getString(_kEmail),
       'googleId': gid, // camelCase
       'google_id': gid, // snake_case (ให้หน้า UI ใช้ได้ทั้งสองแบบ)
+      // ★ ใส่ profileInfo ให้ FE หยิบใช้ได้เลย
+      'profileInfo': p.getString(_kProfileInfo),
+      'profile_info': p.getString(_kProfileInfo),
     };
   }
 

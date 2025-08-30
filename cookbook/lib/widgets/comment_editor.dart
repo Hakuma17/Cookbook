@@ -49,7 +49,7 @@ class _CommentEditorState extends State<CommentEditor> {
   }
 
   /* ───────── submit ───────── */
-  /// ✅ Commit composing + กัน “แก้แต่ไม่เปลี่ยน” ไม่ให้ยิง API
+  ///   Commit composing + กัน “แก้แต่ไม่เปลี่ยน” ไม่ให้ยิง API
   Future<void> _submit() async {
     // 1) commit composing ของ IME โดยไม่ต้องซ่อนคีย์บอร์ด
     final v = _controller.value;

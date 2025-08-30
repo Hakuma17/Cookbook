@@ -1,6 +1,14 @@
+// lib/widgets/comment_section.dart
+//
+// 2025-08-29 – fix avatar/name not updating after upload
+// - เลิกแคช `_loginDataFuture`; เรียก AuthService.getLoginData() ตรงใน FutureBuilder
+//   เพื่อให้รูป/ชื่อที่อัปเดตแล้วสะท้อนใน “ความคิดเห็นของคุณ” ทันที
+// - NEW: แปลง path เป็น URL เต็มแบบเดียวกับหน้าโปรไฟล์ (_safeFullUrl)
+//
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // listEquals
 import 'package:cookbook/services/auth_service.dart';
+import 'package:cookbook/services/api_service.dart'; // ★ ใช้ baseUrl ต่อ URL
 
 import '../models/comment.dart';
 import 'comment_card.dart';
@@ -8,6 +16,25 @@ import 'comment_input_field.dart';
 
 double _s(BuildContext context, double base) =>
     MediaQuery.textScalerOf(context).scale(base);
+
+// ★ helper: รวม normalize + compose URL (รักษา query string เช่น ?v=123 ไว้)
+String? _safeFullUrl(String? raw) {
+  if (raw == null) return null;
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return null;
+  var s = trimmed.replaceAll('\\', '/');
+  if (s.startsWith('http'))
+    return s; // เป็น URL เต็มอยู่แล้ว (มี cache-buster ก็ไม่แตะ)
+  // ตัดให้เริ่มตรง /uploads/... หากมี prefix ก่อนหน้า
+  final idx = s.indexOf('/uploads/');
+  if (idx >= 0) s = s.substring(idx); // คง query string ต่อท้ายไว้
+  final rel = s.startsWith('/') ? s.substring(1) : s;
+  try {
+    return Uri.parse(ApiService.baseUrl).resolve(rel).toString();
+  } catch (_) {
+    return trimmed; // fallback ให้ค่าดิบ (กันพังคอมไพล์)
+  }
+}
 
 // StatefulWidget เพื่อจัดการ state ของรายการคอมเมนต์
 class CommentSection extends StatefulWidget {
@@ -41,14 +68,10 @@ class _CommentSectionState extends State<CommentSection> {
   late List<Comment> _displayedComments;
   final int _commentsPerPage = 10;
 
-  // เก็บ Future ไว้ ไม่สร้างใหม่ทุก build
-  late Future<Map<String, dynamic>> _loginDataFuture;
-
   @override
   void initState() {
     super.initState();
     _initializeComments();
-    _loginDataFuture = AuthService.getLoginData();
   }
 
   // อัปเดต state เมื่อพร็อพเปลี่ยน (เช่น โหลดคอมเมนต์ชุดใหม่/จำนวนเปลี่ยน)
@@ -65,11 +88,6 @@ class _CommentSectionState extends State<CommentSection> {
       final keep =
           _displayedComments.length.clamp(0, widget.otherComments.length);
       _displayedComments = widget.otherComments.sublist(0, keep);
-    }
-
-    // ถ้าสถานะล็อกอินเปลี่ยน รีโหลด future หนึ่งครั้ง
-    if (widget.isLoggedIn != oldWidget.isLoggedIn) {
-      _loginDataFuture = AuthService.getLoginData();
     }
   }
 
@@ -147,7 +165,7 @@ class _CommentSectionState extends State<CommentSection> {
             itemBuilder: (context, index) {
               final c = _displayedComments[index];
               return CommentCard(
-                // ✅ key ใช้ฟิลด์ที่มีอยู่ เพื่อความเสถียร
+                //   key ใช้ฟิลด์ที่มีอยู่ เพื่อความเสถียร
                 key: ValueKey(
                   'c_${c.userId ?? "u"}_${c.createdAt?.millisecondsSinceEpoch ?? index}',
                 ),
@@ -263,23 +281,30 @@ class _CommentSectionState extends State<CommentSection> {
           Divider(height: 1, color: cs.outlineVariant.withOpacity(.4)),
           const SizedBox(height: 12),
 
-          // ใช้ future ที่ cache ไว้
+          // ดึง login data สดใหม่ทุกครั้ง (ไม่แคช) เพื่อใช้เป็น fallback
           FutureBuilder<Map<String, dynamic>>(
-            future: _loginDataFuture,
+            key: const ValueKey('my-comment-login-data'),
+            future: AuthService.getLoginData(),
             builder: (ctx, snap) {
               final data = snap.data ?? const {};
-              final fallbackAvatar = (comment.avatarUrl?.isNotEmpty ?? false)
-                  ? null
+
+              // ถ้า comment ไม่มี avatar/name ให้ใช้ค่าจาก login data แทน
+              final String? avatarRaw = (comment.avatarUrl?.isNotEmpty ?? false)
+                  ? comment.avatarUrl
                   : (data['profileImage'] as String?);
-              final fallbackName =
+
+              // ★ แปลงให้เป็น URL เต็มแบบเดียวกับหน้าโปรไฟล์ (คง query ไว้)
+              final String? avatarFull = _safeFullUrl(avatarRaw);
+
+              final String? name =
                   (comment.profileName?.trim().isNotEmpty ?? false)
-                      ? null
+                      ? comment.profileName
                       : (data['profileName'] as String?);
 
               return CommentContent(
                 comment: comment,
-                avatarOverride: fallbackAvatar,
-                nameOverride: fallbackName,
+                avatarOverride: avatarFull, // ★ ใช้ URL ที่ normalize แล้ว
+                nameOverride: name,
                 showInlineActions: false,
                 onEdit: widget.onEdit,
                 onDelete: widget.onDelete,
