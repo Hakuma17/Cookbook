@@ -6,7 +6,7 @@ import 'package:cookbook/main.dart';
 import 'package:cookbook/screens/splash_screen.dart';
 
 void main() {
-  // ✅ 1. ตั้งค่าที่จำเป็นก่อนการทดสอบ
+  //   1. ตั้งค่าที่จำเป็นก่อนการทดสอบ
   setUpAll(() async {
     // Test จำเป็นต้องมีการ mock หรือ setup service ที่เรียกใน main() ก่อน
     // ในที่นี้เราจะข้ามไปก่อนเพื่อให้ Test รันผ่านได้
