@@ -42,7 +42,7 @@ class CartRecipeCard extends StatelessWidget {
             color: cs.surface,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: cs.outline, width: 1.6), // ✅ กรอบชัด
+              side: BorderSide(color: cs.outline, width: 1.6), //   กรอบชัด
             ),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
@@ -52,7 +52,7 @@ class CartRecipeCard extends StatelessWidget {
                 children: [
                   // ── รูปภาพเตี้ยลงเล็กน้อย ──
                   AspectRatio(
-                    aspectRatio: kCartImageAspect, // ✅ ลดความสูงรูป
+                    aspectRatio: kCartImageAspect, //   ลดความสูงรูป
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
