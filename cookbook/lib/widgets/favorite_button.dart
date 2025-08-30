@@ -20,7 +20,7 @@ class FavoriteButton extends StatefulWidget {
 class _FavoriteButtonState extends State<FavoriteButton> {
   late bool _isFavorited;
   bool _isLoading = false;
-  bool _isLoggedIn = false; // ✅ 1. เปลี่ยนชื่อ state ให้ชัดเจนขึ้น
+  bool _isLoggedIn = false; //   1. เปลี่ยนชื่อ state ให้ชัดเจนขึ้น
 
   @override
   void initState() {
@@ -49,7 +49,7 @@ class _FavoriteButtonState extends State<FavoriteButton> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนเพิ่มรายการโปรด')),
       );
-      // ✅ 2. แนะนำให้มีการนำทางไปหน้า Login ด้วย
+      //   2. แนะนำให้มีการนำทางไปหน้า Login ด้วย
       // ★ Added: นำทางไปหน้า Login (สามารถส่ง nextRoute เพิ่มเองได้ถ้าต้องการ)
       Navigator.pushNamed(context, '/login');
       return;
@@ -73,11 +73,11 @@ class _FavoriteButtonState extends State<FavoriteButton> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 3. ลบ Manual Responsive Calculation และใช้ Theme
+    //   3. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    // ✅ 4. เปลี่ยนมาใช้ IconButton ที่สามารถกำหนดสไตล์ได้ยืดหยุ่น
+    //   4. เปลี่ยนมาใช้ IconButton ที่สามารถกำหนดสไตล์ได้ยืดหยุ่น
     final button = IconButton(
       onPressed: _isLoading ? null : _toggleFavorite,
       iconSize: 28, // กำหนดขนาดไอคอนที่เหมาะสม

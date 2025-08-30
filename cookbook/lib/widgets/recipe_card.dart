@@ -133,7 +133,7 @@ class RecipeCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                 child: _MetaOneLine(
-                  // ✅ แบบที่ 1 (ค่าเริ่มต้น)
+                  //   แบบที่ 1 (ค่าเริ่มต้น)
                   key: ValueKey('v:${recipe.id}:${favCount}'), // ★★★ [FIX]
                   recipeId: recipe.id, // [NEW]
                   rating: recipe.averageRating,
@@ -259,7 +259,7 @@ class RecipeCard extends StatelessWidget {
   /* ───────────────── helpers ───────────────── */
 
   // [NEW] แยก Badge อันดับซ้ายบน + ป้ายเตือนแพ้ขวาบน
-  // ✅ แก้สำคัญ: ใช้ Positioned.fill + IgnorePointer เพื่อให้ overlay มีขนาด finite เท่ารูป
+  //   แก้สำคัญ: ใช้ Positioned.fill + IgnorePointer เพื่อให้ overlay มีขนาด finite เท่ารูป
   Widget _buildBadges(Recipe recipe) {
     return Positioned.fill(
       child: IgnorePointer(
@@ -295,7 +295,7 @@ class _RecipeImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ ใช้ SafeImage (จะ normalize URL และแก้ localhost ให้เอง)
+    //   ใช้ SafeImage (จะ normalize URL และแก้ localhost ให้เอง)
     return SafeImage(
       url: imageUrl,
       fit: BoxFit.cover,
