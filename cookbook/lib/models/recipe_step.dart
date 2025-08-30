@@ -38,7 +38,7 @@ class RecipeStep {
         'description': description,
       };
 
-  // ✅ เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
+  //   เพิ่มเมธอดมาตรฐานสำหรับ Immutable class
   RecipeStep copyWith({
     int? stepNumber,
     String? description,
