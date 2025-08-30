@@ -227,7 +227,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     } else {
       if (mounted) {
         setState(() {
-          _initFuture = fut; // ✅ อัปเดต state แบบ synchronous
+          _initFuture = fut; //   อัปเดต state แบบ synchronous
         });
       }
       await fut;
@@ -634,7 +634,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
           .map((e) => e.name)
           .toList();
       final badNames =
-          backendNames.isNotEmpty ? backendNames : fallbackNames; // ✅
+          backendNames.isNotEmpty ? backendNames : fallbackNames; //
 
       // ★ กันไม่ให้ didPopNext รีเฟรชเมื่อปิด dialog เตือนแพ้
       _suppressNextDidPopNextRefresh = true;
@@ -644,7 +644,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         barrierDismissible: false,
         builder: (_) => AllergyWarningDialog(
           recipe: r,
-          badIngredientNames: badNames, // ✅ ส่งชื่อเข้า dialog
+          badIngredientNames: badNames, //   ส่งชื่อเข้า dialog
           onConfirm: (rx) {
             Navigator.pop(context);
             Navigator.pushNamed(context, '/recipe_detail', arguments: rx);
@@ -731,8 +731,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
             dot('ใช้ปุ่ม “กรอง” เพื่อเลือก/ยกเว้นวัตถุดิบ'),
             dot('แตะ ✕ เพื่อถอดฟิลเตอร์'),
             dot('แตะการ์ดสูตรเพื่อดูรายละเอียด'),
-            dot('หาก “ตัดคำภาษาไทย” ถูกปิด: ใส่หลายคำคั่นด้วยเว้นวรรคหรือจุลภาค เช่น "กุ้ง กระเทียม" หรือ "กุ้ง,กระเทียม"'),
-            dot('หาก “ตัดคำภาษาไทย” ถูกเปิด: ระบบจะแยกคำอัตโนมัติจากประโยคยาว'),
+            dot('ใส่หลายคำคั่นด้วยเว้นวรรคหรือจุลภาค เช่น กุ้ง กระเทียม หรือ กุ้ง,กระเทียม'),
             dot('เริ่มค้นหาด้วย “กลุ่มวัตถุดิบ” ได้จากหน้าแรก: กดการ์ดกลุ่มเพื่อกรองเมนูในกลุ่มนั้นอัตโนมัติ'),
           ],
         ),

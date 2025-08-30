@@ -17,6 +17,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // --- State ---
   String _username = 'ผู้ใช้';
   String _email = '';
+  String _profileInfo = ''; // ★ คำบรรยายใต้โปรไฟล์
   String? _profileImageUrl; // URL เต็มไว้แสดง
   List<Ingredient> _allergyList = [];
 
@@ -27,27 +28,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _initFuture = _initialize();
+    // ★ ดึงแคชก่อน → แล้วดึงสดมาทับเสมอ (ให้เห็นค่าล่าสุดแน่ ๆ)
+    _initFuture = _initialize(forceServer: true);
   }
 
-  Future<void> _initialize() async {
-    if (!mounted) return;
-    setState(() => _errorMessage = null);
+  // ───────────────── helpers ─────────────────
+  String _safeStr(dynamic v) {
+    if (v == null) return '';
+    final s = v.toString().trim();
+    const nullLikes = {'null', 'NULL', '(null)', 'undefined'};
+    return nullLikes.contains(s) ? '' : s;
+  }
 
-    try {
-      await Future.wait([
-        _loadProfile(),
-        _fetchAllergies(),
-      ]);
-    } on UnauthorizedException {
-      await _handleLogout();
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _errorMessage = e.message);
-    } catch (_) {
-      if (mounted) {
-        setState(() => _errorMessage = 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
+  Map<String, dynamic> _asMap(dynamic v) =>
+      v is Map ? Map<String, dynamic>.from(v as Map) : <String, dynamic>{};
+
+  Map<String, dynamic> _unwrapUser(dynamic raw) {
+    var m = _asMap(raw);
+    for (var i = 0; i < 4; i++) {
+      if (m['data'] is Map) {
+        m = _asMap(m['data']);
+        continue;
       }
+      if (m['user'] is Map) {
+        m = _asMap(m['user']);
+        continue;
+      }
+      if (m['me'] is Map) {
+        m = _asMap(m['me']);
+        continue;
+      }
+      break;
     }
+    return m;
   }
 
   // ---- path utils ----
@@ -62,14 +75,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String? _composeFullUrl(String? maybePath) {
+    // ★ ใช้ util กลางของ ApiService เพื่อแก้ host localhost/127.0.0.1 ให้เหมาะกับ emulator/web
     if (maybePath == null || maybePath.isEmpty) return null;
-    final p = maybePath.replaceAll('\\', '/');
-    if (p.startsWith('http')) return p;
+    return ApiService.normalizeUrl(maybePath);
+  }
+
+  // ───────────────── init ─────────────────
+  Future<void> _initialize({bool forceServer = false}) async {
+    if (!mounted) return;
+    setState(() => _errorMessage = null);
+
     try {
-      final rel = p.startsWith('/') ? p.substring(1) : p;
-      return Uri.parse(ApiService.baseUrl).resolve(rel).toString();
+      await _loadProfile(); // แคช → ขึ้นภาพแรก
+      await _fetchAllergies(); // แพ้อาหาร
+      await _fetchProfileFromServer(force: true); // สด → ทับค่าล่าสุด
+    } on UnauthorizedException {
+      await _handleLogout();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _errorMessage = e.message);
     } catch (_) {
-      return maybePath;
+      if (mounted) {
+        setState(() => _errorMessage = 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
+      }
     }
   }
 
@@ -77,19 +104,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final data = await AuthService.getLoginData();
     if (!mounted) return;
 
-    final rawName = (data['profileName'] ?? 'ผู้ใช้').toString().trim();
-    final rawEmail = (data['email'] ?? '').toString().trim();
-    final rawImage = (data['profileImage'] ?? '').toString();
+    final rawName =
+        _safeStr(data['profileName'] ?? data['profile_name'] ?? 'ผู้ใช้');
+    final rawEmail = _safeStr(data['email'] ?? '');
+    final rawImage = _safeStr(data['profileImage'] ??
+        data['profile_image'] ??
+        data['path_imgProfile']);
+    final rawInfo = _safeStr(data['profileInfo'] ?? data['profile_info']); // ★
 
-    final norm = _normalizeServerPath(rawImage);
-    final full = _composeFullUrl(norm);
+    // ★ ให้ normalize + compose ผ่าน ApiService.normalizeUrl เสมอ
+    final norm = _normalizeServerPath(rawImage) ?? rawImage;
+    final full = _composeFullUrl(norm) ??
+        (rawImage.startsWith('http') ? rawImage : null);
 
     setState(() {
       _isLoggedIn = data['isLoggedIn'] ?? true;
       _username = rawName.isEmpty ? 'ผู้ใช้' : rawName;
       _email = rawEmail;
       _profileImageUrl = full;
+      _profileInfo = rawInfo; // ★
     });
+  }
+
+  // ★ ดึงสดจากเซิร์ฟเวอร์แล้วทับ
+  Future<void> _fetchProfileFromServer({bool force = false}) async {
+    try {
+      final me = await ApiService.fetchMyProfile();
+      if (!mounted) return;
+
+      final root = _unwrapUser(me);
+      if (root.isEmpty) return;
+
+      final serverName = _safeStr(root['profile_name'] ?? root['profileName']);
+      final serverInfo = _safeStr(root['profile_info'] ?? root['profileInfo']);
+      final serverEmail = _safeStr(root['email']);
+      // รองรับทั้ง path และ url ที่กลับมา
+      final rawImg = _safeStr(root['path_imgProfile'] ??
+          root['profile_image'] ??
+          root['avatar'] ??
+          root['image_url']);
+      final serverPath = _normalizeServerPath(rawImg) ?? rawImg;
+      final showUrl = _composeFullUrl(serverPath);
+
+      setState(() {
+        if (serverName.isNotEmpty) _username = serverName;
+        if (serverInfo.isNotEmpty) _profileInfo = serverInfo;
+        if (serverEmail.isNotEmpty) _email = serverEmail; // ★ อัปเดตอีเมลจาก BE
+        if ((showUrl ?? '').isNotEmpty) _profileImageUrl = showUrl;
+      });
+
+      // ★ sync cache ท้องถิ่นเบาๆ (ไม่ยุ่ง isLoggedIn)
+      await AuthService.updateLocalProfile(
+        profileName: serverName,
+        profileImage: serverPath,
+        email: serverEmail,
+        profileInfo: serverInfo,
+      );
+    } catch (_) {
+      // เงียบไว้ ไม่ให้ UX สั่น
+    }
   }
 
   Future<void> _fetchAllergies() async {
@@ -97,8 +170,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted) return;
 
     final adjustedList = list.map((ing) {
-      final full = _composeFullUrl(_normalizeServerPath(ing.imageUrl));
-      return ing.copyWith(imageUrl: full ?? '');
+      // ★ ให้ normalize ผ่าน ApiService.normalizeUrl เพื่อแก้ host
+      final full = ApiService.normalizeUrl(
+        _normalizeServerPath(ing.imageUrl) ?? ing.imageUrl,
+      );
+      return ing.copyWith(imageUrl: full);
     }).toList();
 
     setState(() => _allergyList = adjustedList);
@@ -116,25 +192,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final result = await Navigator.pushNamed(context, '/edit_profile');
     if (!mounted) return;
 
-    // ★ รองรับ Optimistic UI จากหน้าก่อนหน้า
+    // ★ Optimistic: รับค่าที่แก้มาทันที
     if (result is Map && (result['updated'] == true)) {
-      final newName = (result['newName'] ?? '').toString();
-      final newPath =
-          _normalizeServerPath((result['newImagePath'] ?? '').toString());
-      final newUrl = (result['newImageUrl'] is String &&
-              (result['newImageUrl'] as String).isNotEmpty)
-          ? result['newImageUrl'] as String
-          : _composeFullUrl(newPath);
+      final newName = _safeStr(result['newName']);
+      final newPath = _normalizeServerPath(_safeStr(result['newImagePath'])) ??
+          _safeStr(result['newImagePath']);
+      final newUrl = _safeStr(result['newImageUrl']).isNotEmpty
+          ? _safeStr(result['newImageUrl'])
+          : (_composeFullUrl(newPath) ?? '');
 
       setState(() {
         if (newName.isNotEmpty) _username = newName;
-        _profileImageUrl = newUrl; // ใส่ cache-buster มาด้วยอยู่แล้ว (ถ้าให้มา)
+        _profileImageUrl = (result['newImagePath'] == null &&
+                _safeStr(result['newImageUrl']).isEmpty)
+            ? null
+            : (newUrl.isEmpty ? null : newUrl);
+        if (result.containsKey('newProfileInfo')) {
+          _profileInfo = _safeStr(result['newProfileInfo']);
+        }
       });
     }
 
-    // จะให้รีเฟรชจากเซิร์ฟเวอร์จริง ๆ ด้วยก็ได้ (แต่ UI เห็นผลทันทีแล้ว)
+    // แล้วรีเฟรชสดอีกที
     setState(() {
-      _initFuture = _initialize();
+      _initFuture = _initialize(forceServer: true);
     });
   }
 
@@ -142,7 +223,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await Navigator.pushNamed(context, '/allergy');
     if (mounted) {
       setState(() {
-        _initFuture = _initialize();
+        _initFuture = _initialize(forceServer: true);
       });
     }
   }
@@ -150,7 +231,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _onNavItemTapped(int index) {
     if (index == 3) {
       setState(() {
-        _initFuture = _initialize();
+        _initFuture = _initialize(forceServer: true);
       });
       return;
     }
@@ -203,7 +284,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     FilledButton.icon(
                       onPressed: () {
                         setState(() {
-                          _initFuture = _initialize();
+                          _initFuture = _initialize(forceServer: true);
                         });
                       },
                       icon: const Icon(Icons.refresh),
@@ -216,7 +297,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           }
 
           return RefreshIndicator(
-            onRefresh: _initialize,
+            onRefresh: () => _initialize(forceServer: true),
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(24.0),
@@ -238,36 +319,76 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileHeader(ThemeData theme, TextTheme textTheme) {
-    // cache-buster ถ้าต้องการ สามารถเติมจากฝั่ง Edit มาแล้วใน result
+    final cs = theme.colorScheme;
+
     final provider = (_profileImageUrl != null && _profileImageUrl!.isNotEmpty)
         ? NetworkImage(_profileImageUrl!)
         : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
 
-    return Column(
-      children: [
-        Semantics(
-          label: 'รูปโปรไฟล์ของ $_username',
-          image: true,
-          child: CircleAvatar(
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.6)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(.04),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
             radius: 50,
-            backgroundColor: theme.colorScheme.surfaceVariant,
+            backgroundColor: cs.surfaceVariant,
             backgroundImage: provider,
-            onBackgroundImageError: (_, __) {}, // กัน error รูป
+            onBackgroundImageError: (_, __) {},
           ),
-        ),
-        const SizedBox(height: 16),
-        Text(_username, style: textTheme.headlineSmall),
-        if (_email.isNotEmpty)
+          const SizedBox(height: 14),
           Text(
-            _email,
-            style: textTheme.bodyLarge
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            _username,
+            style:
+                textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+            textAlign: TextAlign.center,
           ),
-        TextButton(
-          onPressed: _navToEditProfile,
-          child: const Text('แก้ไขโปรไฟล์'),
-        ),
-      ],
+          if (_email.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              _email,
+              style: textTheme.bodyLarge?.copyWith(color: cs.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          if (_profileInfo.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: cs.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.outlineVariant.withOpacity(.7)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, size: 18, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(_profileInfo, style: textTheme.bodyMedium)),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _navToEditProfile,
+            child: const Text('แก้ไขโปรไฟล์'),
+          ),
+        ],
+      ),
     );
   }
 

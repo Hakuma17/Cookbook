@@ -1,19 +1,13 @@
 // lib/screens/my_recipes_screen.dart
 //
 // ปรับกริดการ์ดให้เท่ากันทุกใบ + ลดพื้นที่ขาวล่าง
-// - ล็อค 2 คอลัมน์
-// - คำนวณ childAspectRatio ตามความกว้างการ์ดจริง (สอดคล้อง MyRecipeCard)
-// - ปรับช่องไฟ/ขอบให้พอดีตา
-//
-// ★★★ [NEW] เพิ่ม “โหมดเลือกหลายรายการ” ในแท็บ “สูตรโปรดของฉัน”
-// - กดค้างที่การ์ดเพื่อเข้าโหมดเลือก
-// - แตะที่การ์ดเพื่อเลือก/ยกเลิกเลือก
-// - มีแถบเครื่องมือ (ยกเลิก, เลือกทั้งหมด, ลบ)
-// - โค้ดเดิมยังคงไว้ทั้งหมด (เฉพาะส่วนที่ต้องเพิ่มมีคอมเมนต์ [NEW])
+// + โหมดเลือกหลายรายการ (แท็บสูตรโปรด)
+// + โหมดสลับหน่วยแสดงผลในตะกร้าวัตถุดิบ (หน่วยเดิม/กรัม)
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // ★ หน่วยแสดงผล
 import '../stores/favorite_store.dart';
 
 import 'package:cookbook/services/auth_service.dart';
@@ -28,6 +22,7 @@ import '../models/recipe.dart';
 import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
+import '../models/unit_display_mode.dart'; // ★ หน่วยแสดงผล
 import '../widgets/allergy_warning_dialog.dart';
 import '../main.dart';
 
@@ -66,11 +61,13 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   // Init
   late Future<void> _initFuture;
 
-  // ────────────────────────────────────────────────────────
-  // ★★★ [NEW] Selection Mode (เลือกหลายใบใน “สูตรโปรดของฉัน”)
-  bool _selectionMode = false; // อยู่ในโหมดเลือกหรือไม่
-  final Set<int> _selectedIds = <int>{}; // ids ที่ถูกเลือก
-  // ────────────────────────────────────────────────────────
+  // ★ โหมดหน่วยใน “ตะกร้าวัตถุดิบ”
+  static const _kUnitModeKey = 'cart_unit_mode';
+  UnitDisplayMode _cartUnitMode = UnitDisplayMode.original;
+
+  // ★ Selection Mode (สูตรโปรดของฉัน)
+  bool _selectionMode = false;
+  final Set<int> _selectedIds = <int>{};
 
   /* ────────── INIT ────────── */
   @override
@@ -78,7 +75,26 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     super.initState();
     _selectedTab = widget.initialTab.clamp(0, 1);
     _futureFavorites = Future.value(<Recipe>[]);
-    _initFuture = _initialize(); // โหลดรอบแรก
+    _initFuture = _initialize();
+    _loadUnitMode(); // โหลดโหมดหน่วยที่เลือกไว้
+  }
+
+  Future<void> _loadUnitMode() async {
+    final sp = await SharedPreferences.getInstance();
+    final raw = sp.getString(_kUnitModeKey);
+    if (!mounted) return;
+    setState(() {
+      _cartUnitMode =
+          raw == 'grams' ? UnitDisplayMode.grams : UnitDisplayMode.original;
+    });
+  }
+
+  Future<void> _saveUnitMode(UnitDisplayMode m) async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(
+      _kUnitModeKey,
+      m == UnitDisplayMode.grams ? 'grams' : 'original',
+    );
   }
 
   Future<void> _initialize({bool forceRefresh = false}) async {
@@ -190,7 +206,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   void _showSnack(String msg, {bool isError = true}) {
     if (!mounted) return;
     final theme = Theme.of(context);
-    // ★ [NEW] กัน SnackBar ซ้อน
+    // ★ กัน SnackBar ซ้อน
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -205,7 +221,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
-    // ★ [NEW] Back = ออกจากโหมดเลือกก่อน
+    // Back = ออกจากโหมดเลือกก่อน
     return WillPopScope(
       onWillPop: () async {
         if (_selectionMode) {
@@ -231,9 +247,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
             children: [
               const SizedBox(height: 12),
 
-              // ─────────────────────────────────────────────────────────
               // ส่วนหัวเดิม + แท็บ  ❮คงไว้❯  แต่สลับเป็นแถบ “โหมดเลือก” เมื่อ _selectionMode=true
-              // ─────────────────────────────────────────────────────────
               if (!(_selectionMode && _selectedTab == 0)) ...[
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: _kHeaderHPad),
@@ -253,7 +267,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
                 ),
                 const SizedBox(height: 6),
               ] else ...[
-                // ★★★ [NEW] แถบเครื่องมือของโหมดเลือก
+                // ★★★ แถบเครื่องมือของโหมดเลือก
                 _buildSelectionBar(theme),
               ],
 
@@ -274,9 +288,18 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
                       onRefresh: () => _initialize(forceRefresh: true),
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 200),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        // ⬇️ ใส่คีย์คงที่ให้ child ของแต่ละแท็บ (กัน remount ที่ทำให้ state ภายในหาย)
                         child: _selectedTab == 0
-                            ? _buildFavoritesView()
-                            : _buildCartView(),
+                            ? KeyedSubtree(
+                                key: const ValueKey('tab-fav'),
+                                child: _buildFavoritesView(),
+                              )
+                            : KeyedSubtree(
+                                key: const ValueKey('tab-cart'),
+                                child: _buildCartView(),
+                              ),
                       ),
                     );
                   },
@@ -302,8 +325,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         onTap: () {
           if (_selectedTab == index) return;
           setState(() {
-            // ★★ ออกจากโหมดเลือกเมื่อสลับแท็บ
-            _exitSelection();
+            _exitSelection(); // ออกจากโหมดเลือกเมื่อสลับแท็บ
             _selectedTab = index;
             _initFuture = _initialize();
           });
@@ -334,41 +356,68 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
-  // ★★★ [NEW] แถบเครื่องมือตอนโหมดเลือก (ปุ่ม: ยกเลิก / เลือกทั้งหมด / ลบ)
+  // แถบเครื่องมือของโหมดเลือก (ปุ่ม: ยกเลิก / เลือกทั้งหมด / ลบ)
   Widget _buildSelectionBar(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(_kHeaderHPad, 12, _kHeaderHPad, 6),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: 'ยกเลิก',
-            icon: const Icon(Icons.close),
-            onPressed: _exitSelection,
+    return FutureBuilder<List<Recipe>>(
+      future: _futureFavorites,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done ||
+            !snapshot.hasData) {
+          return Padding(
+            padding:
+                const EdgeInsets.fromLTRB(_kHeaderHPad, 12, _kHeaderHPad, 6),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'ยกเลิก',
+                  icon: const Icon(Icons.close),
+                  onPressed: _exitSelection,
+                ),
+                Text(
+                  'เลือกไว้ ${_selectedIds.length}',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final list = snapshot.data!;
+        final bool _isAllSelected =
+            _selectedIds.length == list.length && list.isNotEmpty;
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(_kHeaderHPad, 12, _kHeaderHPad, 6),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'ยกเลิก',
+                icon: const Icon(Icons.close),
+                onPressed: _exitSelection,
+              ),
+              Text(
+                'เลือกไว้ ${_selectedIds.length}',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip:
+                    _isAllSelected ? 'ยกเลิกการเลือกทั้งหมด' : 'เลือกทั้งหมด',
+                icon: Icon(_isAllSelected ? Icons.clear : Icons.checklist),
+                onPressed: () => _toggleSelectAll(list),
+              ),
+              IconButton(
+                tooltip: 'ลบ',
+                icon: const Icon(Icons.delete_outline),
+                onPressed:
+                    _selectedIds.isEmpty ? null : _deleteSelectedFavorites,
+              ),
+            ],
           ),
-          Text(
-            'เลือกไว้ ${_selectedIds.length}',
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const Spacer(),
-          IconButton(
-            tooltip: 'เลือกทั้งหมด',
-            icon: const Icon(Icons.select_all),
-            onPressed: () async {
-              final list = await _futureFavorites;
-              _toggleSelectAll(
-                  list); // ★ NEW: เลือกทั้งหมด/ยกเลิกทั้งหมด ตามสถานะ
-            },
-          ),
-          IconButton(
-            tooltip: 'ลบ',
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _selectedIds.isEmpty
-                ? null // ★ NEW: disabled ถ้าไม่มีที่เลือก
-                : _deleteSelectedFavorites,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -395,18 +444,18 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           );
         }
 
-        // ✅ ล็อค 2 คอลัมน์ + คำนวณสัดส่วนจริงให้การ์ด “เต็มพอดี” ไม่เหลือพื้นขาวล่าง
+        //ล็อค 2 คอลัมน์ + คำนวณสัดส่วนจริงให้การ์ด “เต็มพอดี” ไม่เหลือพื้นขาวล่าง
         final bottomSafe = MediaQuery.of(context).padding.bottom;
         final ratio = _calcCardAspectRatio(context);
 
         return Scrollbar(
-          // ★ NEW: เพิ่ม Scrollbar
+          // ★ เพิ่ม Scrollbar
           child: GridView.builder(
             padding: EdgeInsets.fromLTRB(
               _kGridHPad,
               8,
               _kGridHPad,
-              10 + bottomSafe, // NEW: ลดพื้นที่ขาวล่างลง
+              10 + bottomSafe,
             ),
             physics: const AlwaysScrollableScrollPhysics(),
             cacheExtent: 800,
@@ -414,7 +463,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
               crossAxisCount: _kGridColumns,
               mainAxisSpacing: _kGridSpacing,
               crossAxisSpacing: _kGridSpacing,
-              childAspectRatio: ratio, // ~0.76–0.82 ตามจอ/ฟอนต์
+              childAspectRatio: ratio,
             ),
             itemCount: list.length,
             itemBuilder: (_, i) {
@@ -423,7 +472,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
                 hasAllergy: _checkIfRecipeHasAllergy(r),
               );
 
-              // ★★★ [NEW] โหมดเลือกหลายรายการ
+              // โหมดเลือกหลายรายการ
               final bool selected = _selectedIds.contains(updatedRecipe.id);
 
               final card = GestureDetector(
@@ -432,7 +481,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
                   duration: const Duration(milliseconds: 120),
                   opacity: _selectionMode && !selected ? 0.6 : 1.0,
                   child: Semantics(
-                    // ★ NEW: A11y
+                    // ★ A11y
                     button: true,
                     label: 'สูตรอาหาร ${updatedRecipe.name}',
                     selected: selected,
@@ -476,7 +525,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
-  // ★★★ [NEW] วิดเจ็ตติ๊กถูกมุมการ์ด
+  // วิดเจ็ตติ๊กถูกมุมการ์ด
   Widget _selectionTick(bool selected, ThemeData theme) {
     final cs = theme.colorScheme;
     return AnimatedContainer(
@@ -505,8 +554,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     );
   }
 
-  /// คำนวณ childAspectRatio จาก “ความกว้างจริงของการ์ด”
-  /// สอดคล้องกับ MyRecipeCard: รูป 4:3 + ชื่อ 2 บรรทัด + meta 1 แถว + padding
+  /// คำนวณ childAspectRatio จากความกว้างการ์ดจริง
   double _calcCardAspectRatio(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final ts = Theme.of(context).textTheme;
@@ -525,13 +573,13 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     // สูงเนื้อหาใต้รูป: ชื่อ 2 บรรทัด (titleMedium), meta 1 แถว (bodyMedium), padding ภายในการ์ด
     final titleH = lineH(ts.titleMedium, 16) * 2;
     final metaH = lineH(ts.bodyMedium, 14);
-    const innerPadding = 8 + 2 + 8; // fromLTRB(12,8,12,2) + meta bottom 8
+    const innerPadding = 8 + 2 + 8;
     final contentH = titleH + metaH + innerPadding;
 
     final cardH = imageH + contentH;
     final ratio = cardW / cardH;
 
-    // NEW: เผื่อกรณีปรับขนาดฟอนต์ระบบ → บีบให้อยู่ในช่วงที่ดูพอดี
+    // เผื่อกรณีปรับขนาดฟอนต์ระบบ → บีบให้อยู่ในช่วงที่ดูพอดี
     return ratio.clamp(0.76, 0.84);
   }
 
@@ -547,14 +595,13 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     }
 
     return Scrollbar(
-      // ★ NEW: Scrollbar
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              height: 256, // NEW: เผื่อชื่อ 2 บรรทัด ดูโปร่งไม่อัด
+              height: 256,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.all(16),
@@ -568,7 +615,19 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
               ),
             ),
             const SizedBox(height: 20),
-            CartIngredientListSection(ingredients: _cartIngredients),
+
+            // ส่งโหมด + callback ไปยัง Section
+            CartIngredientListSection(
+              key: const PageStorageKey(
+                  'cart-ingredient-list'), // ★ กันรีสร้างและจำ state ภายใน
+              ingredients: _cartIngredients,
+              unitMode: _cartUnitMode,
+              onUnitModeChanged: (m) async {
+                setState(() => _cartUnitMode = m);
+                await _saveUnitMode(m);
+              },
+            ),
+
             const SizedBox(height: 72),
           ],
         ),
@@ -692,8 +751,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     }
   }
 
-  // ────────────────────────────────────────────────────────
-  // ★★★ [NEW] Selection Mode helpers
+  // ───────── Selection Mode helpers ─────────
   void _enterSelection(Recipe r) {
     setState(() {
       _selectionMode = true;
@@ -726,7 +784,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     setState(() {
       _selectionMode = true;
       if (_selectedIds.length == allIds.length) {
-        // ★ NEW: เลือกครบอยู่แล้ว → เคลียร์เป็น “ยกเลิกทั้งหมด”
+        // ★เลือกครบอยู่แล้ว → เคลียร์เป็น “ยกเลิกทั้งหมด”
         _selectedIds.clear();
       } else {
         _selectedIds
@@ -762,10 +820,8 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
       await Future.wait(
           _selectedIds.map((id) => ApiService.toggleFavorite(id, false)));
 
-      // 🔴 สำคัญ: แจ้งให้ทุกหน้าทราบว่ารายการโปรดเปลี่ยนแล้ว
-      await context.read<FavoriteStore>().removeMany(_selectedIds); // ⬅️ สำคัญ
-
-      await _loadFavorites(); // รีเฟรชลิสต์ในหน้านี้
+      await context.read<FavoriteStore>().removeMany(_selectedIds);
+      await _loadFavorites();
       _showSnack('ลบ ${_selectedIds.length} รายการแล้ว', isError: false);
     } catch (_) {
       _showSnack('ลบรายการไม่สำเร็จ');

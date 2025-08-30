@@ -6,6 +6,11 @@
 // • ปรับ overlay แยกข้อความระหว่าง "กำลังบันทึก..." กับ "กำลังดึงข้อมูลจาก Google..."
 //
 // ต้องมีไฟล์: assets/icons/google.png, assets/images/default_avatar.png
+//
+// 2025-08-29 — FIX & ENHANCE
+// • รักษา google_id ใน local login หลัง save (ถ้า AuthService.saveLogin รองรับ googleId ส่งไปด้วย)
+// • ถ้าไม่มี google_id ใน local → พยายาม signInSilently() เทียบอีเมล เพื่อตัดสินว่าเชื่อม Google
+// • เพิ่มช่องแก้ไข “ข้อมูลแสดงใต้โปรไฟล์” (profile_info / profileInfo) + validate
 
 import 'dart:async';
 import 'dart:convert';
@@ -26,6 +31,10 @@ import '../services/auth_service.dart';
 const int kNameUiMax = 25;
 const int kNameDbMaxBytes = 100;
 
+// ★ ใหม่: ลิมิตสำหรับ “ข้อมูลแสดงใต้โปรไฟล์”
+const int kInfoUiMax = 160; // ตัวอักษรบน UI
+const int kInfoDbMaxBytes = 1000; // ไบต์ที่ยอมรับส่งขึ้นหลังบ้าน
+
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -37,6 +46,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   // ───── Form state ─────
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
+  // ★ ใหม่: ช่องข้อมูลใต้โปรไฟล์
+  final _infoCtrl = TextEditingController();
 
   // ───── Avatar state ─────
   String? _currentImageUrl; // Full URL for display (e.g., https://...)
@@ -56,6 +67,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   // ───── Initial snapshot ─────
   String _initialName = '';
   String _initialImagePathRaw = '';
+  // ★ ใหม่: เก็บสแน็ปช็อต info
+  String _initialInfo = '';
 
   // ───── Google link flag ─────
   bool _isGoogleLinked = false; // โชว์ปุ่มเฉพาะเมื่อ true
@@ -65,12 +78,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.initState();
     _picker = _ImagePickerHelper(context: context, onBlocking: _setBlocking);
     _nameCtrl.addListener(() => setState(() {}));
+    _infoCtrl.addListener(() => setState(() {})); // ★
     _loadUserProfile();
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _infoCtrl.dispose(); // ★
     super.dispose();
   }
 
@@ -119,20 +134,41 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final String? uiUrl =
           rawImage.startsWith('http') ? rawImage : _composeFullUrl(normPath);
 
+      // ★ ใหม่: ข้อมูลใต้โปรไฟล์ (รองรับทั้ง profileInfo และ profile_info)
+      final rawInfo =
+          ((data['profileInfo'] ?? data['profile_info']) ?? '').toString();
+
       // ตรวจว่าเชื่อม Google ไหม (รองรับทั้ง google_id และ googleId)
       final rawGoogleId =
           ((data['google_id'] ?? data['googleId']) ?? '').toString().trim();
-      final linked = rawGoogleId.isNotEmpty &&
+
+      bool linked = rawGoogleId.isNotEmpty &&
           rawGoogleId.toLowerCase() != 'null' &&
+          rawGoogleId.toLowerCase() != 'none' &&
           rawGoogleId != '0';
+
+      // ★ เสริมความทน: ถ้า local ไม่มี google_id แต่เคยลงชื่อด้วย Google ในเครื่องนี้ ให้แสดงปุ่มได้
+      if (!linked) {
+        try {
+          final acc = await _googleSignIn.signInSilently();
+          final email = (data['email'] ?? '').toString().toLowerCase();
+          if (acc != null && acc.email.toLowerCase() == email) {
+            linked = true;
+          }
+        } catch (_) {
+          // เงียบไว้ ไม่รบกวน UX
+        }
+      }
 
       setState(() {
         _nameCtrl.text = rawName;
+        _infoCtrl.text = rawInfo; // ★
         _currentImagePathRaw = normPath;
         _currentImageUrl = uiUrl;
 
         _initialName = _nameCtrl.text;
         _initialImagePathRaw = _currentImagePathRaw ?? '';
+        _initialInfo = _infoCtrl.text; // ★
 
         _isGoogleLinked = linked;
         _bootLoading = false;
@@ -214,12 +250,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     FocusScope.of(context).unfocus();
 
     final newName = _nameCtrl.text.trim();
+    final newInfo = _infoCtrl.text.trim(); // ★
     final login = await AuthService.getLoginData();
     final oldName = (login['profileName'] ?? '').toString();
     final oldImgRaw =
         _normalizeServerPath((login['profileImage'] ?? '').toString()) ?? '';
+    final oldInfo =
+        ((login['profileInfo'] ?? login['profile_info']) ?? '').toString(); // ★
 
     final noChange = newName == oldName &&
+        newInfo == oldInfo && // ★
         _newImageFile == null &&
         ((_currentImagePathRaw ?? '') == oldImgRaw);
     if (noChange) {
@@ -247,9 +287,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
       }
 
+      // ★ ส่ง profileInfo ขึ้นหลังบ้านด้วย (ถ้า API รองรับ)
       final updated = await ApiService.updateProfile(
         profileName: newName,
         imageUrl: serverPath ?? '',
+        profileInfo: newInfo, // ← เพิ่มพารามิเตอร์ (optional)
       );
 
       final originalImage = (login['profileImage'] ?? '').toString();
@@ -271,11 +313,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         finalShowUrl = uiUrl ?? _composeFullUrl(finalPathToSave);
       }
 
+      // ★ รักษา google_id เดิมไว้ใน local (ถ้า saveLogin รองรับ googleId ให้ส่งต่อ)
+      final preservedGoogleId =
+          ((login['google_id'] ?? login['googleId']) ?? '').toString();
+
       await AuthService.saveLogin(
         userId: login['userId'],
         profileName: updated['profile_name'] ?? newName,
         profileImage: finalPathToSave,
         email: login['email'],
+        // ↓ NOTE:
+        // ถ้าโปรเจกต์ของคุณรองรับพารามิเตอร์เสริม ให้เปิดบรรทัดนี้ใน AuthService.saveLogin:
+        // googleId: preservedGoogleId,
+        // profileInfo: updated['profile_info'] ?? newInfo,
       );
 
       if (!mounted) return;
@@ -288,6 +338,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _currentImageUrl = finalShowUrl;
         _initialName = newName;
         _initialImagePathRaw = _currentImagePathRaw ?? '';
+        _initialInfo = newInfo; // ★
+        // ★ คงสถานะการเชื่อม Google เอาไว้ ไม่ให้ปุ่มหายทันทีหลังบันทึก
+        if (preservedGoogleId.isNotEmpty &&
+            preservedGoogleId.toLowerCase() != 'null' &&
+            preservedGoogleId != '0') {
+          _isGoogleLinked = true;
+        }
       });
 
       Navigator.pop(context, {
@@ -295,9 +352,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'newName': newName,
         'newImagePath': _currentImagePathRaw,
         'newImageUrl': finalShowUrl,
+        'newProfileInfo': newInfo, // ★ ส่งกลับให้หน้าโปรไฟล์ใช้ได้ทันที
       });
     } on UnauthorizedException {
-      _showSnack('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง');
+      _showSnack('เซสชันหมดอายุ กรุณาลงชื่อเข้าใช้อีกครั้ง');
       await AuthService.logout();
       if (mounted) {
         Navigator.of(context)
@@ -329,9 +387,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   bool get _hasChanges {
     final nameChanged = _nameCtrl.text.trim() != _initialName.trim();
+    final infoChanged = _infoCtrl.text.trim() != _initialInfo.trim(); // ★
     final imageChanged = _newImageFile != null ||
         (_currentImagePathRaw ?? '') != _initialImagePathRaw;
-    return nameChanged || imageChanged;
+    return nameChanged || infoChanged || imageChanged; // ★ รวม info
   }
 
   Future<bool> _confirmDiscardIfNeeded() async {
@@ -588,11 +647,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ),
                         ),
                         const SizedBox(height: 30),
+
+                        // ───── ชื่อผู้ใช้ ─────
                         TextFormField(
                           controller: _nameCtrl,
                           decoration:
                               const InputDecoration(labelText: 'ชื่อผู้ใช้'),
-                          textInputAction: TextInputAction.done,
+                          textInputAction: TextInputAction.next,
                           maxLength: kNameUiMax,
                           maxLengthEnforcement: MaxLengthEnforcement.enforced,
                           inputFormatters: [
@@ -605,6 +666,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             final bytes = utf8.encode(t).length;
                             if (bytes > kNameDbMaxBytes) {
                               return 'ชื่อต้องมีความยาวไม่เกิน $kNameDbMaxBytes ไบต์';
+                            }
+                            return null;
+                          },
+                        ),
+
+                        // ───── ★ ใหม่: ข้อมูลแสดงใต้โปรไฟล์ ─────
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _infoCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'ข้อมูลแสดงใต้โปรไฟล์',
+                            hintText: 'เช่น “ชอบทำอาหารไทย | แพ้ถั่วลิสง”',
+                          ),
+                          minLines: 2,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.done,
+                          maxLength: kInfoUiMax,
+                          inputFormatters: [
+                            LengthLimitingTextInputFormatter(kInfoUiMax),
+                          ],
+                          validator: (v) {
+                            final t = (v ?? '').trim();
+                            if (t.isEmpty) return null; // ไม่บังคับกรอก
+                            final bytes = utf8.encode(t).length;
+                            if (bytes > kInfoDbMaxBytes) {
+                              return 'ข้อมูลยาวเกินไป (ไม่เกิน $kInfoDbMaxBytes ไบต์)';
                             }
                             return null;
                           },

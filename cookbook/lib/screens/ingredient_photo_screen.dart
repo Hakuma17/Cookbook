@@ -123,7 +123,7 @@ class _IngredientPhotoScreenState
       final rawFile = await _cameraHelper.takePicture();
       if (rawFile == null) return;
 
-      // ✅ ใช้ “ขนาดกล่องพรีวิวจริง” แทน MediaQuery.size
+      //   ใช้ “ขนาดกล่องพรีวิวจริง” แทน MediaQuery.size
       final pvSize = _previewBoxSize ?? MediaQuery.of(context).size;
 
       final cropped = await _imageHelper.cropImageFromCoverPreview(
@@ -654,7 +654,7 @@ class _ImageHelper {
     return _cropImage(picked.path);
   }
 
-  /// ✅ ครอปตามกรอบ 1:1 บน **พื้นที่พรีวิวจริง (previewBoxSize)** ที่แสดงแบบ cover
+  ///   ครอปตามกรอบ 1:1 บน **พื้นที่พรีวิวจริง (previewBoxSize)** ที่แสดงแบบ cover
   Future<File> cropImageFromCoverPreview(
     File file,
     Size previewBoxSize,

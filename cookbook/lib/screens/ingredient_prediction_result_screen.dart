@@ -76,7 +76,7 @@ class _IngredientPredictionResultScreenState
     if (widget.allPredictions.isNotEmpty) {
       final top = widget.allPredictions.first;
       final conf = (top['confidence'] as num).toDouble();
-      // ✅ Autofill เฉพาะ ≥ 80%
+      //   Autofill เฉพาะ ≥ 80%
       if (conf >= _kAutoFillThreshold) {
         _inputCtrl.text = _mapLabel(top['label'] as String);
       }

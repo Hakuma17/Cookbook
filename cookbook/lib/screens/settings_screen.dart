@@ -87,7 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Settings/Profile tab index = 3 (consistent with other screens)
     if (index == 3) {
       setState(() {
-        _initFuture = _initialize(); // ✅ ไม่คืน Future ออกไป
+        _initFuture = _initialize(); //   ไม่คืน Future ออกไป
       });
       return;
     }

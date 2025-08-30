@@ -141,38 +141,90 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
 
   Future<void> _showSuccessDialog() async {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final tt = theme.textTheme;
+
+    // ★ จำกัด text scale กัน overflow จากการตั้งค่าฟอนต์ใหญ่ของเครื่อง
+    final clampedScaler = MediaQuery.textScalerOf(context)
+        .clamp(minScaleFactor: 1.0, maxScaleFactor: 1.3);
+
     return showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 28, vertical: 36), // ★ ใหญ่ขึ้น
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            CircleAvatar(
-              radius: 40, // ★ ใหญ่ขึ้น
-              backgroundColor: Colors.green.shade600,
-              child: const Icon(Icons.check, color: Colors.white, size: 44),
+      builder: (ctx) {
+        return MediaQuery(
+          // ใช้ text scale ที่คลัมป์แล้วภายใน dialog นี้เท่านั้น
+          data: MediaQuery.of(ctx).copyWith(textScaler: clampedScaler),
+          child: Dialog(
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                  maxWidth: 420), // สวยบนแท็บเล็ต/เดสก์ท็อป
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // เนื้อหา
+                  Padding(
+                    // เผื่อพื้นที่ด้านบนสำหรับ badge
+                    padding: const EdgeInsets.fromLTRB(24, 56, 24, 20),
+                    child: SingleChildScrollView(
+                      // กันล้นแนวตั้งกรณีฟอนต์ใหญ่มาก
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'สำเร็จ',
+                            style: tt.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            // ตัด \n ออกเพื่อให้จัดบรรทัดอัตโนมัติสวยขึ้น
+                            'รหัสผ่านของคุณถูกเปลี่ยนเรียบร้อยแล้ว กรุณาเข้าสู่ระบบอีกครั้งด้วยรหัสผ่านใหม่',
+                            textAlign: TextAlign.center,
+                            style: tt.bodyLarge?.copyWith(
+                              height: 1.5,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: () => Navigator.of(ctx)
+                                  .pushNamedAndRemoveUntil(
+                                      '/login', (_) => false),
+                              child: const Text('ดำเนินการต่อ'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Badge ไอคอนเช็ค ลอยเหนือการ์ดเล็กน้อย
+                  Positioned(
+                    top: -36,
+                    left: 0,
+                    right: 0,
+                    child: CircleAvatar(
+                      radius: 36,
+                      backgroundColor:
+                          cs.tertiaryContainer, // โทนสำเร็จที่เข้ากับธีม M3
+                      child: Icon(Icons.check_rounded,
+                          size: 42, color: cs.onTertiaryContainer),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 18),
-            Text('สำเร็จ', style: tt.titleLarge),
-            const SizedBox(height: 10),
-            Text(
-              'รหัสผ่านของคุณถูกเปลี่ยนเรียบร้อยแล้ว\nกรุณาเข้าสู่ระบบอีกครั้งด้วยรหัสผ่านใหม่',
-              textAlign: TextAlign.center,
-              style: tt.bodyLarge?.copyWith(height: 1.6), // ★ bodyLarge
-            ),
-            const SizedBox(height: 26),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context)
-                  .pushNamedAndRemoveUntil('/login', (_) => false),
-              child: const Text('ดำเนินการต่อ'),
-            ),
-          ]),
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

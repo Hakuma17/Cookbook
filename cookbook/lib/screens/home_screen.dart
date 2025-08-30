@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/material.dart';
-// ✨ NEW: ใช้สำหรับตัดตัวอักษรแบบปลอดภัย (ภาษาไทย/อีโมจิ)
+//   NEW: ใช้สำหรับตัดตัวอักษรแบบปลอดภัย (ภาษาไทย/อีโมจิ)
 import 'package:characters/characters.dart';
 
 // Store กลางไว้ sync รายการโปรด
@@ -60,7 +60,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   String? _profileName;
   String? _profileImage;
 
-  // 🔧 URL โปรไฟล์ที่ใส่ cache-bust แล้ว (สำหรับหน้า Home)
+  //  URL โปรไฟล์ที่ใส่ cache-bust แล้ว (สำหรับหน้า Home)
   String? _profileImageBusted;
 
   int _selectedIndex = 0;
@@ -68,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   bool _navBusy = false;
   bool _isLoading = true;
 
-  // ✅ รีเฟรชเฉพาะตอนกลับจาก “หน้าเต็ม” ที่เราตั้งใจไป ไม่รีเฟรชตอนปิด dialog
+  //   รีเฟรชเฉพาะตอนกลับจาก “หน้าเต็ม” ที่เราตั้งใจไป ไม่รีเฟรชตอนปิด dialog
   bool _refreshOnReturn = false;
 
   // helper: เติม query เพื่อ bust แคช
@@ -573,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  // ✨ NEW: ฟังก์ชันคำนวณข้อความ “พอดี 1 บรรทัด” แบบไม่ขึ้น …
+  //   NEW: ฟังก์ชันคำนวณข้อความ “พอดี 1 บรรทัด” แบบไม่ขึ้น …
   String _fitOneLine({
     required String prefix, // "สวัสดี "
     required String name, // ชื่อผู้ใช้
@@ -654,7 +654,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       ),
       child: Row(
         children: [
-          // ✨ NEW: แตะรูปเพื่อไปหน้าโปรไฟล์/ล็อกอิน
+          //   NEW: แตะรูปเพื่อไปหน้าโปรไฟล์/ล็อกอิน
           InkWell(
             onTap: () => Navigator.pushNamed(
                 context, _isLoggedIn ? '/profile' : '/login'),
@@ -677,7 +677,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
           ),
           const SizedBox(width: 12),
 
-          // ✨ NEW: บรรทัดเดียวแบบ "พอดีจริง" (ไม่ใช้ …)
+          //   NEW: บรรทัดเดียวแบบ "พอดีจริง" (ไม่ใช้ …)
           Expanded(
             child: LayoutBuilder(
               builder: (ctx, cons) {

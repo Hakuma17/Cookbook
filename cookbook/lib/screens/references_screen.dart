@@ -115,6 +115,25 @@ class ReferencesScreen extends StatelessWidget {
               ),
             ],
           ),
+          // --- Section: ผู้จัดทำ ---
+          _buildSection(
+            context,
+            icon: Icons.people_outline,
+            title: 'อาจารย์ที่ปรึกษา',
+            children: const [
+              _PeopleTile(
+                initials: 'ป',
+                name: 'ดร.ปอลิน กองสุวรรณ',
+                role: 'อาจารย์ที่ปรึกษาหลัก',
+              ),
+              Divider(height: 1),
+              _PeopleTile(
+                initials: 'ศิ',
+                name: 'ผศ.ดร.ศิริชัย เตรียมล้ำเลิศ',
+                role: 'อาจารย์ที่ปรึกษาร่วม',
+              ),
+            ],
+          ),
         ],
       ),
     );

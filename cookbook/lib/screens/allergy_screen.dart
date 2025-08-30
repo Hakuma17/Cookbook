@@ -17,7 +17,7 @@ import 'package:flutter/material.dart';
 
 import '../models/ingredient.dart';
 import '../services/api_service.dart';
-import '../services/auth_service.dart'; // ✅ 1. เพิ่ม AuthService
+import '../services/auth_service.dart'; //   1. เพิ่ม AuthService
 import 'all_ingredients_screen.dart';
 
 class AllergyScreen extends StatefulWidget {
@@ -62,7 +62,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
   }
 
   /* ─── API loads & Actions ──────────────────────────────── */
-  /// ✅ 2. ปรับปรุง Error Handling ให้รองรับ Custom Exception
+  ///   2. ปรับปรุง Error Handling ให้รองรับ Custom Exception
   Future<void> _loadAllergyList() async {
     if (!mounted) return;
     setState(() {
@@ -126,7 +126,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
     }
   }
 
-  /// ✅ 3. แก้ไข "Undo" Logic ให้ถูกต้อง และปรับปรุง "Remove"
+  ///   3. แก้ไข "Undo" Logic ให้ถูกต้อง และปรับปรุง "Remove"
   void _removeAllergy(Ingredient ing) {
     if (_removingIds.contains(ing.id)) return;
 
@@ -233,7 +233,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
     }
   }
 
-  /// ✅ 4. ปรับปรุง "Add" ให้เป็น Optimistic UI
+  ///   4. ปรับปรุง "Add" ให้เป็น Optimistic UI
   Future<void> _onAddAllergy() async {
     final Ingredient? picked = await Navigator.push<Ingredient>(
       context,
@@ -539,7 +539,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
     );
   }
 
-  // ✅ 6. แยก Widget ของ Empty State ออกมาเพื่อความสะอาด
+  //   6. แยก Widget ของ Empty State ออกมาเพื่อความสะอาด
   Widget _buildEmptyState(TextTheme textTheme) {
     return Center(
       child: Column(
