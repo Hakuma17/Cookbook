@@ -1,0 +1,23 @@
+# Repository-level gitignore
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build and development artifacts
+*.log
+*.tmp
+
+# Flutter/Dart specific files are handled by cookbook/.gitignore
