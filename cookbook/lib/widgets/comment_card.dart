@@ -66,7 +66,7 @@ class CommentContent extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: _s(context, 18),
-              backgroundColor: colorScheme.surfaceVariant,
+              backgroundColor: colorScheme.surfaceContainerHighest,
               backgroundImage: avatarProvider,
             ),
             const SizedBox(width: 12),
@@ -178,18 +178,26 @@ class CommentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Adaptive background: use container tones in dark, default cardColor / surface in light
+    final Color bg = cardColor ??
+        (isDark ? colorScheme.surfaceContainerLow : theme.cardColor);
+
+    final borderColor =
+        colorScheme.outlineVariant.withValues(alpha: isDark ? .25 : .35);
+    final shadowClr = isDark
+        ? Colors.black.withValues(alpha: 0.40)
+        : Colors.black.withValues(alpha: 0.05);
 
     return Card(
       margin: margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: cardColor ?? theme.cardColor,
-      elevation: 0,
-      shadowColor: Colors.black.withOpacity(0.05),
+      color: bg,
+      elevation: 0, // keep flat; rely on subtle border & shadow
+      shadowColor: shadowClr,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: colorScheme.outlineVariant.withOpacity(.35),
-          width: 1,
-        ),
+        side: BorderSide(color: borderColor, width: 1),
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(

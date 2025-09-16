@@ -19,12 +19,15 @@ double _s(BuildContext context, double base) =>
 
 // ★ helper: รวม normalize + compose URL (รักษา query string เช่น ?v=123 ไว้)
 String? _safeFullUrl(String? raw) {
-  if (raw == null) return null;
+  if (raw == null) {
+    return null;
+  }
   final trimmed = raw.trim();
   if (trimmed.isEmpty) return null;
   var s = trimmed.replaceAll('\\', '/');
-  if (s.startsWith('http'))
+  if (s.startsWith('http')) {
     return s; // เป็น URL เต็มอยู่แล้ว (มี cache-buster ก็ไม่แตะ)
+  }
   // ตัดให้เริ่มตรง /uploads/... หากมี prefix ก่อนหน้า
   final idx = s.indexOf('/uploads/');
   if (idx >= 0) s = s.substring(idx); // คง query string ต่อท้ายไว้
@@ -170,7 +173,6 @@ class _CommentSectionState extends State<CommentSection> {
                   'c_${c.userId ?? "u"}_${c.createdAt?.millisecondsSinceEpoch ?? index}',
                 ),
                 comment: c,
-                cardColor: Colors.white,
               );
             },
           )
@@ -207,20 +209,29 @@ class _CommentSectionState extends State<CommentSection> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final tt = theme.textTheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    final bg = isDark ? cs.surfaceContainerHigh : Colors.white;
+    final borderColor = cs.outlineVariant.withValues(alpha: isDark ? .25 : .45);
+    final shadow = isDark
+        ? BoxShadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          )
+        : BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          );
 
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: bg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.outlineVariant.withOpacity(.45), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          )
-        ],
+        border: Border.all(color: borderColor, width: 1),
+        boxShadow: [shadow],
       ),
       child: Column(
         children: [
@@ -278,7 +289,7 @@ class _CommentSectionState extends State<CommentSection> {
             ],
           ),
           const SizedBox(height: 12),
-          Divider(height: 1, color: cs.outlineVariant.withOpacity(.4)),
+          Divider(height: 1, color: cs.outlineVariant.withValues(alpha: .4)),
           const SizedBox(height: 12),
 
           // ดึง login data สดใหม่ทุกครั้ง (ไม่แคช) เพื่อใช้เป็น fallback
@@ -363,7 +374,7 @@ class _CommentSectionState extends State<CommentSection> {
     final cs = Theme.of(context).colorScheme;
     return Material(
       elevation: 2.0,
-      shadowColor: Colors.black.withOpacity(0.25),
+      shadowColor: Colors.black.withValues(alpha: 0.25),
       color: cs.surfaceContainerHigh,
       shape: const CircleBorder(),
       clipBehavior: Clip.antiAlias,
