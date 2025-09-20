@@ -16,7 +16,7 @@ class StepWidget extends StatefulWidget {
   });
 
   @override
-  _StepWidgetState createState() => _StepWidgetState();
+  State<StepWidget> createState() => _StepWidgetState();
 }
 
 class _StepWidgetState extends State<StepWidget> {

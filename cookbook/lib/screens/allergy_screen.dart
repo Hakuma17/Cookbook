@@ -118,7 +118,8 @@ class _AllergyScreenState extends State<AllergyScreen> {
         _groups = groups;
       });
     } on UnauthorizedException {
-      // ★ ป้องกัน use_build_context_synchronously: จับ nav ก่อน await
+      // ★ ป้องกัน use_build_context_synchronously: ตรวจ mounted และจับ nav ก่อน await
+      if (!mounted) return;
       final nav = Navigator.of(context);
       await AuthService.logout();
       // ใช้ nav ที่จับไว้

@@ -183,9 +183,9 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
       // เติมสถานะรายการโปรดเข้าร้านกลาง (ให้หน้าอื่น sync ด้วย)
       try {
-        // ★ ป้องกัน use_build_context_synchronously: จับ store ไว้ก่อน await
-        final favStore = context.read<FavoriteStore>();
         final favs = await ApiService.fetchFavorites();
+        if (!mounted) return;
+        final favStore = context.read<FavoriteStore>();
         favStore.replaceWith(favs.map((r) => r.id));
       } catch (_) {}
 

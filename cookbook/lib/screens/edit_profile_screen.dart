@@ -640,8 +640,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () async {
+              // จับ navigator ก่อน await เพื่อเลี่ยง use_build_context_synchronously
+              final nav = Navigator.of(context);
               if (await _confirmDiscardIfNeeded()) {
-                if (mounted) Navigator.pop(context);
+                if (mounted) nav.pop();
               }
             },
           ),

@@ -597,7 +597,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
 
   Future<void> _addToCart() async {
     if (!_isLoggedIn) {
-      final ok = await Navigator.pushNamed(context, '/login');
+      final nav = Navigator.of(context);
+      final ok = await nav.pushNamed('/login');
       if (ok != true) return;
       setState(() => _initFuture = _loadAllData());
       return;
@@ -616,7 +617,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
 
   Future<void> _openEditor({int initRating = 0, String initText = ''}) async {
     if (!_isLoggedIn) {
-      final ok = await Navigator.pushNamed(context, '/login');
+      final nav = Navigator.of(context); // จับ nav ก่อน await
+      final ok = await nav.pushNamed('/login');
       if (ok != true) return;
     }
 
@@ -624,6 +626,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
     final savedOffset =
         _scrollCtrl.hasClients ? _scrollCtrl.offset : (null as double?);
 
+    // จับ nav และใช้ builder context ภายใน sheet
+    if (!mounted) return;
     final submitted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -633,6 +637,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
         initialText: initText,
       ),
     );
+    if (!mounted) return;
 
     if (submitted == true) {
       // ★ วิธีหลัก: โหลด “เฉพาะคอมเมนต์” แล้วคืนตำแหน่งเดิม

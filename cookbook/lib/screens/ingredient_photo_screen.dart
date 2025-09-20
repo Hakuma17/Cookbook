@@ -183,6 +183,7 @@ class _IngredientPhotoScreenState
       final c2 = predictions[1]['confidence'] as double;
       if ((c1 - c2) < _kGapTop2 && c2 >= _kSecondMin) {
         // ★ ใช้ ctx ภายใน builder และหลีกเลี่ยงใช้ context ภายนอกใน callbacks
+        if (!mounted) return;
         final goRecrop = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -199,6 +200,7 @@ class _IngredientPhotoScreenState
             ],
           ),
         );
+        if (!mounted) return;
         if (goRecrop == true) return;
       }
     }
@@ -824,10 +826,11 @@ class _ImageHelper {
     }
 
     final theme = Theme.of(context);
+    if (!context.mounted) return null;
     return showModalBottomSheet<_PickDecision>(
       context: context,
       showDragHandle: true,
-      builder: (_) {
+      builder: (bctx) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -900,31 +903,31 @@ class _ImageHelper {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context, _chooseAgain),
+                        onPressed: () => Navigator.pop(bctx, _chooseAgain),
                         icon: const Icon(Icons.photo_library),
                         label: const Text('เลือกใหม่'),
                       ),
                       if (showUpscale)
                         TextButton.icon(
-                          onPressed: () => Navigator.pop(context, _upscale),
+                          onPressed: () => Navigator.pop(bctx, _upscale),
                           icon: const Icon(Icons.trending_up),
                           label: Text('ขยายเป็น $_kMinPickDim แล้วครอบ'),
                         ),
                       if (canProceed)
                         FilledButton.icon(
-                          onPressed: () => Navigator.pop(context, _proceed),
+                          onPressed: () => Navigator.pop(bctx, _proceed),
                           icon: const Icon(Icons.arrow_forward),
                           label: const Text('ไปครอบตัด'),
                         )
                       else
                         (showUpscale
                             ? TextButton.icon(
-                                onPressed: () => Navigator.pop(context, _force),
+                                onPressed: () => Navigator.pop(bctx, _force),
                                 icon: const Icon(Icons.trending_up),
                                 label: const Text('ใช้ต่อ (จะขยายอัตโนมัติ)'),
                               )
                             : TextButton(
-                                onPressed: () => Navigator.pop(context, _force),
+                                onPressed: () => Navigator.pop(bctx, _force),
                                 child: const Text('ใช้ต่อ (ไม่แนะนำ)'),
                               )),
                     ],
@@ -1012,6 +1015,7 @@ class _ImageHelper {
   }
 
   Future<File?> _cropImage(String filePath) async {
+    if (!context.mounted) return null;
     return Navigator.push<File?>(
       context,
       MaterialPageRoute(
@@ -1039,6 +1043,7 @@ class _ImageHelper {
   }
 
   void _showOpenSettingsDialog() {
+    if (!context.mounted) return;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(

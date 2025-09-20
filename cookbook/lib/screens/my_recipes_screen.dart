@@ -725,6 +725,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
       return;
     }
 
+    if (!mounted) return;
     final Recipe? selected = await showModalBottomSheet<Recipe>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -738,12 +739,14 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         ),
       ),
     );
+    if (!mounted) return;
     if (selected == null) return;
 
     final int? servings = await showModalBottomSheet<int>(
       context: context,
       builder: (ctx) => const ServingsPicker(initialServings: 1),
     );
+    if (!mounted) return;
     if (servings == null) return;
 
     try {
@@ -803,16 +806,16 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('ยืนยันลบรายการที่เลือก'),
         content: Text(
             'ต้องการเอาออกจาก “สูตรโปรดของฉัน” จำนวน ${_selectedIds.length} รายการหรือไม่?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('ยกเลิก')),
           TextButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(ctx, true),
               child: const Text('ลบ')),
         ],
       ),

@@ -136,9 +136,10 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
   /* ───────── actions ───────── */
 
   Future<void> _cancelVerification() async {
+    final nav = Navigator.of(context); // จับ nav ก่อน await
     await _clearPending();
     if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
+    nav.pushNamedAndRemoveUntil('/login', (_) => false);
   }
 
   Future<void> _verify() async {
@@ -151,6 +152,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     });
 
     try {
+      final nav = Navigator.of(context); // จับ nav ตั้งแต่ต้น
       final code = _otpCtrl.text.trim();
       final res = await AuthService.verifyOtp(widget.email, code);
       if (!mounted) return;
@@ -162,7 +164,8 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
         }
         await _clearPending();
         final loggedIn = await AuthService.isLoggedIn();
-        Navigator.of(context).pushNamedAndRemoveUntil(
+        if (!mounted) return;
+        nav.pushNamedAndRemoveUntil(
           loggedIn ? '/home' : '/login',
           (_) => false,
         );
