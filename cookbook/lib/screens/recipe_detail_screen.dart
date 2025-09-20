@@ -578,6 +578,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
         _lastFavResult = r;
       });
 
+      if (!mounted) return;
       await context.read<FavoriteStore>().set(widget.recipeId, r.isFavorited);
     } on UnauthorizedException {
       if (!mounted) return;

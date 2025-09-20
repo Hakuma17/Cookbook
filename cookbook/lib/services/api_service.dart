@@ -40,8 +40,8 @@ class ApiException implements Exception {
 }
 
 class UnauthorizedException extends ApiException {
-  UnauthorizedException(String message)
-      : super(message, statusCode: 401, code: 'UNAUTHORIZED');
+  UnauthorizedException(super.message)
+      : super(statusCode: 401, code: 'UNAUTHORIZED');
 }
 
 // ผลลัพธ์ toggle favorite (โครงสร้างตอบกลับ)
@@ -956,7 +956,7 @@ class ApiService {
     if (list.isEmpty) return <String>[];
 
     // แปลง response → List<String>
-    List<String> _parseGroups(dynamic j) {
+    List<String> parseGroups(dynamic j) {
       List<String> out = [];
 
       if (j is Map) {
@@ -1004,7 +1004,7 @@ class ApiService {
       final resp = await _post('map_ingredients_to_groups.php', body,
           map401ToUnauthorized: false); // public ไม่แมป 401
       final json = _processResponse(resp, map401ToUnauthorized: false);
-      final groups = _parseGroups(json);
+      final groups = parseGroups(json);
       if (groups.isNotEmpty) return groups;
     } catch (_) {
       // ไป GET ต่อ
@@ -1016,7 +1016,7 @@ class ApiService {
           multi: {'names': list});
       final r = await _get(uri, public: !await AuthService.isLoggedIn());
       final j = _processResponse(r);
-      return _parseGroups(j);
+      return parseGroups(j);
     } catch (_) {
       return <String>[]; // พังทั้งหมด → คืนลิสต์ว่าง
     }

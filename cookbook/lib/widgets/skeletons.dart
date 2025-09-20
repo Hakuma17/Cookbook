@@ -33,7 +33,7 @@ Widget shimmerBox({
   final Color base = baseColor ??
       (cs != null
           ? Color.alphaBlend(
-              cs.onSurface.withValues(alpha: 0.06), cs.surfaceVariant)
+              cs.onSurface.withValues(alpha: 0.06), cs.surfaceContainerHighest)
           : Colors.grey.shade300);
 
   final Color highlight = highlightColor ??
@@ -56,9 +56,9 @@ Widget shimmerBox({
     baseColor: base,
     highlightColor: highlight,
     period: const Duration(milliseconds: 1400),
-    child: child,
     // เวอร์ชันใหม่ของ shimmer รองรับ enabled; ถ้าเวอร์ชันเก่า ไม่มี field นี้ก็ไม่เป็นไร
     enabled: true,
+    child: child,
   );
 }
 

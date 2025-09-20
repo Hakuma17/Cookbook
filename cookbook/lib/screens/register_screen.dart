@@ -432,7 +432,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             builder: (_, v, __) => LinearProgressIndicator(
                               minHeight: 6,
                               value: v == 0 ? null : v.clamp(0.05, 1.0),
-                              backgroundColor: theme.colorScheme.surfaceVariant,
+                              backgroundColor:
+                                  theme.colorScheme.surfaceContainerHighest,
                               color: _strengthColor(theme, s),
                             ),
                           ),

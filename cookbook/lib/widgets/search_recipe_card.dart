@@ -174,13 +174,13 @@ class SearchRecipeCard extends StatelessWidget {
 
 class _MetaRow extends StatefulWidget {
   const _MetaRow({
-    Key? key,
+    super.key,
     required this.recipeId,
     required this.rating,
     required this.reviewCount,
     required this.favoriteCount,
     required this.isFavorited,
-  }) : super(key: key);
+  });
 
   final int recipeId;
   final double? rating;

@@ -271,13 +271,13 @@ class _RecipeImage extends StatelessWidget {
 */
 class _MetaOneLine extends StatefulWidget {
   const _MetaOneLine({
-    Key? key,
+    super.key,
     required this.recipeId, // [NEW]
     required this.rating,
     required this.reviewCount,
     required this.favoriteCount,
     required this.isFavorited,
-  }) : super(key: key);
+  });
 
   final int recipeId; // [NEW]
   final double? rating;

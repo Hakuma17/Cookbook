@@ -824,10 +824,12 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
       await Future.wait(
           _selectedIds.map((id) => ApiService.toggleFavorite(id, false)));
 
+      if (!mounted) return;
       await context.read<FavoriteStore>().removeMany(_selectedIds);
       await _loadFavorites();
       _showSnack('ลบ ${_selectedIds.length} รายการแล้ว', isError: false);
     } catch (_) {
+      if (!mounted) return;
       _showSnack('ลบรายการไม่สำเร็จ');
     } finally {
       _exitSelection();
