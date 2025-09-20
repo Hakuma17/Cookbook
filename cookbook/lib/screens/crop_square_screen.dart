@@ -4,7 +4,7 @@
 
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
+// import 'dart:typed_data'; // no longer needed
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -390,9 +390,9 @@ class _CropSquareScreenState extends State<CropSquareScreen> {
             child: CustomPaint(
               size: Size(_cropSize, _cropSize),
               painter: _RectGridOverlayPainter(
-                scrimColor: Colors.black.withOpacity(0.32),
+                scrimColor: Colors.black.withValues(alpha: 0.32),
                 outlineColor: (_isValidOut ? Colors.white : Colors.redAccent)
-                    .withOpacity(.95),
+                    .withValues(alpha: .95),
                 outlineWidth: 1.5,
                 showGrid: _showGrid,
                 gridColor: Colors.white70,
@@ -407,14 +407,14 @@ class _CropSquareScreenState extends State<CropSquareScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.45),
+                color: Colors.black.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
                   color: _isValidOut ? Colors.white70 : Colors.redAccent,
                 ),
               ),
               child: Text(
-                '${_projW}×${_projH} px',
+                '$_projW×$_projH px',
                 style: TextStyle(
                   color: _isValidOut ? Colors.white : Colors.redAccent,
                   fontWeight: FontWeight.w600,
@@ -429,7 +429,7 @@ class _CropSquareScreenState extends State<CropSquareScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(.55),
+                  color: Colors.black.withValues(alpha: .55),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Text(
@@ -580,7 +580,7 @@ class _CropSquareScreenState extends State<CropSquareScreen> {
               ]),
               if (_isSaving)
                 Container(
-                  color: Colors.black.withOpacity(.35),
+                  color: Colors.black.withValues(alpha: .35),
                   child: const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,

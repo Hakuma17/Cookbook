@@ -37,8 +37,8 @@ class TagList extends StatelessWidget {
             color: colorScheme.primary,
             fontWeight: FontWeight.bold,
           ),
-          backgroundColor: colorScheme.primaryContainer.withOpacity(0.4),
-          side: BorderSide(color: colorScheme.primary.withOpacity(0.6)),
+          backgroundColor: colorScheme.primaryContainer.withValues(alpha: 0.4),
+          side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.6)),
           // ทำให้ Chip มีขนาดกระทัดรัดขึ้น
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),

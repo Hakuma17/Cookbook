@@ -65,16 +65,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
   }
 
   /* ── helpers ───────────────────────────────────────────── */
-  void _showSnack(String msg, {bool isError = true}) {
-    if (!mounted) return;
-    final cs = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? cs.error : Colors.green.shade600,
-      ));
-  }
+  // (removed) unused _showSnack
 
   // โลจิกให้คะแนน: ยาว≥8, ยาว≥12, มี A-Z, มี a-z, มีตัวเลข, มีอักขระพิเศษ → รวม 6 คะแนน
   double _calcStrength(String p) {
@@ -248,7 +239,8 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
       barColor = theme.colorScheme.error;
       label = 'อ่อน';
     } else {
-      barColor = theme.colorScheme.surfaceVariant;
+      // เปลี่ยนเป็นสีพื้น container สูงสุด (M3 แนะนำ)
+      barColor = theme.colorScheme.surfaceContainerHighest;
       label = '—';
     }
 
@@ -407,7 +399,8 @@ class _PasswordStrengthBar extends StatelessWidget {
               value: v == 0 ? null : v.clamp(0.06, 1.0),
               minHeight: 10, // ★ หนาขึ้น
               color: color,
-              backgroundColor: cs.surfaceVariant,
+              // เดิมใช้ surfaceVariant ซึ่งเลิกแนะนำ → ใช้ surfaceContainerHighest
+              backgroundColor: cs.surfaceContainerHighest,
             ),
           ),
         ),

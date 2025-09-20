@@ -30,7 +30,6 @@ class _StepWidgetState extends State<StepWidget> {
 
     //   1. ลบ Manual Responsive Calculation และใช้ Theme
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
 
     final canExpand = widget.steps.length > widget.previewCount;
     final displayList = _isExpanded
@@ -89,7 +88,7 @@ class _StepWidgetState extends State<StepWidget> {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final textColor = isFaded
-        ? theme.colorScheme.onSurface.withOpacity(0.5)
+        ? theme.colorScheme.onSurface.withValues(alpha: 0.5)
         : theme.colorScheme.onSurface;
 
     return InkWell(

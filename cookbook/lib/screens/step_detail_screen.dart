@@ -4,7 +4,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // สำหรับ Haptics/announce/ฯลฯ
+import '../utils/safe_image.dart';
+// import 'package:flutter/services.dart'; // ไม่ได้ใช้แล้ว ลบเพื่อลดลินต์
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
@@ -65,8 +66,8 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
   List<int> _sentencePauseMs = [];
 
   // ★ พอสพื้นฐาน
-  static const int _SPACE_PAUSE_MS = 120; // เว้นจังหวะเมื่อเจอช่องว่างธรรมดา
-  static const int _SENTENCE_BASE_PAUSE_MS =
+  static const int _spacePauseMs = 120; // เว้นจังหวะเมื่อเจอช่องว่างธรรมดา
+  static const int _sentenceBasePauseMs =
       180; // เว้นจังหวะเมื่อจบประโยค (ไม่มี \n)
 
   // Initialization
@@ -428,11 +429,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
             height: 250,
             width: double.infinity,
             child: imageUrl != null
-                ? Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _buildPlaceholderImage(),
-                  )
+                ? SafeImage(url: imageUrl, fit: BoxFit.cover)
                 : _buildPlaceholderImage(),
           ),
 
@@ -548,7 +545,8 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+                color: theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -631,6 +629,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
     return Text(raw, style: textStyle);
   }
 
+  // ignore: unused_element
   List<String> _splitSentences(String text) {
     final pattern = RegExp(r'([^.!?ๆฯ]+[.!?ๆฯ]*)', multiLine: true);
     final matches = pattern.allMatches(text);
@@ -737,7 +736,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
 
     for (int li = 0; li < lines.length; li++) {
       final line = lines[li];
-      final nls = nlCounts[li];
+      // final nls = nlCounts[li];
 
       // แตกประโยคภายในบรรทัด
       final inline = _splitInlineSentences(line);
@@ -755,16 +754,16 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
           int pause = 0;
 
           final isLastPhraseInSentence = (pi == phrases.length - 1);
-          final isLastSentenceInLine = (si == inline.length - 1);
+          // final isLastSentenceInLine = (si == inline.length - 1);
 
           // phrase ถัดไปภายในบรรทัด → ไมโครพอส
           if (!isLastPhraseInSentence) {
-            pause += _SPACE_PAUSE_MS;
+            pause += _spacePauseMs;
           }
 
           // จบประโยค → พอสพื้นฐาน
           if (isLastPhraseInSentence) {
-            pause += _SENTENCE_BASE_PAUSE_MS;
+            pause += _sentenceBasePauseMs;
           }
 
           // จบบรรทัด/ย่อหน้า → พอสเพิ่ม (350/650)
@@ -822,6 +821,7 @@ class _StepDetailScreenState extends State<StepDetailScreen> {
   }
 
   /// ระยะพักเมื่อขึ้นบรรทัดใหม่/ย่อหน้า จากจำนวน \n ต่อเนื่อง
+  // ignore: unused_element
   int _newlinePause(int nlCount) {
     if (nlCount >= 2) return 650; // ย่อหน้าใหม่
     if (nlCount == 1) return 350; // ขึ้นบรรทัด

@@ -89,7 +89,7 @@ class _FavoriteButtonState extends State<FavoriteButton> {
         side: BorderSide(
           color: _isFavorited
               ? colorScheme.primary
-              : colorScheme.outline.withOpacity(0.5),
+              : colorScheme.outline.withValues(alpha: 0.5),
           width: 1.5,
         ),
         // ใช้ elevation จาก Theme ของ Card เพื่อความสอดคล้อง

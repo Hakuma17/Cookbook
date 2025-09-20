@@ -37,7 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _email;
   String? _errorMessage;
 
-  bool _savingTokenize = false; // (ยังคงไว้ แม้ซ่อนไว้—เผื่อเปิดกลับ)
+  // (removed) _savingTokenize no longer used
 
   /* ───────────────── init ───────────────── */
   @override
@@ -118,29 +118,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<bool?> _confirmToggleTokenize(BuildContext context, bool enable) {
-    final title = enable ? 'เปิดการตัดคำภาษาไทย?' : 'ปิดการตัดคำภาษาไทย?';
-    final msg = enable
-        ? 'เมื่อเปิด ระบบจะพยายามตัดคำภาษาไทยให้ละเอียดขึ้น ทำให้ค้นหาแม่นยำขึ้น แต่ความเร็วอาจลดลงเล็กน้อย'
-        : 'เมื่อปิด ระบบจะค้นหาแบบแยกคำด้วยช่องว่าง/จุลภาคเท่านั้น ทำงานเร็วขึ้น แต่คำไทยที่ติดกันอาจหาไม่เจอบางกรณี';
-    return showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Text(msg),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('ยืนยัน'),
-          ),
-        ],
-      ),
-    );
-  }
+  // (removed) _confirmToggleTokenize no longer used
 
   /* ───────────── build ───────────── */
   @override
@@ -261,7 +239,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // ────────────────────────────────────────────────
         const SizedBox(height: 16),
         Card(
-          color: theme.colorScheme.primaryContainer.withOpacity(0.5),
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
           elevation: 0,
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -358,58 +336,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Thai tokenization card
   // NOTE: ถูก “ซ่อนไว้” โดยไม่ถูกเรียกใช้งานจาก UI ใน 2025-08-19
-  Widget _buildSearchSettingsCard(BuildContext context) {
-    final theme = Theme.of(context);
-    final store = context.watch<SettingsStore>();
-    final enabled = store.searchTokenizeEnabled;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          ListTile(
-            leading: Icon(Icons.search, color: theme.colorScheme.primary),
-            title: const Text('การค้นหา'),
-            subtitle: Text(
-              'ตั้งค่าการค้นหาเมนูและวัตถุดิบของคุณ',
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ),
-          const Divider(height: 1),
-          SwitchListTile.adaptive(
-            title: const Text('ตัดคำภาษาไทย (ทดลอง)'),
-            subtitle: Text(
-              enabled
-                  ? 'เปิดการตัดคำ: ค้นหาไทยแม่นขึ้น แต่ความเร็วอาจลดลงเล็กน้อย'
-                  : 'ปิดการตัดคำ: แยกคำด้วยช่องว่าง/จุลภาค เร็วขึ้น',
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            value: enabled,
-            onChanged: _savingTokenize
-                ? null
-                : (next) async {
-                    final ok = await _confirmToggleTokenize(context, next);
-                    if (ok != true) return;
-
-                    setState(() => _savingTokenize = true);
-                    try {
-                      await context
-                          .read<SettingsStore>()
-                          .setSearchTokenizeEnabled(next);
-                      if (!mounted) return;
-                      _showSnack(next ? 'เปิดการตัดคำแล้ว' : 'ปิดการตัดคำแล้ว');
-                    } catch (_) {
-                      if (!mounted) return;
-                      _showSnack('ไม่สามารถบันทึกการตั้งค่าได้', error: true);
-                    } finally {
-                      if (mounted) setState(() => _savingTokenize = false);
-                    }
-                  },
-          ),
-        ],
-      ),
-    );
-  }
+  // (removed) _buildSearchSettingsCard was unused
 
   Widget _buildErrorState(String msg) => Center(
         child: Padding(

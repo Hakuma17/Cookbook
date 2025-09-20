@@ -93,7 +93,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     if (s >= 0.75) return ('แข็งแรง', cs.primary);
     if (s >= 0.50) return ('ปานกลาง', Colors.orange);
     if (s > 0.0) return ('อ่อน', cs.error);
-    return ('—', cs.surfaceVariant);
+    // เปลี่ยน surfaceVariant -> surfaceContainerHighest (deprec.)
+    return ('—', cs.surfaceContainerHighest);
   }
 
   String? _validateNewPassword(String? v) {
@@ -296,7 +297,7 @@ class _PasswordTextField extends StatelessWidget {
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
             hintStyle: txt.bodyLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
             ),
             suffixIcon: IconButton(
               tooltip: obscureText ? 'แสดงรหัสผ่าน' : 'ซ่อนรหัสผ่าน',
@@ -345,7 +346,7 @@ class _PasswordStrengthBar extends StatelessWidget {
             value: v == 0 ? null : v.clamp(0.05, 1.0),
             minHeight: 6,
             color: color,
-            backgroundColor: cs.surfaceVariant,
+            backgroundColor: cs.surfaceContainerHighest,
           ),
         ),
         const SizedBox(height: 6),

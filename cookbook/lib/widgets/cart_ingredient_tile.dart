@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/safe_image.dart';
 import '../models/cart_ingredient.dart';
 import '../models/unit_display_mode.dart';
 import '../utils/unit_convert.dart';
@@ -26,22 +27,32 @@ class CartIngredientTile extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         color: cs.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.outlineVariant, width: 1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+            color: cs.outlineVariant.withValues(alpha: .7), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         leading: _leadingImage(),
         title: Text(
           ingredient.name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleMedium,
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
         ),
         trailing: Text(
           amountText,
+          textAlign: TextAlign.right,
           style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
             color: cs.onSurface,
           ),
         ),
@@ -58,9 +69,19 @@ class CartIngredientTile extends StatelessWidget {
         child: Icon(Icons.image_outlined),
       );
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Image.network(url, width: 48, height: 48, fit: BoxFit.cover),
+    return SafeImage(
+      url: url,
+      width: 48,
+      height: 48,
+      fit: BoxFit.cover,
+      borderRadius: BorderRadius.circular(10),
+      error: Container(
+        width: 48,
+        height: 48,
+        color: Colors.black12,
+        alignment: Alignment.center,
+        child: const Icon(Icons.no_photography_outlined),
+      ),
     );
   }
 

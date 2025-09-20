@@ -113,20 +113,57 @@ class AuthService {
     _cachedLoggedIn = true; // อัปเดตแคช
   }
 
-  /// แปลง map จาก BE → saveLogin
-  /// รองรับคีย์ทั้ง snake_case และ camelCase
-  static Future<void> saveLoginData(Map<String, dynamic> d) => saveLogin(
-        userId: int.tryParse(
-                d['user_id']?.toString() ?? d['userId']?.toString() ?? '0') ??
-            0,
-        profileName: (d['profile_name'] ?? d['profileName'] ?? '').toString(),
-        profileImage:
-            (d['path_imgProfile'] ?? d['profileImage'] ?? '').toString(),
-        email: (d['email'] ?? '').toString(),
-        googleId: (d['google_id'] ?? d['googleId'])?.toString(), // ★
-        profileInfo:
-            (d['profile_info'] ?? d['profileInfo'] ?? '').toString(), // ★
-      );
+  /// แปลง map จาก BE → saveLogin (แบบ merge) เพื่อ "ไม่ทับ" โปรไฟล์ท้องถิ่นถ้ามีอยู่แล้ว
+  /// - รองรับคีย์ทั้ง snake_case และ camelCase
+  /// - ชื่อ, รูป, และข้อมูลใต้โปรไฟล์: ถ้า local มีค่าอยู่แล้ว จะไม่ถูกทับด้วยค่าที่ได้จากการล็อกอินอีก
+  static Future<void> saveLoginData(Map<String, dynamic> d) async {
+    final p = await _prefs;
+
+    // 1) ดึงค่าที่เข้ามาจาก BE (รองรับหลายชื่อคีย์)
+    final userId = int.tryParse(
+            d['user_id']?.toString() ?? d['userId']?.toString() ?? '0') ??
+        0;
+    final incomingName =
+        (d['profile_name'] ?? d['profileName'] ?? '').toString();
+
+    // image: รองรับทั้ง image_url (absolute), path_imgProfile (relative), profileImage
+    final imgUrl = (d['image_url'] ?? d['profileImage'] ?? '').toString();
+    final imgPath = (d['path_imgProfile'] ?? '').toString();
+    final incomingImage = (imgUrl.isNotEmpty ? imgUrl : imgPath);
+
+    final incomingEmail = (d['email'] ?? '').toString();
+    final incomingGoogleId = (d['google_id'] ?? d['googleId'])?.toString();
+    final incomingInfo =
+        (d['profile_info'] ?? d['profileInfo'] ?? '').toString();
+
+    // 2) ค่าในเครื่องปัจจุบัน (ถ้ามีอยู่แล้ว ไม่ควรถูกทับหลังล็อกอิน)
+    final localName = p.getString(_kProfileName);
+    final localImage = p.getString(_kProfileImage);
+    final localInfo = p.getString(_kProfileInfo);
+
+    // กติกา merge:
+    // - ถ้า local มีค่า (ไม่ว่าง) → ใช้ local
+    // - ถ้า local ไม่มีค่า → ใช้ incoming
+    String finalName = (localName != null && localName.trim().isNotEmpty)
+        ? localName
+        : incomingName;
+    String finalImage = (localImage != null && localImage.trim().isNotEmpty)
+        ? localImage
+        : incomingImage;
+    String finalInfo = (localInfo != null && localInfo.trim().isNotEmpty)
+        ? localInfo
+        : incomingInfo;
+
+    // 3) เซฟลง prefs โดยยังคงเก็บ googleId และอื่น ๆ ปกติ
+    await saveLogin(
+      userId: userId,
+      profileName: finalName,
+      profileImage: finalImage,
+      email: incomingEmail,
+      googleId: incomingGoogleId,
+      profileInfo: finalInfo,
+    );
+  }
 
   /// อัปเดตข้อมูลโปรไฟล์ที่เก็บใน prefs เมื่อผู้ใช้แก้ไข
   static Future<void> updateLocalProfile({

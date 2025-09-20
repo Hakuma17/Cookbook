@@ -14,8 +14,7 @@ import 'rank_badge.dart';
 // ★★★ [NEW] โหลดรูปให้ปลอดภัย (normalize URL + fallback asset)
 import '../utils/safe_image.dart';
 
-// กันยิงคำขอซ้ำตอนผู้ใช้กดหัวใจรัว ๆ ต่อเมนูเดียวกัน
-final Set<int> _favInFlightSearch = <int>{};
+// (removed) in-flight tracking handled by optimistic UI
 
 class SearchRecipeCard extends StatelessWidget {
   final Recipe recipe;
@@ -37,36 +36,7 @@ class SearchRecipeCard extends StatelessWidget {
     this.highlightEnabled = true,
   });
 
-  // เวอร์ชันนี้เราให้ _MetaRow จัดการ optimistic เอง ฟังก์ชันนี้คงไว้เพื่อความเข้ากันได้
-  Future<void> _handleToggleFavorite(BuildContext context) async {
-    if (!await AuthService.isLoggedIn()) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อน')),
-        );
-        Navigator.pushNamed(context, '/login');
-      }
-      return;
-    }
-    if (_favInFlightSearch.contains(recipe.id)) return;
-    _favInFlightSearch.add(recipe.id);
-
-    final favStore = context.read<FavoriteStore>();
-    final desired = !favStore.contains(recipe.id);
-
-    try {
-      final result = await ApiService.toggleFavorite(recipe.id, desired);
-      await favStore.set(recipe.id, result.isFavorited);
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('บันทึกเมนูโปรดไม่สำเร็จ')),
-        );
-      }
-    } finally {
-      _favInFlightSearch.remove(recipe.id);
-    }
-  }
+  // (removed) legacy _handleToggleFavorite not used; optimistic handled inside meta row
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +44,7 @@ class SearchRecipeCard extends StatelessWidget {
 
     // อ่านสถานะ favorite ปัจจุบัน (non-reactive)
     final isFavorited = context.read<FavoriteStore>().contains(recipe.id);
-    final favCountAdj = (recipe.favoriteCount ?? 0);
+    final favCountAdj = recipe.favoriteCount;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -107,7 +77,7 @@ class SearchRecipeCard extends StatelessWidget {
                     _buildIngredient(theme),
                     const SizedBox(height: 6), // แทน Spacer() กันล้น
                     _MetaRow(
-                      key: ValueKey('s:${recipe.id}:${favCountAdj}'),
+                      key: ValueKey('s:${recipe.id}:$favCountAdj'),
                       recipeId: recipe.id,
                       rating: recipe.averageRating,
                       reviewCount: recipe.reviewCount,
@@ -210,7 +180,6 @@ class _MetaRow extends StatefulWidget {
     required this.reviewCount,
     required this.favoriteCount,
     required this.isFavorited,
-    this.onToggle,
   }) : super(key: key);
 
   final int recipeId;
@@ -218,7 +187,6 @@ class _MetaRow extends StatefulWidget {
   final int? reviewCount;
   final int? favoriteCount;
   final bool isFavorited;
-  final VoidCallback? onToggle;
 
   @override
   State<_MetaRow> createState() => _MetaRowState();
@@ -426,9 +394,9 @@ class _AllergyIndicator extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: cs.errorContainer.withOpacity(0.92),
+            color: cs.errorContainer.withValues(alpha: 0.92),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: cs.error.withOpacity(.6), width: 1),
+            border: Border.all(color: cs.error.withValues(alpha: .6), width: 1),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

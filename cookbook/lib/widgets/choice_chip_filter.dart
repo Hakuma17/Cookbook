@@ -112,7 +112,8 @@ class _ChoiceChipFilterState extends State<ChoiceChipFilter> {
         ),
         selected: isSelected,
         selectedColor: theme.colorScheme.primary,
-        backgroundColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+        backgroundColor:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         shape: const StadiumBorder(),
         onSelected: (selected) {
           if (selected) {
@@ -226,7 +227,7 @@ class _GroupChip extends StatelessWidget {
         labelStyle: TextStyle(color: fg, fontWeight: FontWeight.w600),
         deleteIcon: deletable ? const Icon(Icons.close, size: 16) : null,
         onDeleted: deletable ? onDelete : null,
-        side: BorderSide(color: fg.withOpacity(.35)),
+        side: BorderSide(color: fg.withValues(alpha: .35)),
       ),
     );
   }

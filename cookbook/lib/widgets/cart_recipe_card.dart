@@ -1,6 +1,7 @@
 // lib/widgets/cart_recipe_card.dart
 import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
+import '../utils/safe_image.dart';
 
 // ── ปรับค่าได้ง่าย ๆ ตรงนี้ ────────────────────────────
 const double kCartCardWidth = 196; // ความกว้างการ์ดในลิสต์แนวนอน
@@ -56,7 +57,15 @@ class CartRecipeCard extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        _buildImage(cartItem.imageUrl, cs),
+                        SafeImage(
+                          url: cartItem.imageUrl,
+                          fit: BoxFit.cover,
+                          error: Container(
+                            color: cs.surfaceContainerHighest,
+                            child: const Icon(Icons.no_photography_outlined),
+                          ),
+                          fallbackAsset: 'assets/images/default_recipe.png',
+                        ),
                         Positioned(
                           bottom: 8,
                           right: 8,
@@ -79,7 +88,7 @@ class CartRecipeCard extends StatelessWidget {
                               ),
                               backgroundColor: cs.secondaryContainer,
                               side: BorderSide(
-                                color: cs.outlineVariant.withOpacity(.7),
+                                color: cs.outlineVariant.withValues(alpha: .7),
                               ),
                               visualDensity: VisualDensity.compact,
                               materialTapTargetSize:
@@ -132,25 +141,6 @@ class CartRecipeCard extends StatelessWidget {
       ),
     );
   }
-
-  Widget _buildImage(String url, ColorScheme cs) {
-    if (url.isNotEmpty) {
-      return Image.network(
-        url,
-        fit: BoxFit.cover,
-        filterQuality: FilterQuality.medium,
-        errorBuilder: (_, __, ___) => _fallbackImage(cs),
-      );
-    }
-    return _fallbackImage(cs);
-  }
-
-  Widget _fallbackImage(ColorScheme cs) => Container(
-        color: cs.surfaceVariant,
-        alignment: Alignment.center,
-        child: Icon(Icons.image_not_supported_outlined,
-            size: 28, color: cs.onSurfaceVariant),
-      );
 }
 
 /* ───── โค้ดเวอร์ชันเดิม (เผื่อย้อนกลับ)

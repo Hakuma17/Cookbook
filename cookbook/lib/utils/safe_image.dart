@@ -102,7 +102,10 @@ class _DefaultSkeleton extends StatelessWidget {
     return Container(
       width: width,
       height: height,
-      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withValues(alpha: 0.4),
     );
   }
 }

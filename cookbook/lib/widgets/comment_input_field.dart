@@ -37,7 +37,8 @@ class CommentInputField extends StatelessWidget {
             constraints: const BoxConstraints(minHeight: 52),
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
             decoration: BoxDecoration(
-              border: Border.all(color: colorScheme.outline.withOpacity(0.5)),
+              border:
+                  Border.all(color: colorScheme.outline.withValues(alpha: 0.5)),
               borderRadius: BorderRadius.circular(28.0),
             ),
             child: Row(

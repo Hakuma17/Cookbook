@@ -1,9 +1,13 @@
 // lib/screens/home_screen.dart
+//
+// หมายเหตุ (TH):
+// - ยึดแนวทาง async-safe context เช่น จับ nav/messenger/store ก่อน await,
+//   ใช้ builder context ภายใน dialog/sheet และเช็ค mounted ก่อน setState.
+// - UI ปรับเป็น Material 3: ใช้ TextScaler, withValues, surfaceContainerHighest เป็นต้น.
 import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/material.dart';
-//   NEW: ใช้สำหรับตัดตัวอักษรแบบปลอดภัย (ภาษาไทย/อีโมจิ)
-import 'package:characters/characters.dart';
+//   NOTE: ตัดตัวอักษรแบบปลอดภัย — ใช้วิธี .runes / code units ได้ถ้าต้องการเลี่ยง package ภายนอก
 
 // Store กลางไว้ sync รายการโปรด
 import 'package:provider/provider.dart';
@@ -37,7 +41,7 @@ const Duration _precheckTimeout = Duration(milliseconds: 1200);
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
-  _HomeScreenState createState() => _HomeScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> with RouteAware {
@@ -136,7 +140,9 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   /* ───────────── นำทางแบบหน้าเต็ม (คาดหวังให้รีเฟรชเมื่อกลับ) ───────────── */
   Future<T?> _pushNamedExpectReturn<T>(String route, {Object? arguments}) {
     _refreshOnReturn = true;
-    return Navigator.pushNamed<T>(context, route, arguments: arguments);
+    // ★ ป้องกัน use_build_context_synchronously: จับ Navigator ไว้ก่อน
+    final nav = Navigator.of(context);
+    return nav.pushNamed<T>(route, arguments: arguments);
   }
 
   /* ───────────── ดึงข้อมูลหน้า Home ───────────── */
@@ -177,8 +183,10 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
       // เติมสถานะรายการโปรดเข้าร้านกลาง (ให้หน้าอื่น sync ด้วย)
       try {
+        // ★ ป้องกัน use_build_context_synchronously: จับ store ไว้ก่อน await
+        final favStore = context.read<FavoriteStore>();
         final favs = await ApiService.fetchFavorites();
-        context.read<FavoriteStore>().replaceWith(favs.map((r) => r.id));
+        favStore.replaceWith(favs.map((r) => r.id));
       } catch (_) {}
 
       if (!mounted) return;
@@ -270,19 +278,22 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
     if (!mounted) return;
 
+    // ★ ใช้ nav ที่จับจาก context ปัจจุบันครั้งเดียว แล้วใช้ซ้ำใน callback ของ dialog
+    final nav = Navigator.of(context);
     if (list.isEmpty) {
       await showDialog(
         context: context,
-        builder: (_) => EmptyResultDialog(
+        builder: (ctx) => EmptyResultDialog(
           subject: groupName, // ไม่ต้องเติมคำว่า "กลุ่ม"
           onProceed: () {
-            Navigator.pop(context); // ปิด dialog ก่อน
-            _pushNamedExpectReturn('/search', arguments: {'group': groupName});
+            // ปิด dialog โดยใช้ ctx ที่ส่งมา ไม่พึ่ง context ด้านนอก
+            Navigator.of(ctx).pop();
+            nav.pushNamed('/search', arguments: {'group': groupName});
           },
         ),
       );
     } else {
-      _pushNamedExpectReturn('/search', arguments: {'group': groupName});
+      nav.pushNamed('/search', arguments: {'group': groupName});
     }
   }
 
@@ -490,14 +501,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  // ความสูงกล่องชื่อ (สองบรรทัด) ใช้คำนวณความสูงแถบรายการ
-  double _ingredientTitleBoxHeightOf(BuildContext context) {
-    final ts = Theme.of(context).textTheme;
-    final scale = MediaQuery.textScaleFactorOf(context);
-    final style = ts.bodyMedium ?? const TextStyle(fontSize: 16, height: 1.2);
-    final line = (style.fontSize ?? 16) * (style.height ?? 1.2);
-    return (line * 2 * scale).ceilToDouble();
-  }
+  // (removed) _ingredientTitleBoxHeightOf was unused
 
   /* ───────────── โซน “สูตรอาหาร” (คาร์รอสเซลแนวนอน) ───────────── */
   Widget _buildRecipeSection({
@@ -585,7 +589,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   }) {
     final painter = TextPainter(
       maxLines: 1,
-      textScaleFactor: textScale,
+      // ★ แทนที่ textScaleFactor ด้วย textScaler เพื่อเลี่ยง deprecation (API ใหม่)
+      textScaler: TextScaler.linear(textScale),
       textDirection: direction,
     );
 
@@ -593,11 +598,14 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     painter.text = TextSpan(text: full, style: style);
     painter.layout(maxWidth: maxWidth);
     if (!painter.didExceedMaxLines) {
-      onCount?.call(name.characters.length);
+      // หากไม่พึ่งพา package:characters, ใช้ length แทน (อาจไม่นับ grapheme ที่ซับซ้อน)
+      onCount?.call(name.length);
       return full;
     }
 
-    final units = name.characters.toList();
+    // หากต้องการความแม่นยำระดับ grapheme cluster ควรใช้งาน package:characters
+    // ที่นี่เปลี่ยนเป็น string code units แบบง่ายเพื่อหลีกเลี่ยง dependency เต็มรูปแบบ
+    final units = name.split('');
     int lo = 0, hi = units.length, best = 0;
 
     while (lo <= hi) {
@@ -615,7 +623,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
     String result = '$prefix${units.take(best).join()}';
     if (result.isEmpty) {
-      final preUnits = prefix.characters.toList();
+      final preUnits = prefix.split('');
       lo = 0;
       hi = preUnits.length;
       int bestPre = 0;
@@ -684,7 +692,11 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                 final style = theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold) ??
                     const TextStyle(fontSize: 20, fontWeight: FontWeight.bold);
-                final scale = MediaQuery.textScaleFactorOf(ctx);
+                // ★ MediaQuery.textScaleFactorOf ถูก deprecate → ใช้ MediaQuery.textScaler
+                final scale = MediaQuery.of(ctx)
+                    .textScaler
+                    .clamp(maxScaleFactor: 1.30)
+                    .scale(1.0);
                 final dir = Directionality.of(ctx);
 
                 final prefix = _isLoggedIn ? 'สวัสดี ' : '';
@@ -692,7 +704,6 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                     _isLoggedIn ? (_profileName ?? '') : 'ผู้เยี่ยมชม';
 
                 // optional: เอา count ไปใช้อย่างอื่นได้
-                int shown = 0;
                 final text = _fitOneLine(
                   prefix: prefix,
                   name: rawName,
@@ -700,7 +711,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                   maxWidth: cons.maxWidth,
                   textScale: scale,
                   direction: dir,
-                  onCount: (n) => shown = n,
+                  onCount: (_) {},
                 );
                 // debugPrint('AppBar shows name chars: $shown / ${rawName.characters.length}');
 
@@ -764,7 +775,11 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     const imageW = kRecipeCardVerticalWidth;
     final imageH = imageW * (3 / 4);
     final ts = Theme.of(context).textTheme;
-    final scale = MediaQuery.textScaleFactorOf(context);
+    // ★ แทนที่ด้วย MediaQuery.textScaler
+    final scale = MediaQuery.of(context)
+        .textScaler
+        .clamp(maxScaleFactor: 1.30)
+        .scale(1.0);
     double lh(TextStyle s) => (s.height ?? 1.2) * (s.fontSize ?? 14);
     final titleH =
         lh(ts.titleMedium ?? const TextStyle(fontSize: 20)) * 2 * scale;
@@ -784,61 +799,4 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
  * ในหน้า Home เพื่อให้มีป้าย "สูตร N" อัตโนมัติ
  * คลาสนี้จึงไม่ถูกเรียกใช้งานแล้ว แต่เก็บไว้เผื่อ rollback/อ้างอิง
  * ──────────────────────────────────────────────── */
-class _GroupCard extends StatelessWidget {
-  final double width;
-  final String name;
-  final String imageUrl;
-  final VoidCallback onTap;
-
-  const _GroupCard({
-    required this.width,
-    required this.name,
-    required this.imageUrl,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final imageH = width / _ingredientImageAspectRatio;
-
-    return Material(
-      color: theme.colorScheme.surface,
-      borderRadius: BorderRadius.circular(12),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          children: [
-            SizedBox(
-              width: width,
-              height: imageH,
-              child: SafeImage(
-                url: imageUrl,
-                fit: BoxFit.cover,
-                error: Container(
-                  color: theme.colorScheme.surfaceVariant,
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.image_not_supported_outlined),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// (removed) _GroupCard was unused

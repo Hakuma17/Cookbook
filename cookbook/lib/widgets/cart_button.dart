@@ -35,7 +35,7 @@ class CartButton extends StatelessWidget {
           style: IconButton.styleFrom(
             backgroundColor: colorScheme.surface,
             foregroundColor: colorScheme.primary,
-            side: BorderSide(color: colorScheme.outline.withOpacity(0.5)),
+            side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.5)),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -54,7 +54,7 @@ class CartButton extends StatelessWidget {
             if (selected != null) onServingsChanged?.call(selected);
           },
           style: OutlinedButton.styleFrom(
-            side: BorderSide(color: colorScheme.outline.withOpacity(0.5)),
+            side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.5)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

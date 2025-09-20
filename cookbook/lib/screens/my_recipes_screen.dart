@@ -222,13 +222,13 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     final textTheme = theme.textTheme;
 
     // Back = ออกจากโหมดเลือกก่อน
-    return WillPopScope(
-      onWillPop: () async {
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
         if (_selectionMode) {
           _exitSelection();
-          return false;
         }
-        return true;
       },
       child: Scaffold(
         backgroundColor: theme.colorScheme.surface,
@@ -384,7 +384,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         }
 
         final list = snapshot.data!;
-        final bool _isAllSelected =
+        final bool isAllSelected =
             _selectedIds.length == list.length && list.isNotEmpty;
 
         return Padding(
@@ -404,8 +404,8 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
               const Spacer(),
               IconButton(
                 tooltip:
-                    _isAllSelected ? 'ยกเลิกการเลือกทั้งหมด' : 'เลือกทั้งหมด',
-                icon: Icon(_isAllSelected ? Icons.clear : Icons.checklist),
+                    isAllSelected ? 'ยกเลิกการเลือกทั้งหมด' : 'เลือกทั้งหมด',
+                icon: Icon(isAllSelected ? Icons.clear : Icons.checklist),
                 onPressed: () => _toggleSelectAll(list),
               ),
               IconButton(
@@ -539,7 +539,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -558,7 +558,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   double _calcCardAspectRatio(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final ts = Theme.of(context).textTheme;
-    final scale = MediaQuery.textScaleFactorOf(context);
+    // ★ MediaQuery.textScaleFactorOf → TextScaler API ใหม่
+    final scale = MediaQuery.of(context)
+        .textScaler
+        .clamp(maxScaleFactor: 1.30)
+        .scale(1.0);
 
     // ความกว้างการ์ดจริง (2 คอลัมน์)
     final cardW =
@@ -653,12 +657,12 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => AllergyWarningDialog(
+      builder: (ctx) => AllergyWarningDialog(
         recipe: recipe,
         badIngredientNames: badNames,
         onConfirm: (r) {
-          Navigator.pop(context);
-          Navigator.pushNamed(context, '/recipe_detail', arguments: r);
+          Navigator.of(ctx).pop();
+          Navigator.of(ctx).pushNamed('/recipe_detail', arguments: r);
         },
       ),
     );
@@ -667,7 +671,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   Future<void> _editServings(CartItem item) async {
     final int? newServings = await showModalBottomSheet<int>(
       context: context,
-      builder: (_) => ServingsPicker(initialServings: item.nServings.round()),
+      builder: (ctx) => ServingsPicker(initialServings: item.nServings.round()),
     );
     if (newServings == null || newServings == item.nServings.round()) return;
 
@@ -683,15 +687,15 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     final theme = Theme.of(context);
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('ยืนยันลบเมนู'),
         content: Text('ต้องการลบ "${item.name}" ออกจากตะกร้าใช่ไหม?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.of(ctx).pop(false),
               child: const Text('ยกเลิก')),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.of(ctx).pop(true),
             child: Text('ลบ', style: TextStyle(color: theme.colorScheme.error)),
           ),
         ],
@@ -723,12 +727,12 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
     final Recipe? selected = await showModalBottomSheet<Recipe>(
       context: context,
-      builder: (_) => SafeArea(
+      builder: (ctx) => SafeArea(
         child: ListView(
           children: favs
               .map((r) => ListTile(
                     title: Text(r.name),
-                    onTap: () => Navigator.pop(_, r),
+                    onTap: () => Navigator.of(ctx).pop(r),
                   ))
               .toList(),
         ),
@@ -738,7 +742,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
     final int? servings = await showModalBottomSheet<int>(
       context: context,
-      builder: (_) => const ServingsPicker(initialServings: 1),
+      builder: (ctx) => const ServingsPicker(initialServings: 1),
     );
     if (servings == null) return;
 

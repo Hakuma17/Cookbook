@@ -174,7 +174,7 @@ class NutritionSummary extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: cs.surface.withOpacity(0.98),
+  color: cs.surface.withValues(alpha: 0.98),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: theme.dividerColor),
       ),
@@ -183,7 +183,7 @@ class NutritionSummary extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.06),
+              color: cs.primary.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: cs.primary, width: 1.5),
             ),
@@ -229,7 +229,7 @@ class NutritionSummary extends StatelessWidget {
       decoration: BoxDecoration(
         color: cs.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.primary.withOpacity(.7), width: 1.5),
+  border: Border.all(color: cs.primary.withValues(alpha: .7), width: 1.5),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,

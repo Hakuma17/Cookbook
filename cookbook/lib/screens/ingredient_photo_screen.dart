@@ -1,7 +1,7 @@
 // lib/screens/ingredient_photo_screen.dart
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data'; // used
+// import 'dart:typed_data'; // no longer needed
 
 import 'package:camera/camera.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -182,18 +182,19 @@ class _IngredientPhotoScreenState
       final c1 = predictions[0]['confidence'] as double;
       final c2 = predictions[1]['confidence'] as double;
       if ((c1 - c2) < _kGapTop2 && c2 >= _kSecondMin) {
+        // ★ ใช้ ctx ภายใน builder และหลีกเลี่ยงใช้ context ภายนอกใน callbacks
         final goRecrop = await showDialog<bool>(
           context: context,
-          builder: (_) => AlertDialog(
+          builder: (ctx) => AlertDialog(
             title: const Text('ตรวจพบหลายวัตถุดิบในภาพ'),
             content: const Text(
                 'โปรดครอบตัดให้ชัดเจนหรือถ่ายใหม่ โดยให้มีวัตถุดิบเดียวในภาพ'),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(context, false),
+                  onPressed: () => Navigator.of(ctx).pop(false),
                   child: const Text('ยกเลิก')),
               FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: () => Navigator.of(ctx).pop(true),
                   child: const Text('ครอบ/ถ่ายใหม่')),
             ],
           ),
@@ -203,8 +204,9 @@ class _IngredientPhotoScreenState
     }
 
     if (!mounted) return;
-    final selected = await Navigator.push<List<String>>(
-      context,
+    // ★ จับ Navigator ก่อน await เพื่อนำทางอย่างปลอดภัย
+    final nav = Navigator.of(context);
+    final selected = await nav.push<List<String>>(
       MaterialPageRoute(
         builder: (_) => IngredientPredictionResultScreen(
           imageFile: imageFile,
@@ -214,7 +216,7 @@ class _IngredientPhotoScreenState
     );
 
     if (selected != null && mounted) {
-      Navigator.pop(context, selected);
+      nav.pop(selected);
     }
   }
 
@@ -445,7 +447,7 @@ class _IngredientPhotoScreenState
           gradient: LinearGradient(
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter,
-            colors: [Colors.black.withOpacity(0.7), Colors.transparent],
+            colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
           ),
         ),
         padding: EdgeInsets.fromLTRB(24, 24, 24, 16 + extraBottomGuard),
@@ -528,7 +530,8 @@ class _ModelHelper {
         'assets/converted_tflite_quantized/model_unquant.tflite',
       );
 
-      final labelsString = await DefaultAssetBundle.of(context)
+      // Use rootBundle to avoid holding BuildContext across async gaps
+      final labelsString = await rootBundle
           .loadString('assets/converted_tflite_quantized/labels.txt');
 
       _labels = labelsString
@@ -718,7 +721,7 @@ class _ImageHelper {
         sharpness: sharp,
         canProceed: !tooSmall && !tooBlur,
         reason: tooSmall
-            ? 'รูปเล็กเกินไป (อย่างน้อย ${_kMinPickDim}×${_kMinPickDim} พิกเซล)'
+            ? 'รูปเล็กเกินไป (อย่างน้อย $_kMinPickDim×$_kMinPickDim พิกเซล)'
             : (tooBlur
                 ? 'รูปไม่คมชัด (อาจเบลอ/แตก) กรุณาเลือกรูปที่คมชัดกว่าเดิม'
                 : null),
@@ -867,7 +870,7 @@ class _ImageHelper {
                           ),
                           const SizedBox(height: 8),
                           Wrap(spacing: 10, runSpacing: 6, children: [
-                            Chip(label: Text('ขนาด ${width}×${height} px')),
+                            Chip(label: Text('ขนาด $width×$height px')),
                             Chip(label: Text('ไฟล์ ${humanSize(bytes)}')),
                             Chip(
                                 label: Text(
@@ -905,7 +908,7 @@ class _ImageHelper {
                         TextButton.icon(
                           onPressed: () => Navigator.pop(context, _upscale),
                           icon: const Icon(Icons.trending_up),
-                          label: Text('ขยายเป็น ${_kMinPickDim} แล้วครอบ'),
+                          label: Text('ขยายเป็น $_kMinPickDim แล้วครอบ'),
                         ),
                       if (canProceed)
                         FilledButton.icon(
@@ -1174,7 +1177,7 @@ class _CutoutOverlayPainter extends CustomPainter {
     final overlayPath =
         Path.combine(PathOperation.difference, fullScreenPath, cutoutPath);
 
-    final overlayPaint = Paint()..color = Colors.black.withOpacity(0.5);
+    final overlayPaint = Paint()..color = Colors.black.withValues(alpha: 0.5);
     canvas.drawPath(overlayPath, overlayPaint);
 
     // วาดไกด์ภายในกรอบ (clip ให้เห็นเฉพาะใน cutout)
@@ -1240,13 +1243,13 @@ class _CutoutOverlayPainter extends CustomPainter {
         const Radius.circular(8),
       );
       // พื้นหลังโปร่งดำ
-      final bg = Paint()..color = Colors.black.withOpacity(0.45);
+      final bg = Paint()..color = Colors.black.withValues(alpha: 0.45);
       canvas.drawRRect(rect, bg);
       // เส้นขอบอ่อนๆ
       final br = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = Colors.white.withOpacity(0.6);
+        ..color = Colors.white.withValues(alpha: 0.6);
       canvas.drawRRect(rect, br);
       tp.paint(canvas, Offset(rect.left + padH, rect.top + padV));
     }
@@ -1258,7 +1261,7 @@ class _CutoutOverlayPainter extends CustomPainter {
   // ───────── guides ─────────
   void _drawRuleOfThirds(Canvas canvas, Rect r) {
     final paintLine = Paint()
-      ..color = Colors.white.withOpacity(0.6)
+      ..color = Colors.white.withValues(alpha: 0.6)
       ..strokeWidth = 1.2;
 
     // 2 เส้นแนวตั้ง + 2 เส้นแนวนอน (แบ่ง 3 ส่วน)
@@ -1278,7 +1281,7 @@ class _CutoutOverlayPainter extends CustomPainter {
     // จุดกึ่งกลางเล็ก ๆ
     final center = r.center;
     canvas.drawCircle(
-        center, 2.0, Paint()..color = Colors.white.withOpacity(0.9));
+        center, 2.0, Paint()..color = Colors.white.withValues(alpha: 0.9));
 
     // มุม L-brackets เล็กน้อยช่วยกะขอบ
     final notch = 12.0;
@@ -1311,10 +1314,10 @@ class _CutoutOverlayPainter extends CustomPainter {
   void _drawDualRails(Canvas canvas, Rect r) {
     // รางคู่แนวนอน (ให้วัตถุดิบทรงยาววางขนานราง) + tick ทุก 10%
     final railPaint = Paint()
-      ..color = Colors.white.withOpacity(0.6)
+      ..color = Colors.white.withValues(alpha: 0.6)
       ..strokeWidth = 2.0;
     final tickPaint = Paint()
-      ..color = Colors.white.withOpacity(0.8)
+      ..color = Colors.white.withValues(alpha: 0.8)
       ..strokeWidth = 1.5;
 
     final offsetY = r.height * 0.18; // ระยะห่างรางจากกึ่งกลาง ~18% สูงพอคุมสเกล
@@ -1331,7 +1334,7 @@ class _CutoutOverlayPainter extends CustomPainter {
     }
 
     // เส้นกึ่งกลางบาง ๆ ช่วยตั้งศูนย์และวัดความยาวรวม
-    final midPaint = Paint()..color = Colors.white.withOpacity(0.35);
+    final midPaint = Paint()..color = Colors.white.withValues(alpha: 0.35);
     canvas.drawLine(
         Offset(r.left, r.center.dy), Offset(r.right, r.center.dy), midPaint);
   }
@@ -1345,14 +1348,14 @@ class _CutoutOverlayPainter extends CustomPainter {
         center,
         rad,
         Paint()
-          ..color = Colors.white.withOpacity(0.5)
+          ..color = Colors.white.withValues(alpha: 0.5)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5,
       );
     }
     // กากบาทเล็กที่จุดศูนย์กลาง
     final crossPaint = Paint()
-      ..color = Colors.white.withOpacity(0.6)
+      ..color = Colors.white.withValues(alpha: 0.6)
       ..strokeWidth = 1.0;
     const cross = 8.0;
     canvas.drawLine(Offset(center.dx - cross, center.dy),
@@ -1394,10 +1397,10 @@ class _CutoutOverlayPainter extends CustomPainter {
   void _drawMeasureLine(Canvas canvas, Rect r) {
     final centerX = r.center.dx;
     final paintMain = Paint()
-      ..color = Colors.white.withOpacity(0.85)
+      ..color = Colors.white.withValues(alpha: 0.85)
       ..strokeWidth = 2.0;
     final paintTick = Paint()
-      ..color = Colors.white.withOpacity(0.75)
+      ..color = Colors.white.withValues(alpha: 0.75)
       ..strokeWidth = 1.2;
     final paintMajor = Paint()
       ..color = Colors.white
@@ -1456,10 +1459,10 @@ class _CutoutOverlayPainter extends CustomPainter {
   // ───────── measure double (ใช้ list markers เดียวกัน แต่เส้นแนวนอนเต็มกรอบ) ─────────
   void _drawMeasureDouble(Canvas canvas, Rect r) {
     final linePaint = Paint()
-      ..color = Colors.white.withOpacity(0.9)
+      ..color = Colors.white.withValues(alpha: 0.9)
       ..strokeWidth = 2.2;
     final centerPaint = Paint()
-      ..color = Colors.white.withOpacity(0.35)
+      ..color = Colors.white.withValues(alpha: 0.35)
       ..strokeWidth = 1.2;
     // เส้นตั้งกลางช่วยจัดตำแหน่ง
     canvas.drawLine(

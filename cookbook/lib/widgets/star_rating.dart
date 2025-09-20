@@ -35,7 +35,7 @@ class StarRating extends StatelessWidget {
     // กำหนดสีเริ่มต้นโดยอิงจาก Theme หากไม่ได้ระบุมา
     final finalFilledColor = filledColor ?? Colors.amber.shade700;
     final finalEmptyColor =
-        emptyColor ?? colorScheme.onSurface.withOpacity(0.3);
+        emptyColor ?? colorScheme.onSurface.withValues(alpha: 0.3);
 
     //   4. ใช้ for loop ใน Row children เพื่อสร้าง UI ที่สะอาดและอ่านง่าย
     return Row(

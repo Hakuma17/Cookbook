@@ -1,4 +1,11 @@
 // lib/screens/allergy_screen.dart
+//
+// หมายเหตุ (TH):
+// - หน้านี้ใช้แนวทาง “ปลอดภัยหลัง await” เพื่อเลี่ยง use_build_context_synchronously
+//   • จับ Navigator/ScaffoldMessenger/Theme ก่อน await แล้วใช้ตัวแปรที่จับไว้
+//   • ใช้ builder context ภายใน dialog/sheet แทน context ด้านนอกเสมอ
+//   • เช็ค mounted ก่อนทำ setState หรือเรียกเมธอดที่อาศัย State
+// - UI ปรับตาม Material 3 แล้ว: surfaceContainerHighest, withValues, TextScaler เป็นต้น
 // หน้าแสดงและจัดการรายการวัตถุดิบที่แพ้
 //
 // ★ 2025-07-19 – refactor: ใช้ Theme, ปรับปรุง error handling & UX logic ★
@@ -65,6 +72,8 @@ class _AllergyScreenState extends State<AllergyScreen> {
   ///   2. ปรับปรุง Error Handling ให้รองรับ Custom Exception
   Future<void> _loadAllergyList() async {
     if (!mounted) return;
+    // ★ จับ ScaffoldMessenger ล่วงหน้าเพื่อใช้หลัง await ได้อย่างปลอดภัย
+    final messenger = ScaffoldMessenger.of(context);
     setState(() {
       _loading = true;
       _errorMessage = null; // reset error ก่อนโหลดใหม่
@@ -84,7 +93,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
       final rawGroups = results[1] as List<Map<String, dynamic>>;
 
       // ผูกภาพตัวแทนของกลุ่มจาก rep_id กับรายการเดี่ยว ถ้าหาเจอ
-      final imageById = {for (final i in list) i.id: (i.imageUrl ?? '')};
+      final imageById = {for (final i in list) i.id: i.imageUrl};
       final nameById = {for (final i in list) i.id: (i.displayName ?? i.name)};
 
       final groups = rawGroups.map((g) {
@@ -109,17 +118,18 @@ class _AllergyScreenState extends State<AllergyScreen> {
         _groups = groups;
       });
     } on UnauthorizedException {
+      // ★ ป้องกัน use_build_context_synchronously: จับ nav ก่อน await
+      final nav = Navigator.of(context);
       await AuthService.logout();
-      if (mounted) {
-        Navigator.of(context)
-            .pushNamedAndRemoveUntil('/login', (route) => false);
-      }
+      // ใช้ nav ที่จับไว้
+      nav.pushNamedAndRemoveUntil('/login', (route) => false);
     } on ApiException catch (e) {
-      _showError(e.message);
+      // ใช้ messenger ที่จับไว้ แทนเรียกผ่าน context หลัง await
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
       if (mounted) setState(() => _errorMessage = e.message);
     } catch (e) {
       final m = 'เกิดข้อผิดพลาดที่ไม่รู้จัก: $e';
-      _showError(m);
+      messenger.showSnackBar(SnackBar(content: Text(m)));
       if (mounted) setState(() => _errorMessage = m);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -129,6 +139,8 @@ class _AllergyScreenState extends State<AllergyScreen> {
   ///   3. แก้ไข "Undo" Logic ให้ถูกต้อง และปรับปรุง "Remove"
   void _removeAllergy(Ingredient ing) {
     if (_removingIds.contains(ing.id)) return;
+    // ★ จับ messenger ไว้ใช้ใน callback หลัง async gap
+    final messenger = ScaffoldMessenger.of(context);
 
     // Optimistic UI: ลบออกจาก List ใน UI ทันที
     setState(() {
@@ -138,9 +150,9 @@ class _AllergyScreenState extends State<AllergyScreen> {
     });
 
     // กัน SnackBar ซ้อน
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    messenger.hideCurrentSnackBar();
     // แสดง SnackBar พร้อมปุ่ม Undo
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       SnackBar(
         content: Text('ลบ “${ing.name}” แล้ว'),
         action: SnackBarAction(
@@ -152,7 +164,8 @@ class _AllergyScreenState extends State<AllergyScreen> {
 
     // เรียก API เพื่อลบข้อมูลจริงในเบื้องหลัง
     ApiService.removeAllergy(ing.id).catchError((_) {
-      _showError('เกิดข้อผิดพลาด: ไม่สามารถลบ "${ing.name}" ได้');
+      messenger.showSnackBar(SnackBar(
+          content: Text('เกิดข้อผิดพลาด: ไม่สามารถลบ "${ing.name}" ได้')));
       // Rollback
       if (mounted) {
         setState(() {
@@ -169,19 +182,23 @@ class _AllergyScreenState extends State<AllergyScreen> {
   // ★ NEW: ลบ “ทั้งกลุ่ม” อิงจาก representative_ingredient_id
   Future<void> _removeAllergyGroup(_GroupSummary g) async {
     if (_removingGroupRepIds.contains(g.representativeIngredientId)) return;
+    // ★ จับ messenger ไว้ก่อนมี await เพื่อหลีกเลี่ยงการใช้ context หลัง async gap
+    final messenger = ScaffoldMessenger.of(context);
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      // หมายเหตุ: ใช้ context ของ builder (dCtx) ตอน pop() เพื่อเลี่ยงการอ้างอิง
+      // context ด้านนอกภายหลัง async gap และเพื่อความชัดเจนของ scope
+      builder: (dCtx) => AlertDialog(
         title: const Text('ลบทั้งกลุ่ม'),
         content: Text(
             'ต้องการลบกลุ่ม “${g.groupName}” ออกจากรายการแพ้ทั้งหมดใช่หรือไม่?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dCtx, false),
               child: const Text('ยกเลิก')),
           TextButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dCtx, true),
               child: const Text('ลบ')),
         ],
       ),
@@ -196,25 +213,31 @@ class _AllergyScreenState extends State<AllergyScreen> {
           (x) => x.representativeIngredientId == g.representativeIngredientId);
     });
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
       SnackBar(content: Text('ลบกลุ่ม “${g.groupName}” แล้ว')),
     );
 
     try {
       await ApiService.removeAllergyGroup([g.representativeIngredientId]);
       // หลังลบจริง โหลดทั้งหน้าใหม่เพื่อให้รายการเดี่ยวตรงกับกลุ่ม
+      if (!mounted) return; // กัน context หลัง await
       await _loadAllergyList();
     } catch (_) {
       _showError('เกิดข้อผิดพลาด: ไม่สามารถลบกลุ่ม “${g.groupName}” ได้');
       // Rollback เฉพาะชิปกลุ่ม (รายการเดี่ยวจะรีเฟรชอยู่ดี)
-      setState(() => _groups.add(g));
+      if (mounted) setState(() => _groups.add(g));
     } finally {
-      setState(() => _removingGroupRepIds.remove(g.representativeIngredientId));
+      if (mounted) {
+        setState(
+            () => _removingGroupRepIds.remove(g.representativeIngredientId));
+      }
     }
   }
 
   Future<void> _undoRemove(Ingredient ing) async {
+    // ★ จับ messenger ไว้ก่อน await
+    final messenger = ScaffoldMessenger.of(context);
     // เมื่อกด Undo, ต้องเพิ่มกลับเข้าไปใน List และยิง API เพื่อเพิ่มกลับเข้าไปใน DB ด้วย
     setState(() {
       _allergyList.add(ing);
@@ -224,7 +247,8 @@ class _AllergyScreenState extends State<AllergyScreen> {
     try {
       await ApiService.addAllergy(ing.id);
     } catch (e) {
-      _showError('เกิดข้อผิดพลาด: ไม่สามารถเลิกทำได้');
+      messenger.showSnackBar(
+          const SnackBar(content: Text('เกิดข้อผิดพลาด: ไม่สามารถเลิกทำได้')));
       // ถ้า Error ให้ลบออกจาก UI อีกครั้ง
       setState(() {
         _allergyList.removeWhere((e) => e.id == ing.id);
@@ -235,6 +259,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
 
   ///   4. ปรับปรุง "Add" ให้เป็น Optimistic UI
   Future<void> _onAddAllergy() async {
+    final messenger = ScaffoldMessenger.of(context); // ★ จับไว้ใช้หลัง await
     final Ingredient? picked = await Navigator.push<Ingredient>(
       context,
       MaterialPageRoute(
@@ -251,7 +276,9 @@ class _AllergyScreenState extends State<AllergyScreen> {
         await ApiService.addAllergy(picked.id);
         // เคสใช้งานทั่วไป: ถ้าอยาก “เพิ่มทั้งกลุ่ม” ให้ผู้ใช้กดค้างที่รายการแล้วเลือกเมนู
       } catch (e) {
-        _showError('เกิดข้อผิดพลาด: ไม่สามารถเพิ่ม "${picked.name}" ได้');
+        messenger.showSnackBar(SnackBar(
+            content:
+                Text('เกิดข้อผิดพลาด: ไม่สามารถเพิ่ม "${picked.name}" ได้')));
         setState(() {
           _allergyList.removeWhere((e) => e.id == picked.id);
           _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
@@ -262,6 +289,8 @@ class _AllergyScreenState extends State<AllergyScreen> {
 
   // ★ NEW: เมนูจากรายการเดี่ยว → เลือกลบทั้งกลุ่ม (อิงชื่อเดียวกันบน backend)
   void _showItemActions(Ingredient ing) {
+    // ★ จับ nav/messenger ก่อน เพื่อใช้ใน callbacks
+    final nav = Navigator.of(context);
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
@@ -272,7 +301,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
               leading: const Icon(Icons.delete_outline),
               title: const Text('ลบเฉพาะรายการนี้'),
               onTap: () {
-                Navigator.pop(context);
+                nav.pop();
                 _removeAllergy(ing);
               },
             ),
@@ -281,7 +310,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
               title: const Text('ลบทั้งกลุ่มนี้'),
               subtitle: const Text('ลบทุกวัตถุดิบที่ชื่อกลุ่มเดียวกัน'),
               onTap: () async {
-                Navigator.pop(context);
+                nav.pop();
                 // ใช้ ingredient_id เดียวกันเป็นตัวแทน (backend จะขยายเป็นกลุ่มตามชื่อ)
                 final g = _GroupSummary(
                   groupName: ing.displayName ?? ing.name,
@@ -657,7 +686,7 @@ class _AllergyGroupsSection extends StatelessWidget {
                       )
                     : const Icon(Icons.close),
                 side: BorderSide(color: cs.error),
-                backgroundColor: cs.errorContainer.withOpacity(.15),
+                backgroundColor: cs.errorContainer.withValues(alpha: .15),
                 labelStyle: TextStyle(
                     color: cs.onErrorContainer, fontWeight: FontWeight.w600),
               );

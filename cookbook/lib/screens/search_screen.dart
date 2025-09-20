@@ -12,7 +12,6 @@
 // - ป้องกัน didPopNext รีเฟรชเมื่อปิด dialog/bottom sheet ภายในหน้า (ไม่โหลดซ้ำไม่จำเป็น)
 
 import 'dart:async';
-import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -28,6 +27,7 @@ import '../widgets/hero_carousel.dart';
 import '../widgets/choice_chip_filter.dart'; // ใช้เฉพาะตัวเลือก sort (single)
 import '../widgets/allergy_warning_dialog.dart';
 import '../main.dart' show routeObserver;
+import '../utils/sanitize.dart';
 
 class SearchScreen extends StatefulWidget {
   final List<String>? ingredients;
@@ -63,6 +63,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   late Future<void> _initFuture;
   List<Recipe> _recipes = [];
   List<String> _respTokens = [];
+  int? _total; // จำนวนผลลัพธ์ทั้งหมด (ถ้า backend ส่งมา)
 
   // ฟิลเตอร์แบบชื่อวัตถุดิบ
   List<String> _includeNames = [];
@@ -197,7 +198,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
 
   // หยุดยิงระหว่างพิมพ์; รอ submit
   void _onQueryChanged(String q) {
-    setState(() => _searchQuery = q);
+    setState(() => _searchQuery = Sanitize.query(q));
   }
 
   Future<void> _performSearch({
@@ -208,11 +209,12 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     final myId = forceReqId ?? ++_reqId;
     if (mounted) {
       setState(() {
-        _searchQuery = query ?? _searchQuery;
+        _searchQuery = Sanitize.query(query ?? _searchQuery);
         _page = 1;
         _hasMore = true;
         _paginationErrorMsg = null;
         _recipes.clear();
+        _total = null; // รีเซ็ตจำนวนรวมเมื่อเริ่มค้นหาใหม่
         // _emptyDialogShownForReq = null; // ⛔️ ไม่ใช้แล้ว
       });
     }
@@ -268,6 +270,8 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
       setState(() {
         _page = page;
         _respTokens = res.tokens;
+        // อัปเดตจำนวนรวมถ้า backend ส่งมา
+        if (res.total != null) _total = res.total;
         if (page == 1) {
           _recipes = res.recipes;
         } else {
@@ -335,16 +339,16 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   /* ───────── build ───────── */
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
         // ถ้าเส้นทางนี้เป็น route แรก (เช่นถูกเปิดทับหน้า Welcome แบบผิด flow)
         // ให้ไปหน้า Home แทนการ pop ไป Welcome
+        if (didPop) return;
         final isFirst = ModalRoute.of(context)?.isFirst ?? false;
         if (isFirst) {
           Navigator.pushReplacementNamed(context, '/home');
-          return false;
         }
-        return true;
       },
       child: Scaffold(
         body: FutureBuilder<void>(
@@ -411,6 +415,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
           child: CustomSearchBar(
+            initialText: _searchQuery,
             onChanged: _onQueryChanged,
             onSubmitted: (q) => _performSearch(query: q),
             onFilterTap: _navToFilterScreen,
@@ -457,7 +462,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
           child: Text(
-            'ผลการค้นหาสำหรับ “$_searchQuery”',
+            'ผลการค้นหาสำหรับ “$_searchQuery” (${_total ?? _recipes.length})',
             style: Theme.of(context).textTheme.titleLarge,
           ),
         ),
@@ -541,7 +546,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
                     color: cs.onErrorContainer,
                     fontWeight: FontWeight.w700,
                   ),
-                  side: BorderSide(color: cs.error.withOpacity(.35)),
+                  side: BorderSide(color: cs.error.withValues(alpha: .35)),
                 )),
           ],
         ),

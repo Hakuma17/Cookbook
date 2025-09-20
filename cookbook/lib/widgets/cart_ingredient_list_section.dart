@@ -5,7 +5,7 @@ import '../utils/unit_convert.dart';
 import 'cart_ingredient_tile.dart';
 
 /// โหมดเรียงลำดับ
-enum _SortMode { nameAsc, nameDesc, group }
+enum _SortMode { nameAsc, group }
 
 class CartIngredientListSection extends StatefulWidget {
   final List<CartIngredient> ingredients;
@@ -51,23 +51,21 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
     super.didChangeDependencies();
     // ★ ลองกู้ค่าที่เคยบันทึกไว้ใน PageStorage (ถ้ามี)
     final bucket = PageStorage.of(context);
-    if (bucket != null) {
-      final savedSort = bucket.readState(context, identifier: _psSortKey);
-      if (savedSort is int &&
-          savedSort >= 0 &&
-          savedSort < _SortMode.values.length &&
-          _sort != _SortMode.values[savedSort]) {
-        _sort = _SortMode.values[savedSort];
-        _displayIngredients = _getProcessedAndSortedList();
-      }
-      final savedUnit = bucket.readState(context, identifier: _psUnitKey);
-      if (savedUnit is int &&
-          savedUnit >= 0 &&
-          savedUnit < UnitDisplayMode.values.length &&
-          _unitMode != UnitDisplayMode.values[savedUnit]) {
-        _unitMode = UnitDisplayMode.values[savedUnit];
-        _displayIngredients = _getProcessedAndSortedList();
-      }
+    final savedSort = bucket.readState(context, identifier: _psSortKey);
+    if (savedSort is int &&
+        savedSort >= 0 &&
+        savedSort < _SortMode.values.length &&
+        _sort != _SortMode.values[savedSort]) {
+      _sort = _SortMode.values[savedSort];
+      _displayIngredients = _getProcessedAndSortedList();
+    }
+    final savedUnit = bucket.readState(context, identifier: _psUnitKey);
+    if (savedUnit is int &&
+        savedUnit >= 0 &&
+        savedUnit < UnitDisplayMode.values.length &&
+        _unitMode != UnitDisplayMode.values[savedUnit]) {
+      _unitMode = UnitDisplayMode.values[savedUnit];
+      _displayIngredients = _getProcessedAndSortedList();
     }
   }
 
@@ -106,8 +104,6 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
       switch (_sort) {
         case _SortMode.nameAsc:
           return _thaiKey(a.name).compareTo(_thaiKey(b.name));
-        case _SortMode.nameDesc:
-          return _thaiKey(b.name).compareTo(_thaiKey(a.name));
         case _SortMode.group:
           final ga = _groupOrder(a.groupCode);
           final gb = _groupOrder(b.groupCode);
@@ -140,9 +136,9 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
           // ── แถวเครื่องมือ: เรียงตาม + โหมดหน่วย ────────────────────────────
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic, // ให้ตัวหนังสือเสมอเส้นฐาน
+            textBaseline: TextBaseline.alphabetic,
             children: [
-              // ★ ปุ่มเรียงตาม (ใช้ไอคอน “กรวยตัวกรอง”)
+              // ★ ปุ่มเรียงตาม (แสดงเฉพาะชื่อแบบภาพตัวอย่าง)
               Flexible(
                 child: _SortMenu(
                   mode: _sort,
@@ -152,8 +148,7 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
                         _sort = newMode;
                         _displayIngredients = _getProcessedAndSortedList();
                       });
-                      // ★ บันทึกลง PageStorage กันเด้งกลับ
-                      PageStorage.of(context)?.writeState(
+                      PageStorage.of(context).writeState(
                         context,
                         newMode.index,
                         identifier: _psSortKey,
@@ -161,12 +156,13 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
                     }
                   },
                   compact: true,
+                  labelOnly: true,
                 ),
               ),
-              const SizedBox(width: 8),
-              // ★ ปุ่มเลือกหน่วย (ใช้อิคอนเดิม: layers + scale)
+              const Spacer(),
+              // ★ ปุ่มเลือกหน่วย (เดิม/กรัม) – แสดงเครื่องหมายถูกบนตัวเลือกที่เลือก
               SegmentedButton<UnitDisplayMode>(
-                showSelectedIcon: false,
+                showSelectedIcon: true,
                 segments: const [
                   ButtonSegment(
                     value: UnitDisplayMode.original,
@@ -187,10 +183,8 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
                       _unitMode = newMode;
                       _displayIngredients = _getProcessedAndSortedList();
                     });
-                    // แจ้งพาเรนต์ (ถ้าส่ง callback มา)
                     widget.onUnitModeChanged?.call(newMode);
-                    // ★ บันทึกลง PageStorage กันเด้งกลับ
-                    PageStorage.of(context)?.writeState(
+                    PageStorage.of(context).writeState(
                       context,
                       newMode.index,
                       identifier: _psUnitKey,
@@ -199,7 +193,8 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
                 },
                 style: const ButtonStyle(
                   visualDensity: VisualDensity.compact,
-                  padding: MaterialStatePropertyAll(
+                  // เปลี่ยนเป็น WidgetStatePropertyAll ตามชั้น Widgets
+                  padding: WidgetStatePropertyAll(
                     EdgeInsets.symmetric(horizontal: 6, vertical: 0),
                   ),
                 ),
@@ -227,43 +222,59 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
     final tt = Theme.of(context).textTheme;
 
     // ข้อความฝั่งขวาจะเปลี่ยนตามโหมดหน่วย
-    final rightLabel = _unitMode == UnitDisplayMode.grams
-        ? 'น้ำหนัก (กรัม)'
-        : 'ปริมาณ (ตามหน่วย)';
+    final rightLabel =
+        _unitMode == UnitDisplayMode.grams ? 'น้ำหนัก (กรัม)' : 'ปริมาณตามสูตร';
+    final totalCount = _displayIngredients.length;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: cs.surface, // กลืนกับพื้น แต่มีกรอบบาง ๆ
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.outlineVariant),
+        color: cs.surfaceContainerHighest, // ขับให้เด่นขึ้น
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outlineVariant, width: 1.2),
       ),
       child: Row(
         children: [
           // ซ้าย: “วัตถุดิบ”
           Expanded(
-            child: Text(
-              'วัตถุดิบ',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: tt.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: cs.onSurfaceVariant,
-                letterSpacing: 0.2,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'วัตถุดิบ',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: cs.onSurface,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'ทั้งหมด $totalCount รายการ',
+                  style: tt.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
           // ขวา: ปริมาณ/น้ำหนัก (ชิดขวา)
-          Flexible(
-            child: Text(
-              rightLabel,
-              textAlign: TextAlign.right,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: tt.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: cs.onSurfaceVariant,
-                letterSpacing: 0.2,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                rightLabel,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: tt.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
+                  letterSpacing: 0.2,
+                ),
               ),
             ),
           ),
@@ -421,19 +432,19 @@ class _SortMenu extends StatelessWidget {
   final _SortMode mode;
   final ValueChanged<_SortMode> onChanged;
   final bool compact; // ★ ใหม่: โหมดปุ่มสั้น (ใช้ไอคอนช่วย)
+  final bool labelOnly; // ★ ใหม่: แสดงเฉพาะข้อความ (ไม่ขึ้นคำว่า "เรียงตาม:")
 
   const _SortMenu({
     required this.mode,
     required this.onChanged,
     this.compact = false,
+    this.labelOnly = false,
   });
 
   String _getDisplayLabel(_SortMode m) {
     switch (m) {
       case _SortMode.nameAsc:
         return 'ชื่อ (ก–ฮ)';
-      case _SortMode.nameDesc:
-        return 'ชื่อ (ฮ–ก)';
       case _SortMode.group:
         return 'กลุ่มวัตถุดิบ';
     }
@@ -450,34 +461,29 @@ class _SortMenu extends StatelessWidget {
       onSelected: onChanged,
       itemBuilder: (context) => const [
         PopupMenuItem(value: _SortMode.nameAsc, child: Text('ชื่อ (ก–ฮ)')),
-        PopupMenuItem(value: _SortMode.nameDesc, child: Text('ชื่อ (ฮ–ก)')),
         PopupMenuItem(value: _SortMode.group, child: Text('กลุ่มวัตถุดิบ')),
       ],
-      child: ConstrainedBox(
-        // ★ จำกัดความกว้างให้ไม่ไปเบียดปุ่มขวา แล้วตัดคำอัตโนมัติ
-        constraints: const BoxConstraints(maxWidth: 220),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            border: Border.all(color: cs.outlineVariant),
-            borderRadius: BorderRadius.circular(20),
-            color: cs.surface,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.filter_alt_outlined, size: 18), // ← กรวยตัวกรอง
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  compact ? 'เรียง: $label' : 'เรียงตาม: $label',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(Icons.arrow_drop_down, size: 18),
-            ],
-          ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(color: cs.outlineVariant),
+          borderRadius: BorderRadius.circular(22),
+          color: cs.surface,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.sort, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              labelOnly
+                  ? label
+                  : (compact ? 'เรียง: $label' : 'เรียงตาม: $label'),
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.arrow_drop_down, size: 18),
+          ],
         ),
       ),
     );

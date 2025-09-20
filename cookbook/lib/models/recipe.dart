@@ -3,26 +3,26 @@ import 'package:flutter/foundation.dart';
 
 /// ───────── helper ───────────────────────────────────────────
 /// แปลง dynamic → int/double/String พร้อม fallback
-int _toInt(dynamic v, {int fallback = 0}) {
+int toIntSafe(dynamic v, {int fallback = 0}) {
   if (v == null) return fallback;
   if (v is int) return v;
   return int.tryParse(v.toString()) ?? fallback;
 }
 
-double _toDouble(dynamic v, {double fallback = 0}) {
+double toDoubleSafe(dynamic v, {double fallback = 0}) {
   if (v == null) return fallback;
   if (v is num) return v.toDouble();
   return double.tryParse(v.toString()) ?? fallback;
 }
 
-String _toString(dynamic v, {String fallback = ''}) {
+String toStringSafe(dynamic v, {String fallback = ''}) {
   if (v == null) return fallback;
   final s = v.toString();
   return s.isEmpty ? fallback : s;
 }
 
-/// ★★★ [NEW] แปลง dynamic → List<String> (รองรับทั้ง List และ CSV)
-List<String> _toStringList(dynamic v) {
+/// ★★★ [NEW] แปลง dynamic → `List<String>` (รองรับทั้ง List และ CSV)
+List<String> toStringListSafe(dynamic v) {
   if (v == null) return const [];
   if (v is List) {
     return v
@@ -108,18 +108,18 @@ class Recipe {
 
   /// ───── สร้างจาก JSON (จาก API) ─────────────────────────
   factory Recipe.fromJson(Map<String, dynamic> j) {
-    List<int> _parseIds(dynamic src) {
+    List<int> parseIds(dynamic src) {
       if (src == null) return <int>[];
       if (src is List) {
         return src
-            .map((e) => _toInt(e, fallback: -1))
+            .map((e) => toIntSafe(e, fallback: -1))
             .where((e) => e > 0)
             .toList();
       }
       if (src is String) {
         return src
             .split(',')
-            .map((s) => _toInt(s.trim(), fallback: -1))
+            .map((s) => toIntSafe(s.trim(), fallback: -1))
             .where((e) => e > 0)
             .toList();
       }
@@ -135,27 +135,27 @@ class Recipe {
         : null;
 
     // [Compat] บาง endpoint อาจใช้คีย์ 'image' / 'thumbnail' แทน 'image_url'
-    final imageUrl = _toString(
+    final imageUrl = toStringSafe(
       j['image_url'] ?? j['image'] ?? j['thumbnail'],
     );
 
     return Recipe(
-      id: _toInt(rid),
-      name: _toString(j['name'], fallback: 'ไม่มีชื่อสูตร'),
+      id: toIntSafe(rid),
+      name: toStringSafe(j['name'], fallback: 'ไม่มีชื่อสูตร'),
       imagePath: imgPath,
       imageUrl: imageUrl,
-      prepTime: _toInt(j['prep_time']),
-      averageRating: _toDouble(j['average_rating']),
-      reviewCount: _toInt(j['review_count']),
-      favoriteCount: _toInt(j['favorite_count'], fallback: 0),
+      prepTime: toIntSafe(j['prep_time']),
+      averageRating: toDoubleSafe(j['average_rating']),
+      reviewCount: toIntSafe(j['review_count']),
+      favoriteCount: toIntSafe(j['favorite_count'], fallback: 0),
       //  ⭐️ อ่านค่า is_favorited จาก JSON (รองรับทั้ง boolean และ integer)
       isFavorited: j['is_favorited'] == true || j['is_favorited'] == 1,
-      shortIngredients: _toString(j['short_ingredients']),
+      shortIngredients: toStringSafe(j['short_ingredients']),
       hasAllergy: j['has_allergy'] == true || j['has_allergy'] == 1,
-      rank: j['rank'] == null ? null : _toInt(j['rank']),
-      ingredientIds: _parseIds(j['ingredient_ids']),
-      allergyGroups: _toStringList(j['allergy_groups']), // ★★★ [NEW]
-      allergyNames: _toStringList(j['allergy_names']), // ★★★ [NEW]
+      rank: j['rank'] == null ? null : toIntSafe(j['rank']),
+      ingredientIds: parseIds(j['ingredient_ids']),
+      allergyGroups: toStringListSafe(j['allergy_groups']), // ★★★ [NEW]
+      allergyNames: toStringListSafe(j['allergy_names']), // ★★★ [NEW]
     );
   }
 

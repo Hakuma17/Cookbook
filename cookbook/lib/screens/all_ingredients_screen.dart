@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../utils/safe_image.dart';
 
 import '../models/ingredient.dart';
 import '../models/ingredient_group.dart';
@@ -64,6 +65,30 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   // จำกัดเวลาพรีเช็คสั้น ๆ เพื่อไม่ให้ผู้ใช้รอนาน
   static const Duration _precheckTimeout = Duration(milliseconds: 1200);
 
+  /* ─── path helpers (โปรไฟล์ให้เป็น URL เต็ม + กันแคช) ─── */
+  String _bust(String url) {
+    if (url.isEmpty) return url;
+    final sep = url.contains('?') ? '&' : '?';
+    return '$url${sep}t=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  String? _normalizeServerPath(String? p) {
+    if (p == null || p.isEmpty) return null;
+    var s = p.replaceAll('\\', '/');
+    final idx = s.indexOf('/uploads/');
+    if (idx >= 0) s = s.substring(idx);
+    final q = s.indexOf('?');
+    if (q >= 0) s = s.substring(0, q);
+    return s;
+  }
+
+  String? _composeFullUrl(String? maybePath) {
+    if (maybePath == null || maybePath.isEmpty) return null;
+    final full = ApiService.normalizeUrl(maybePath);
+    // บัสต์เฉพาะรูปในโฟลเดอร์ผู้ใช้ เพื่อเคลียร์แคชหลังอัปโหลด
+    return full.contains('/uploads/users/') ? _bust(full) : full;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -91,9 +116,27 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
 
   Future<void> _loadUserInfo() async {
     _isLoggedIn = await AuthService.isLoggedIn();
-    _username = await AuthService.getProfileName();
-    _profileImg = await AuthService.getProfileImage();
-    if (mounted) setState(() {});
+
+    // ดึงก้อน login data แล้วจัดการรูปให้เป็น URL เต็ม + cache-bust
+    final data = await AuthService.getLoginData();
+    final rawName =
+        (data['profileName'] ?? data['profile_name'] ?? '').toString().trim();
+    final rawImg = (data['profileImage'] ??
+            data['profile_image'] ??
+            data['path_imgProfile'] ??
+            '')
+        .toString();
+
+    final norm =
+        _normalizeServerPath(rawImg) ?? rawImg; // เหลือเฉพาะ /uploads/... ถ้ามี
+    final full = _composeFullUrl(norm) ?? // แปลงเป็น URL เต็ม + ?t=
+        (rawImg.startsWith('http') ? rawImg : ''); // รองรับ external URL ตรง ๆ
+
+    setState(() {
+      _username = rawName.isEmpty ? null : rawName;
+      _profileImg =
+          full; // อาจเป็นค่าว่าง -> header จะ fallback เป็นรูป default
+    });
   }
 
   Future<void> _loadIngredients() async {
@@ -576,7 +619,7 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
                           // [NEW] ถ้าอยู่ใน selectionMode → แตะเพื่อ “เลือกกลุ่มนี้” ส่ง Ingredient ตัวแทนกลับไป
                           onTap: () async {
                             if (widget.selectionMode) {
-                              final repId = g.representativeIngredientId ?? 0;
+                              final repId = g.representativeIngredientId;
                               if (repId <= 0) {
                                 _showSnack('ไม่พบตัวแทนของกลุ่มนี้');
                                 return;
@@ -629,10 +672,10 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.6)),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.6)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -664,9 +707,7 @@ class _HeaderBar extends StatelessWidget {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
-    final provider = (profileImg != null && profileImg!.isNotEmpty)
-        ? NetworkImage(profileImg!)
-        : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
+    final String img = (profileImg ?? '').trim();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -676,11 +717,19 @@ class _HeaderBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: theme.colorScheme.surfaceVariant,
-            backgroundImage: provider,
-            onBackgroundImageError: (_, __) {},
+          ClipOval(
+            child: SizedBox.square(
+              dimension: 48,
+              child: SafeImage(
+                // ถ้าไม่มี URL ให้ใช้รูป default ทันที
+                url: img.isEmpty ? 'assets/images/default_avatar.png' : img,
+                fit: BoxFit.cover,
+                error: Image.asset(
+                  'assets/images/default_avatar.png',
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

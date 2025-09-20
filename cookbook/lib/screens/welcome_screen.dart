@@ -44,14 +44,15 @@ class WelcomeScreen extends StatelessWidget {
             Positioned.fill(
               child: ColorFiltered(
                 colorFilter: ColorFilter.mode(
-                  Colors.black.withOpacity(.35),
+                  Colors.black.withValues(alpha: .35),
                   BlendMode.darken,
                 ),
                 child: Image.asset(
                   'assets/images/chef_background.jpg',
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Container(
-                    color: theme.colorScheme.surfaceVariant,
+                    // เปลี่ยนเป็นพื้นผิว container ระดับสูงสุดตาม Material 3
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                 ),
               ),
@@ -140,7 +141,7 @@ class _BottomPanel extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(.12),
+                color: Colors.black.withValues(alpha: .12),
                 blurRadius: 20,
                 offset: const Offset(0, -4),
               ),

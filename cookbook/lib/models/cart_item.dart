@@ -72,9 +72,10 @@ class CartItem extends Equatable {
     // 1) ถ้ามีค่านี้มาจาก backend ใช้เลย
     final hasAllergyFromJson = JsonParser.parseBool(json['has_allergy']);
 
-    // 2) ถ้า backend ไม่ส่ง แต่มี ingredients ให้คำนวณจากวัตถุดิบ
-    final hasAllergyFromIngs =
-        hasAllergyFromJson ?? ings.any((e) => e.hasAllergy);
+    // 2) ถ้า backend ไม่ส่ง key has_allergy แต่มี ingredients ให้คำนวณจากวัตถุดิบ
+    final hasAllergyFromIngs = json.containsKey('has_allergy')
+        ? hasAllergyFromJson
+        : ings.any((e) => e.hasAllergy);
 
     // 3) อนุญาต override
     final hasAllergy = hasAllergyOverride ?? hasAllergyFromIngs;
@@ -104,8 +105,9 @@ class CartItem extends Equatable {
     final ingredients = rawIng.map((e) => CartIngredient.fromJson(e)).toList();
 
     // คำนวณธงแพ้: ถ้ามีใน json ใช้เลย, ถ้าไม่มีก็ OR จากรายการวัตถุดิบ
-    final hasAllergyOverride = JsonParser.parseBool(json['has_allergy']) ??
-        ingredients.any((e) => e.hasAllergy);
+    final hasAllergyOverride = json.containsKey('has_allergy')
+        ? JsonParser.parseBool(json['has_allergy'])
+        : ingredients.any((e) => e.hasAllergy);
 
     return CartItem._fromMap(
       json,
@@ -143,7 +145,7 @@ class CartItem extends Equatable {
     int? recipeId,
     String? name,
 
-    /// ต้องการตั้งค่า `prepTime` ให้เป็น null ได้ จึงใช้ ValueGetter<int?>
+    /// ต้องการตั้งค่า `prepTime` ให้เป็น null ได้ จึงใช้ `ValueGetter<int?>`
     ValueGetter<int?>? prepTime,
     double? averageRating,
     int? reviewCount,

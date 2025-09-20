@@ -1,6 +1,7 @@
 // lib/screens/profile_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../utils/safe_image.dart';
 import 'package:cookbook/services/auth_service.dart';
 import 'package:cookbook/services/api_service.dart';
 import 'package:cookbook/widgets/custom_bottom_nav.dart';
@@ -18,7 +19,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _username = 'ผู้ใช้';
   String _email = '';
   String _profileInfo = ''; // ★ คำบรรยายใต้โปรไฟล์
-  String? _profileImageUrl; // URL เต็มไว้แสดง
+  String? _profileImageUrl; // URL เต็มไว้แสดง (บัสต์แคชแล้ว)
   List<Ingredient> _allergyList = [];
 
   bool _isLoggedIn = false;
@@ -41,7 +42,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Map<String, dynamic> _asMap(dynamic v) =>
-      v is Map ? Map<String, dynamic>.from(v as Map) : <String, dynamic>{};
+      v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
 
   Map<String, dynamic> _unwrapUser(dynamic raw) {
     var m = _asMap(raw);
@@ -63,6 +64,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return m;
   }
 
+  // ---- cache-buster ----
+  String _bust(String url) {
+    if (url.isEmpty) return url;
+    final sep = url.contains('?') ? '&' : '?';
+    return '$url${sep}t=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
   // ---- path utils ----
   String? _normalizeServerPath(String? p) {
     if (p == null || p.isEmpty) return null;
@@ -77,7 +85,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _composeFullUrl(String? maybePath) {
     // ★ ใช้ util กลางของ ApiService เพื่อแก้ host localhost/127.0.0.1 ให้เหมาะกับ emulator/web
     if (maybePath == null || maybePath.isEmpty) return null;
-    return ApiService.normalizeUrl(maybePath);
+    final u = ApiService.normalizeUrl(maybePath);
+    // บัสต์เฉพาะรูปผู้ใช้ (โฟลเดอร์ uploads/users) เพื่อไม่ไปรบกวน asset อื่น
+    return u.contains('/uploads/users/') ? _bust(u) : u;
   }
 
   // ───────────────── init ─────────────────
@@ -115,7 +125,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // ★ ให้ normalize + compose ผ่าน ApiService.normalizeUrl เสมอ
     final norm = _normalizeServerPath(rawImage) ?? rawImage;
     final full = _composeFullUrl(norm) ??
-        (rawImage.startsWith('http') ? rawImage : null);
+        (rawImage.startsWith('http') ? _bust(rawImage) : null);
 
     setState(() {
       _isLoggedIn = data['isLoggedIn'] ?? true;
@@ -144,7 +154,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           root['avatar'] ??
           root['image_url']);
       final serverPath = _normalizeServerPath(rawImg) ?? rawImg;
-      final showUrl = _composeFullUrl(serverPath);
+      final showUrl = _composeFullUrl(serverPath) ??
+          (rawImg.startsWith('http') ? _bust(rawImg) : null);
 
       setState(() {
         if (serverName.isNotEmpty) _username = serverName;
@@ -197,23 +208,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final newName = _safeStr(result['newName']);
       final newPath = _normalizeServerPath(_safeStr(result['newImagePath'])) ??
           _safeStr(result['newImagePath']);
-      final newUrl = _safeStr(result['newImageUrl']).isNotEmpty
+      final rawNewUrl = _safeStr(result['newImageUrl']).isNotEmpty
           ? _safeStr(result['newImageUrl'])
           : (_composeFullUrl(newPath) ?? '');
+      final busted = rawNewUrl.isEmpty ? '' : _bust(rawNewUrl);
 
       setState(() {
         if (newName.isNotEmpty) _username = newName;
         _profileImageUrl = (result['newImagePath'] == null &&
                 _safeStr(result['newImageUrl']).isEmpty)
             ? null
-            : (newUrl.isEmpty ? null : newUrl);
+            : (busted.isEmpty ? null : busted);
         if (result.containsKey('newProfileInfo')) {
           _profileInfo = _safeStr(result['newProfileInfo']);
         }
       });
     }
 
-    // แล้วรีเฟรชสดอีกที
+    // แล้วรีเฟรชสดอีกที (ตอนนี้ฝั่ง BE ก็ส่ง ?t=... มาแล้ว)
     setState(() {
       _initFuture = _initialize(forceServer: true);
     });
@@ -321,19 +333,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildProfileHeader(ThemeData theme, TextTheme textTheme) {
     final cs = theme.colorScheme;
 
-    final provider = (_profileImageUrl != null && _profileImageUrl!.isNotEmpty)
-        ? NetworkImage(_profileImageUrl!)
-        : const AssetImage('assets/images/default_avatar.png') as ImageProvider;
-
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
       decoration: BoxDecoration(
         color: cs.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.outlineVariant.withOpacity(.6)),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: .6)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.04),
+            color: Colors.black.withValues(alpha: .04),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -341,11 +349,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: cs.surfaceVariant,
-            backgroundImage: provider,
-            onBackgroundImageError: (_, __) {},
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              _Avatar(url: _profileImageUrl),
+              Positioned(
+                bottom: 0,
+                right: 8,
+                child: _EditAvatarButton(onTap: _navToEditProfile),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           Text(
@@ -363,57 +376,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ],
           if (_profileInfo.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: cs.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cs.outlineVariant.withOpacity(.7)),
+            const SizedBox(height: 8),
+            Text(
+              _profileInfo,
+              style: textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w500,
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.info_outline, size: 18, color: cs.primary),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text(_profileInfo, style: textTheme.bodyMedium)),
-                ],
-              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
             ),
           ],
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: _navToEditProfile,
-            child: const Text('แก้ไขโปรไฟล์'),
-          ),
         ],
       ),
     );
   }
 
   Widget _buildSettingsCard(ThemeData theme) {
+    final cs = theme.colorScheme;
     return Card(
-      elevation: 1.5,
+      color: cs.secondaryContainer.withValues(alpha: .35),
+      elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         children: [
           ListTile(
+            leading: Icon(Icons.person_outline, color: cs.onSecondaryContainer),
             title: const Text('การตั้งค่าบัญชี'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => Navigator.pushNamed(context, '/settings'),
           ),
           const Divider(height: 1),
           ListTile(
+            leading: Icon(Icons.warning_amber_outlined,
+                color: cs.onSecondaryContainer),
             title: const Text('จัดการวัตถุดิบที่แพ้'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: _navToAllergyScreen,
           ),
           const Divider(height: 1),
           ListTile(
-            leading: Icon(Icons.logout, color: theme.colorScheme.error),
-            title: Text('ออกจากระบบ',
-                style: TextStyle(color: theme.colorScheme.error)),
+            leading: Icon(Icons.logout, color: cs.error),
+            title: Text('ออกจากระบบ', style: TextStyle(color: cs.error)),
             onTap: _handleLogout,
           ),
         ],
@@ -421,6 +426,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // รายการวัตถุดิบที่แพ้
   Widget _buildAllergySection(ThemeData theme, TextTheme textTheme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,7 +440,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Center(child: Text('ยังไม่มีข้อมูล')),
@@ -450,22 +457,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: hasUrl
-                        ? Image.network(
-                            ing.imageUrl,
+                        ? SafeImage(
+                            url: ing.imageUrl,
                             width: 72,
                             height: 72,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
+                            error: Container(
                               width: 72,
                               height: 72,
-                              color: theme.colorScheme.surfaceVariant,
+                              color: theme.colorScheme.surfaceContainerHighest,
                               child: const Icon(Icons.no_photography_outlined),
                             ),
                           )
                         : Container(
                             width: 72,
                             height: 72,
-                            color: theme.colorScheme.surfaceVariant,
+                            color: theme.colorScheme.surfaceContainerHighest,
                             alignment: Alignment.center,
                             child: const Icon(Icons.no_photography_outlined),
                           ),
@@ -486,6 +493,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }).toList(),
           ),
       ],
+    );
+  }
+}
+
+// ───────────── Avatar with white ring + shadow ─────────────
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.url});
+  final String? url;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .12),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: cs.surface,
+          border: Border.all(color: Colors.white, width: 4),
+        ),
+        padding: const EdgeInsets.all(2),
+        child: ClipOval(
+          child: SafeImage(
+            url: (url == null || url!.isEmpty)
+                ? 'assets/images/default_avatar.png'
+                : url!,
+            fit: BoxFit.cover,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EditAvatarButton extends StatelessWidget {
+  const _EditAvatarButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(Icons.edit, size: 18, color: cs.primary),
+        ),
+      ),
     );
   }
 }

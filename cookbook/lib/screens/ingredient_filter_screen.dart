@@ -241,7 +241,9 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
     // [NEW] ส่งกลับ 4 ชุด: includeNames, excludeNames, includeGroups, excludeGroups
     // โค้ดเดิมที่อ่าน index 0–1 ยังใช้งานได้เหมือนเดิม
-    Navigator.pop(context, [
+    // ★ ป้องกัน use_build_context_synchronously: จับ Navigator ก่อน
+    final nav = Navigator.of(context);
+    nav.pop([
       _haveSet.toList(),
       _notHaveSet.toList(),
       _haveGroupSet.toList(),
@@ -252,16 +254,18 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   // นำทางล่าง
   void _onNavItemTapped(int index) {
     if (index == 1) return; // หน้าปัจจุบัน
+    // ★ ใช้ nav ที่จับไว้ครั้งเดียว
+    final nav = Navigator.of(context);
     switch (index) {
       case 0:
-        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+        nav.pushNamedAndRemoveUntil('/home', (_) => false);
         break;
       case 2:
-        Navigator.pushNamedAndRemoveUntil(context, '/my_recipes', (_) => false);
+        nav.pushNamedAndRemoveUntil('/my_recipes', (_) => false);
         break;
       case 3:
         final route = _isLoggedIn ? '/profile' : '/settings';
-        Navigator.pushNamedAndRemoveUntil(context, route, (_) => false);
+        nav.pushNamedAndRemoveUntil(route, (_) => false);
         break;
     }
   }
@@ -284,10 +288,12 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   // กล้อง: โหมด "ชื่อวัตถุดิบ" → เพิ่มลง include
   Future<void> _onIncludeNameCamera() async {
     final names = await scanIngredient(context);
-    if (names == null || names.isEmpty) return;
+    if (names.isEmpty) return;
     _addNameTo(_haveSet, _notHaveSet, names.join(','));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    // ★ จับ messenger ไว้ก่อนใช้
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
       SnackBar(content: Text('เพิ่มจากการสแกน: ${names.join(", ")}')),
     );
   }
@@ -295,10 +301,11 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   // กล้อง: โหมด "ชื่อวัตถุดิบ" → เพิ่มลง exclude
   Future<void> _onExcludeNameCamera() async {
     final names = await scanIngredient(context);
-    if (names == null || names.isEmpty) return;
+    if (names.isEmpty) return;
     _addNameTo(_notHaveSet, _haveSet, names.join(','));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
       SnackBar(content: Text('ยกเว้นจากการสแกน: ${names.join(", ")}')),
     );
   }
@@ -306,24 +313,27 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   // กล้อง: โหมด "กลุ่มวัตถุดิบ" → สแกนชื่อ → map เป็นกลุ่ม → เพิ่มลง include
   Future<void> _onIncludeGroupCamera() async {
     final names = await scanIngredient(context);
-    if (names == null || names.isEmpty) return;
+    if (names.isEmpty) return;
     try {
       final groups = await ApiService.mapIngredientsToGroups(names);
       if (groups.isNotEmpty) {
         _addGroupTo(_haveGroupSet, _notHaveGroupSet, groups.join(','));
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.showSnackBar(
           SnackBar(content: Text('เพิ่มกลุ่ม: ${groups.join(", ")}')),
         );
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.showSnackBar(
           const SnackBar(content: Text('ไม่พบกลุ่มจากภาพที่สแกน')),
         );
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
         SnackBar(content: Text('ผิดพลาด: $e')),
       );
     }
@@ -332,24 +342,27 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   // กล้อง: โหมด "กลุ่มวัตถุดิบ" → สแกนชื่อ → map เป็นกลุ่ม → เพิ่มลง exclude
   Future<void> _onExcludeGroupCamera() async {
     final names = await scanIngredient(context);
-    if (names == null || names.isEmpty) return;
+    if (names.isEmpty) return;
     try {
       final groups = await ApiService.mapIngredientsToGroups(names);
       if (groups.isNotEmpty) {
         _addGroupTo(_notHaveGroupSet, _haveGroupSet, groups.join(','));
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.showSnackBar(
           SnackBar(content: Text('ยกเว้นกลุ่ม: ${groups.join(", ")}')),
         );
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.showSnackBar(
           const SnackBar(content: Text('ไม่พบกลุ่มจากภาพที่สแกน')),
         );
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
         SnackBar(content: Text('ผิดพลาด: $e')),
       );
     }
@@ -414,10 +427,12 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         _haveGroupSet.length +
         _notHaveGroupSet.length;
 
-    return WillPopScope(
-      onWillPop: () async {
+    // ย้ายไปใช้ PopScope แทน WillPopScope (รองรับ predictive back)
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
         _popWithResult();
-        return false;
       },
       child: Scaffold(
         backgroundColor: theme.colorScheme.surface,
@@ -460,10 +475,8 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: MaterialBanner(
-                            backgroundColor:
-                                theme.colorScheme.tertiaryContainer.withOpacity(
-                              .3,
-                            ),
+                            backgroundColor: theme.colorScheme.tertiaryContainer
+                                .withValues(alpha: .3),
                             content: const Text(
                                 'มีวัตถุดิบที่คุณแพ้อยู่ในรายการ “มีวัตถุดิบ”'),
                             actions: [
@@ -719,7 +732,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
             showSelectedIcon: false,
             style: ButtonStyle(
               visualDensity: VisualDensity.compact,
-              padding: MaterialStateProperty.all(
+              padding: WidgetStateProperty.all(
                   const EdgeInsets.symmetric(horizontal: 8)),
             ),
           ),
@@ -740,6 +753,9 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
     final cs = Theme.of(context).colorScheme;
     return Wrap(
+      alignment: WrapAlignment.start,
+      runAlignment: WrapAlignment.start,
+      crossAxisAlignment: WrapCrossAlignment.center,
       spacing: 8.0,
       runSpacing: 4.0,
       children: data.map((name) {
@@ -748,8 +764,8 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
         final chipColor = isAllergy ? allergyColor : color;
         final bg = isAllergy
-            ? cs.errorContainer.withOpacity(.25)
-            : cs.surfaceVariant.withOpacity(0.3);
+            ? cs.errorContainer.withValues(alpha: .25)
+            : cs.surfaceContainerHighest.withValues(alpha: 0.3);
 
         final chip = Chip(
           label: Row(
@@ -848,8 +864,14 @@ class _TypeAheadBox extends StatelessWidget {
               ),
               onSubmitted: (value) {
                 final v = value.trim();
-                if (v.isNotEmpty) onAdd(v);
-                textController.clear();
+                if (v.isNotEmpty) {
+                  onAdd(v);
+                  // เก็บข้อความไว้ต่อ ไม่ clear เพื่อให้แก้ไข/กดค้นหาต่อได้
+                  // เลื่อน caret ไปท้ายข้อความ
+                  textController.selection = TextSelection.fromPosition(
+                    TextPosition(offset: textController.text.length),
+                  );
+                }
               },
             ),
 
@@ -859,8 +881,7 @@ class _TypeAheadBox extends StatelessWidget {
             // ★ NEW: เคลียร์ให้ชัวร์ และคงโฟกัสเพื่อพิมพ์ต่อได้ทันที
             onSelected: (s) {
               onAdd(s);
-              // เคลียร์ทั้ง controller ที่ส่งเข้ามา และขอคีย์บอร์ดอยู่ต่อ
-              controller.clear();
+              // คงข้อความไว้ และให้โฟกัสอยู่ต่อเพื่อพิมพ์คำถัดไปได้ทันที
               focusNode.requestFocus();
             },
 
@@ -897,16 +918,18 @@ class _TypeAheadBox extends StatelessWidget {
               icon: const Icon(Icons.camera_alt_outlined),
               tooltip: 'ถ่ายรูปสแกน',
               onPressed: () async {
+                // ★ ป้องกัน use_build_context_synchronously: จับ messenger ก่อน await
+                final messenger = ScaffoldMessenger.of(context);
                 if (onCamera != null) {
                   await onCamera!();
                   return;
                 }
                 // Fallback เดิม: สแกนแล้วเติมชื่อแรก
                 final names = await scanIngredient(context);
-                if (names != null && names.isNotEmpty) {
+                if (names.isNotEmpty) {
                   onAdd(names.first);
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.hideCurrentSnackBar();
+                  messenger.showSnackBar(
                     SnackBar(
                         content: Text('เพิ่ม "${names.first}" จากการสแกน')),
                   );

@@ -16,7 +16,7 @@
 
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
+// import 'dart:typed_data'; // no longer needed
 
 import 'package:flutter/foundation.dart'; // compute
 import 'package:flutter/material.dart';
@@ -399,8 +399,8 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
             child: CustomPaint(
               size: Size(_cropSize, _cropSize),
               painter: _HoleGridOverlayPainter(
-                scrimColor: Colors.black.withOpacity(0.32),
-                outlineColor: Colors.white.withOpacity(.95),
+                scrimColor: Colors.black.withValues(alpha: 0.32),
+                outlineColor: Colors.white.withValues(alpha: .95),
                 outlineWidth: 1.5,
                 showGrid: _showGrid,
                 gridColor: Colors.white70,
@@ -529,7 +529,7 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
               ]),
               if (_isSaving)
                 Container(
-                  color: Colors.black.withOpacity(.35),
+                  color: Colors.black.withValues(alpha: .35),
                   child: const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -546,7 +546,7 @@ class _CropAvatarScreenState extends State<CropAvatarScreen> {
           });
         },
       ),
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: Theme.of(context).colorScheme.surface,
     );
   }
 }

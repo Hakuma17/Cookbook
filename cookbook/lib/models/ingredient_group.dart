@@ -65,43 +65,43 @@ class IngredientGroup extends Equatable {
 
   /// แปลงจาก JSON โดยรองรับหลายชื่อคีย์ที่เทียบเท่ากัน
   factory IngredientGroup.fromJson(Map<String, dynamic> json) {
-    String _s(dynamic v) => (v ?? '').toString();
-    int _i(dynamic v) {
+    String s(dynamic v) => (v ?? '').toString();
+    int i(dynamic v) {
       if (v == null) return 0;
       if (v is int) return v;
       return int.tryParse(v.toString()) ?? 0;
     }
 
-    final group = _s(
+    final group = s(
       json['group_name'] ?? json['catagorynew'] ?? json['group'] ?? '',
     );
 
-    final repId = _i(
+    final repId = i(
       json['representative_ingredient_id'] ??
           json['rep_id'] ??
           json['ingredient_id'],
     );
 
-    final repName = _s(
+    final repName = s(
       json['representative_name'] ?? json['name'] ?? '',
     );
 
-    final img = _s(
+    final img = s(
       json['image_url'] ?? json['image'] ?? json['image_path'] ?? '',
     );
 
     // ★ NEW: แยกนับสองแบบชัดเจน
-    final cntItems = _i(
+    final cntItems = i(
       json['item_count'] ??
           json['member_count'] ??
           json['count'] ??
           json['total'],
     );
-    final cntRecipes = _i(
+    final cntRecipes = i(
       json['recipe_count'] ?? json['total_recipes'] ?? json['recipes'],
     );
 
-    final cover = _s(
+    final cover = s(
       json['cover_url'] ?? json['cover'] ?? json['banner_url'] ?? '',
     );
 

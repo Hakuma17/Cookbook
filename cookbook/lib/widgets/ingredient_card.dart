@@ -49,12 +49,14 @@ class IngredientCard extends StatelessWidget {
   // คำนวณความสูงกล่องชื่อ 2 บรรทัด (ตามสไตล์จริง)
   static double titleBoxHeightOf(BuildContext context) {
     final theme = Theme.of(context);
-    final scale = MediaQuery.textScaleFactorOf(context);
+    // ใช้ TextScaler แทน textScaleFactorOf (API ใหม่)
+    final scaler = MediaQuery.textScalerOf(context);
     final s =
         (theme.textTheme.titleMedium ?? const TextStyle(fontSize: 16)).copyWith(
       height: 1.15,
     );
-    final lineH = (s.fontSize ?? 16) * (s.height ?? 1.2) * scale;
+    final base = (s.fontSize ?? 16) * (s.height ?? 1.2);
+    final lineH = scaler.scale(base);
     return lineH * 2;
   }
 
@@ -98,9 +100,9 @@ class IngredientCard extends StatelessWidget {
     // URL รูป (ถ้าเว้นว่างและเป็น "กลุ่ม" → ใช้ asset เป็นภาพหลักทันที)
     final String rawUrl = isGroupCard
         ? (group!.coverUrl?.trim().isNotEmpty == true
-            ? group!.coverUrl!
-            : (group!.imageUrl ?? ''))
-        : (ingredient!.imageUrl ?? '');
+            ? group!.coverUrl!.trim()
+            : group!.imageUrl)
+        : ingredient!.imageUrl;
     final bool hasRemoteImage = rawUrl.trim().isNotEmpty;
 
     // จำนวนสูตรบนการ์ด (เฉพาะกลุ่ม)
@@ -227,8 +229,8 @@ class IngredientCard extends StatelessWidget {
 
   // กลุ่มวัตถุดิบ: ใช้ apiGroupValue ถ้ามี (แม็ปตรงกับ backend)
   Future<void> _handleTapGroup(BuildContext context) async {
-    final groupValue = (group!.apiGroupValue?.trim().isNotEmpty == true)
-        ? group!.apiGroupValue!.trim()
+    final groupValue = (group!.apiGroupValue.trim().isNotEmpty)
+        ? group!.apiGroupValue.trim()
         : group!.name.trim();
 
     final cached = _groupExistenceCache[groupValue];
@@ -274,8 +276,8 @@ class IngredientCard extends StatelessWidget {
 
   String _friendlyGroupName() => (group!.displayName?.trim().isNotEmpty == true
       ? group!.displayName!.trim()
-      : (group!.groupName?.trim().isNotEmpty == true
-          ? group!.groupName!.trim()
+      : (group!.groupName.trim().isNotEmpty == true
+          ? group!.groupName.trim()
           : group!.name.trim()));
 
   // ===== Prechecks =======================================================
@@ -325,8 +327,8 @@ class IngredientCard extends StatelessWidget {
         subject: displayName, // แสดงชื่ออ่านง่าย เช่น กุ้งทะเล
         onProceed: () {
           if (!context.mounted) return;
-          final groupValue = (group!.apiGroupValue?.trim().isNotEmpty == true)
-              ? group!.apiGroupValue!.trim()
+          final groupValue = (group!.apiGroupValue.trim().isNotEmpty == true)
+              ? group!.apiGroupValue.trim()
               : group!.name.trim();
           Navigator.pushNamed(context, '/search',
               arguments: {'group': groupValue});
@@ -362,7 +364,7 @@ class IngredientCard extends StatelessWidget {
 
 // ===== Badge ============================================================
 
-/// ป้ายจำนวนสูตร: "สูตร N"
+/// ป้ายจำนวนสูตรแบบวงกลมตัวเลข
 class _RecipeCountBadge extends StatelessWidget {
   const _RecipeCountBadge({required this.count});
   final int count;
@@ -370,25 +372,35 @@ class _RecipeCountBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final String display = count > 99 ? '99+' : count.toString();
+    final bool isCircle = display.length == 1; // วงกลมถ้าเป็นเลขหลักเดียว
+
     return Semantics(
       label: 'จำนวนสูตร $count สูตร',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        height: 22,
+        width: isCircle ? 22 : null,
+        padding: isCircle
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(horizontal: 6),
         decoration: BoxDecoration(
           color: cs.primary,
-          borderRadius: BorderRadius.circular(999),
+          shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+          borderRadius: isCircle ? null : BorderRadius.circular(999),
           boxShadow: [
             BoxShadow(
               blurRadius: 8,
               offset: const Offset(0, 2),
-              color: Colors.black.withOpacity(.12),
+              color: Colors.black.withValues(alpha: .12),
             ),
           ],
         ),
+        alignment: Alignment.center,
         child: Text(
-          'สูตร $count',
+          display,
+          textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 12,
             height: 1.0,
             fontWeight: FontWeight.w800,
             color: cs.onPrimary,

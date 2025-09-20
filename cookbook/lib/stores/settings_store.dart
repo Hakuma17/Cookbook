@@ -29,7 +29,6 @@
 //     onChanged: (m) => context.read<SettingsStore>().setThemeMode(m!),
 //   )
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -135,6 +134,7 @@ class SettingsStore extends ChangeNotifier {
       case 'dark':
         return ThemeMode.dark;
       case 'system':
+        return ThemeMode.system;
       default:
         return ThemeMode.system;
     }
@@ -147,7 +147,6 @@ class SettingsStore extends ChangeNotifier {
       case ThemeMode.dark:
         return 'dark';
       case ThemeMode.system:
-      default:
         return 'system';
     }
   }

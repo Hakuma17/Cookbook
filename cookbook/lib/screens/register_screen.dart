@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../utils/sanitize.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -199,7 +200,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (s >= 0.75) return theme.colorScheme.primary;
     if (s >= 0.5) return Colors.orange;
     if (s > 0.0) return theme.colorScheme.error;
-    return theme.colorScheme.surfaceVariant;
+    // ใช้ surfaceContainerHighest แทน surfaceVariant (M3)
+    return theme.colorScheme.surfaceContainerHighest;
   }
 
   String _parseErrors(dynamic raw) {
@@ -237,11 +239,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     final email = _emailCtrl.text.trim().toLowerCase();
-    final username = _userCtrl.text.trim();
+    final username = Sanitize.text(_userCtrl.text);
     final pass = _passCtrl.text;
     final confirm = _confirmCtrl.text;
 
     try {
+      final nav = Navigator.of(context); // จับ nav ไว้ก่อน await
       final res = await ApiService.register(email, pass, confirm, username);
       if (!mounted) return;
 
@@ -249,8 +252,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         final sent = res['email_sent'] == true;
         await AuthService.markPendingEmailVerify(
             email: email, startCooldown: sent);
-        Navigator.pushReplacementNamed(
-          context,
+        nav.pushReplacementNamed(
           '/verify_email',
           arguments: {'email': email, 'startCooldown': sent},
         );

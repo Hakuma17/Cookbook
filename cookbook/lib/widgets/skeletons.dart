@@ -32,12 +32,13 @@ Widget shimmerBox({
 
   final Color base = baseColor ??
       (cs != null
-          ? Color.alphaBlend(cs.onSurface.withOpacity(0.06), cs.surfaceVariant)
+          ? Color.alphaBlend(
+              cs.onSurface.withValues(alpha: 0.06), cs.surfaceVariant)
           : Colors.grey.shade300);
 
   final Color highlight = highlightColor ??
       (cs != null
-          ? Color.alphaBlend(cs.onSurface.withOpacity(0.04), cs.surface)
+          ? Color.alphaBlend(cs.onSurface.withValues(alpha: 0.04), cs.surface)
           : Colors.grey.shade100);
 
   final child = Container(

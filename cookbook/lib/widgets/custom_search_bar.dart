@@ -11,6 +11,7 @@ class CustomSearchBar extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
   final VoidCallback? onFilterTap;
   final bool hasActiveFilter;
+  final String? initialText; // ข้อความเริ่มต้น (คงไว้หลังค้นหา/เลือกคำแนะนำ)
 
   const CustomSearchBar({
     super.key,
@@ -18,6 +19,7 @@ class CustomSearchBar extends StatefulWidget {
     this.onSubmitted,
     this.onFilterTap,
     this.hasActiveFilter = false,
+    this.initialText,
   });
 
   @override
@@ -28,6 +30,30 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
   final _controller = TextEditingController();
   final _debouncer = Debouncer(delay: const Duration(milliseconds: 600));
   _SearchMode _mode = _SearchMode.recipe;
+
+  @override
+  void initState() {
+    super.initState();
+    // เซ็ตค่าข้อความเริ่มต้น ถ้ามี
+    final init = widget.initialText?.trim();
+    if (init != null && init.isNotEmpty) {
+      _controller.text = init;
+      _controller.selection = TextSelection.fromPosition(
+          TextPosition(offset: _controller.text.length));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant CustomSearchBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // ถ้าข้อความจากพาเรนต์เปลี่ยน ให้สะท้อนใน controller (ไม่รบกวนการพิมพ์)
+    final next = widget.initialText?.trim() ?? '';
+    if (next != (_controller.text)) {
+      _controller.text = next;
+      _controller.selection = TextSelection.fromPosition(
+          TextPosition(offset: _controller.text.length));
+    }
+  }
 
   /* ─────  suggestion helpers  ───── */
   final _splitter = RegExp(r'[ ,;]+');
@@ -72,7 +98,7 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
       final isDelim = RegExp(r'[ ,;]').hasMatch(last);
       _controller.text = isDelim
           ? '$raw$pure '
-          : raw.replaceFirst(RegExp(r'[^ ,;]+$'), pure) + ' ';
+          : '${raw.replaceFirst(RegExp(r'[^ ,;]+$'), pure)} ';
     }
     _controller.selection = TextSelection.fromPosition(
         TextPosition(offset: _controller.text.length));
@@ -101,7 +127,8 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
     final focusColor = cs.primary;
     final iconColor = cs.onSurfaceVariant;
 
-    String _hintText() {
+    // เปลี่ยนชื่อ local function ไม่ให้ขึ้นต้นด้วย _ (หลีกเลี่ยง lint no_leading_underscores_for_local_identifiers)
+    String hintTextLocal() {
       switch (_mode) {
         case _SearchMode.recipe:
           return 'ค้นหาชื่อเมนู...';
@@ -112,7 +139,7 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
       }
     }
 
-    IconData _modeIcon() {
+    IconData modeIconLocal() {
       switch (_mode) {
         case _SearchMode.recipe:
           return Icons.search;
@@ -123,7 +150,7 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
       }
     }
 
-    String _modeLabel() {
+    String modeLabelLocal() {
       switch (_mode) {
         case _SearchMode.recipe:
           return 'เมนู';
@@ -134,7 +161,7 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
       }
     }
 
-    void _cycleMode() {
+    void cycleModeLocal() {
       setState(() {
         if (_mode == _SearchMode.recipe) {
           _mode = _SearchMode.ingredient;
@@ -162,13 +189,16 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
                 final t = txt.trim();
                 if (t.isEmpty) return;
                 widget.onSubmitted?.call(t);
+                // ไม่ล้างข้อความหลังค้นหา คงไว้ให้แก้ได้ต่อ
+                textController.selection = TextSelection.fromPosition(
+                    TextPosition(offset: textController.text.length));
               },
               onChanged: (txt) {
                 _debouncer.run(() => widget.onChanged(txt.trim()));
                 setState(() {}); // update clear-button
               },
               decoration: InputDecoration(
-                hintText: _hintText(),
+                hintText: hintTextLocal(),
                 prefixIcon: Icon(Icons.search, color: iconColor),
                 suffixIcon: textController.text.isNotEmpty
                     ? Semantics(
@@ -205,6 +235,7 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
                 s.substring(0, 2),
                 style: theme.textTheme.titleMedium,
               ),
+              // แสดงส่วนข้อความ (หลัง prefix) โดยไม่ต้องห่อด้วย interpolation
               title: Text(s.substring(2).trim()),
               dense: true,
             ),
@@ -256,15 +287,15 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
         Semantics(
           button: true,
           toggled: _mode != _SearchMode.recipe,
-          label: 'สลับโหมดค้นหา: ${_modeLabel()}',
+          label: 'สลับโหมดค้นหา: ${modeLabelLocal()}',
           child: OutlinedButton.icon(
-            onPressed: _cycleMode,
+            onPressed: cycleModeLocal,
             icon: Icon(
-              _modeIcon(),
+              modeIconLocal(),
               size: 18,
               color: _mode == _SearchMode.recipe ? focusColor : iconColor,
             ),
-            label: Text(_modeLabel()),
+            label: Text(modeLabelLocal()),
             style: OutlinedButton.styleFrom(
               foregroundColor:
                   _mode == _SearchMode.recipe ? focusColor : iconColor,

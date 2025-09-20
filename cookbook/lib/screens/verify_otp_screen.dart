@@ -1,5 +1,10 @@
 // lib/screens/verify_otp_screen.dart
 //
+// หมายเหตุ (TH): หน้านี้ยึดหลักไม่ใช้ BuildContext ข้าม await โดยไม่จำเป็น
+// - จับบริการที่ต้องพึ่ง context ล่วงหน้าก่อน await
+// - ใช้ mounted guard ก่อน setState เพื่อความปลอดภัยใน lifecycle
+// - ใช้ PopScope/Material 3 APIs ตามแนวทางใหม่ของแอป
+//
 // Verify OTP (Email Verification)
 // - รับ {email, startCooldown} จากหน้า Register
 // - กันกดซ้ำ/กันกดย้อนกลับ (ทั้งปุ่ม back และ gesture)
@@ -174,7 +179,9 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
   }
 
   Future<void> _resend() async {
-    if (_secLeft > 0 || _resending) return;
+    if (_secLeft > 0 || _resending) {
+      return;
+    }
 
     setState(() {
       _resending = true;
@@ -242,8 +249,8 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
       ),
     );
 
-    return WillPopScope(
-      onWillPop: () async => false, // Prevent back navigation
+    return PopScope(
+      canPop: false, // Prevent back navigation
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,

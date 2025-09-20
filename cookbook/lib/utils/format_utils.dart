@@ -1,5 +1,5 @@
 // lib/utils/format_utils.dart
-import 'package:flutter/material.dart';
+// (no Flutter imports needed here)
 
 /// 950 → 950, 1,000 → 1.0K, 12,345 → 12.3K, 1,234,567 → 1.2M
 String formatCount(int? number) {

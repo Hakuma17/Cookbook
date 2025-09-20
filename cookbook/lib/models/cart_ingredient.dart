@@ -69,8 +69,8 @@ class CartIngredient extends Equatable {
       quantity: JsonParser.parseDouble(json['quantity']),
       unit: JsonParser.parseString(json['unit']),
       imageUrl: JsonParser.parseString(json['image_url']),
-      unitConflict: JsonParser.parseBool(json['unit_conflict']) ?? false,
-      hasAllergy: JsonParser.parseBool(json['has_allergy']) ?? false,
+      unitConflict: JsonParser.parseBool(json['unit_conflict']),
+      hasAllergy: JsonParser.parseBool(json['has_allergy']),
 
       // ถ้าไม่มี key ให้คงเป็น null เพื่อให้ FE ใช้ค่าประมาณ (≈)
       gramsActual: json['grams_actual'] == null

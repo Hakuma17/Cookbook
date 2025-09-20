@@ -27,7 +27,7 @@ import '../stores/favorite_store.dart';
 
 import '../models/recipe_detail.dart';
 import '../models/comment.dart';
-import '../models/ingredient.dart'; // ใช้เทียบรายการแพ้
+// removed unused ingredient import
 import '../services/api_service.dart'; // มี FavoriteToggleResult
 import '../services/auth_service.dart';
 
@@ -64,7 +64,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
 
   // แยก state เกี่ยวกับ "หัวใจ"
   bool _isFavorited = false;
-  int _favCount = 0;
   bool _favBusy = false;
 
   int _currentServings = 1;
@@ -74,10 +73,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   // เก็บผล toggle ล่าสุดไว้ส่งกลับหน้าก่อน
   FavoriteToggleResult? _lastFavResult;
 
-  // สำหรับเตือน “แพ้อาหารแบบกลุ่ม”
-  List<Ingredient> _allergyList = [];
-  bool _hasAllergy = false;
-  List<String> _badIngredientNames = const [];
+  // (removed) allergy fields not shown on this screen anymore
 
   /* ───── life-cycle ───── */
   @override
@@ -108,14 +104,13 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
         ApiService.fetchRecipeDetail(widget.recipeId), // 1
         ApiService.getComments(widget.recipeId), // 2
         AuthService.getLoginData(), // 3
-        ApiService.fetchAllergyIngredients(), // 4 (ถ้าไม่ล็อกอินจะได้ [])
       ]);
 
       final isLoggedIn = results[0] as bool;
       final recipe = results[1] as RecipeDetail;
       final rawComments = results[2] as List<Comment>;
       final loginData = results[3] as Map<String, dynamic>;
-      final allergyIngs = (results[4] as List<Ingredient>);
+      // (removed) allergy list
 
       final mapped = rawComments
           .map((c) => c.isMine
@@ -129,13 +124,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
       final myComment =
           mapped.firstWhere((c) => c.isMine, orElse: () => Comment.empty());
 
-      // คำนวณแพ้แบบ “กลุ่ม”
-      final badIdSet = allergyIngs.map((e) => e.id).toSet();
-      final hitIds = recipe.ingredientIds.where(badIdSet.contains).toSet();
-      final hitNames = allergyIngs
-          .where((ing) => hitIds.contains(ing.id))
-          .map((ing) => ing.displayName ?? ing.name)
-          .toList();
+      // (removed) allergy compute
 
       if (mounted) {
         final store = context.read<FavoriteStore>();
@@ -144,14 +133,9 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
         setState(() {
           _isLoggedIn = isLoggedIn;
           _isFavorited = storeFav || recipe.isFavorited;
-          _favCount = recipe.favoriteCount;
           _currentServings = recipe.currentServings;
           _comments = mapped;
           _userRating = myComment.rating ?? 0;
-
-          _allergyList = allergyIngs;
-          _hasAllergy = recipe.hasAllergy || hitIds.isNotEmpty;
-          _badIngredientNames = hitNames;
         });
       }
       return recipe;
@@ -174,19 +158,18 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   Widget build(BuildContext context) {
     // ★ 2025-08-15 – Guard textScale (กัน overflow บริเวณคอนโทรลแนวนอน)
     final mq = MediaQuery.of(context);
-    final double _clampedTextScale =
-        mq.textScaleFactor.clamp(1.0, 1.12).toDouble();
+    final clampedTextScaler = MediaQuery.textScalerOf(context)
+        .clamp(minScaleFactor: 1.0, maxScaleFactor: 1.12);
 
     // ครอบด้วย WillPopScope เพื่อส่งผล toggle กลับให้หน้าก่อน
     return MediaQuery(
-      data: mq.copyWith(textScaleFactor: _clampedTextScale),
-      child: WillPopScope(
-        onWillPop: () async {
-          if (_lastFavResult != null) {
-            Navigator.pop(context, _lastFavResult);
-            return false;
+      data: mq.copyWith(textScaler: clampedTextScaler),
+      child: PopScope(
+        canPop: true,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop && _lastFavResult != null) {
+            Navigator.maybePop(context, _lastFavResult);
           }
-          return true;
         },
         child: Scaffold(
           body: FutureBuilder<RecipeDetail>(
@@ -314,13 +297,13 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                     ),
                     actions: [
                       TextButton(
-                        onPressed: _scrollToIngredients,
+                        // onPressed: _scrollToIngredients,
                         child: const Text('ดูวัตถุดิบ'),
                       ),
                       TextButton(
-                        onPressed: () => _showAllergyDetailDialog(
-                          names: _badIngredientNames,
-                        ),
+                        // onPressed: () => _showAllergyDetailDialog(
+                        //   names: _badIngredientNames,
+                        // ),
                         child: const Text('รายละเอียด'),
                       ),
                     ],
@@ -512,41 +495,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
     ));
   }
 
-  void _scrollToIngredients() {
-    _scrollCtrl.animateTo(
-      _scrollCtrl.position.minScrollExtent + 300,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
-    // หมายเหตุ: ปุ่มนี้จะไม่ถูกเรียกขณะเรา “ปิดแบนเนอร์” อยู่
-  }
-
-  void _showAllergyDetailDialog({required List<String> names}) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('ส่วนผสมที่อาจก่อให้เกิดอาการแพ้'),
-        content: Text(
-          names.isEmpty
-              ? 'เมนูนี้มีส่วนผสมที่ตรงกับรายการแพ้อาหารของคุณ'
-              : names.join('\n'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ปิด'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _scrollToIngredients();
-            },
-            child: const Text('ดูวัตถุดิบ'),
-          ),
-        ],
-      ),
-    );
-  }
+  // (removed) _scrollToIngredients and allergy detail dialog no longer used
 
   // ★★★ 2025-08-15b: fallback – รีโหลดทั้งหน้าแล้วกระโดดกลับ offset เดิม
   Future<void> _reloadPreserveScroll(double? savedOffset) async {
@@ -610,6 +559,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   Future<void> _toggleFavorite(bool fav) async {
     if (!_isLoggedIn) {
       final ok = await Navigator.pushNamed(context, '/login');
+      if (!mounted) return;
       if (ok != true) return;
       setState(() => _initFuture = _loadAllData());
       return;
@@ -624,7 +574,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
       if (!mounted) return;
       setState(() {
         _isFavorited = r.isFavorited;
-        _favCount = r.favoriteCount;
+        // keep UI in sync via store / recipe refresh elsewhere
         _lastFavResult = r;
       });
 
@@ -703,16 +653,16 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
 
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('ยืนยันการลบ'),
         content: const Text('คุณต้องการลบคอมเมนต์นี้ใช่หรือไม่?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('ยกเลิก'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               'ลบ',
               style: TextStyle(color: Theme.of(context).colorScheme.error),

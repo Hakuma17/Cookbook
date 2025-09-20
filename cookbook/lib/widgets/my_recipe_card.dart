@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart'; // [NEW] สำหรับ FavoriteStore (เฉพาะตอนใช้หัวใจ)
 import '../models/recipe.dart';
 import '../utils/format_utils.dart'; // formatCount: 1200 -> 1.2K
+import '../utils/safe_image.dart';
 
 // [NEW] ใช้เมื่อเปิดหัวใจ (เวอร์ชัน MyRecipeCardHeart)
 import '../services/api_service.dart';
@@ -69,7 +70,7 @@ class MyRecipeCard extends StatelessWidget {
 
     // [NEW] สีกรอบเปลี่ยนตามสถานะเลือก
     final borderColor =
-        selected ? cs.primary : cs.outlineVariant.withOpacity(0.95);
+        selected ? cs.primary : cs.outlineVariant.withValues(alpha: 0.95);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -177,7 +178,7 @@ class MyRecipeCard extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
+                        color: Colors.black.withValues(alpha: 0.06),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -243,8 +244,8 @@ class _MyRecipeCardHeartState extends State<MyRecipeCardHeart> {
   @override
   void initState() {
     super.initState();
-    _isFav = widget.recipe.isFavorited ?? false;
-    _favCount = widget.recipe.favoriteCount ?? 0;
+    _isFav = widget.recipe.isFavorited;
+    _favCount = widget.recipe.favoriteCount;
   }
 
   Future<void> _toggleFavorite() async {
@@ -305,8 +306,9 @@ class _MyRecipeCardHeartState extends State<MyRecipeCardHeart> {
     final textTheme = theme.textTheme;
     final cs = theme.colorScheme;
 
-    final borderColor =
-        widget.selected ? cs.primary : cs.outlineVariant.withOpacity(0.95);
+    final borderColor = widget.selected
+        ? cs.primary
+        : cs.outlineVariant.withValues(alpha: 0.95);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -382,7 +384,7 @@ class _MyRecipeCardHeartState extends State<MyRecipeCardHeart> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
+                        color: Colors.black.withValues(alpha: 0.06),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -430,21 +432,11 @@ class _AllergyBadge extends StatelessWidget {
 }
 
 Widget _buildImage(String imageUrl) {
-  if (imageUrl.isNotEmpty) {
-    return Image.network(
-      imageUrl,
-      fit: BoxFit.cover,
-      filterQuality: FilterQuality.medium,
-      errorBuilder: (_, __, ___) => _fallbackImage(),
-    );
-  }
-  return _fallbackImage();
+  return SafeImage(
+    url: imageUrl.isNotEmpty ? imageUrl : 'assets/images/default_recipe.png',
+    fit: BoxFit.cover,
+  );
 }
-
-Widget _fallbackImage() => Image.asset(
-      'assets/images/default_recipe.png',
-      fit: BoxFit.cover,
-    );
 
 /* ───────────── META: ดาวอย่างเดียว ───────────── */
 class _MetaStarOnly extends StatelessWidget {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/safe_image.dart';
 
 /// CarouselWidget – PageView + arrows + dots
 /// • ถ้า list ว่าง หรือโหลดรูปเน็ตไม่ได้  ➜  ใช้ default_recipe.png
@@ -46,8 +47,6 @@ class _CarouselWidgetState extends State<CarouselWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     /* 1️⃣ เตรียมรายการรูป (ใส่ fallback เสมอ) */
     final imgs = (widget.imageUrls ?? [])
         .where((e) => e.trim().isNotEmpty)
@@ -69,15 +68,9 @@ class _CarouselWidgetState extends State<CarouselWidget> {
               final isAsset = src.startsWith('assets/');
               return isAsset
                   ? Image.asset(src, fit: BoxFit.cover)
-                  : Image.network(
-                      src,
+                  : SafeImage(
+                      url: src,
                       fit: BoxFit.cover,
-                      loadingBuilder: (_, child, p) => p == null
-                          ? child
-                          : const Center(child: CircularProgressIndicator()),
-                      errorBuilder: (_, __, ___) => Image.asset(
-                          'assets/images/default_recipe.png',
-                          fit: BoxFit.cover),
                     );
             },
           ),
@@ -127,7 +120,7 @@ class _Arrow extends StatelessWidget {
         iconSize: 22,
         style: IconButton.styleFrom(
           backgroundColor:
-              Theme.of(context).colorScheme.surface.withOpacity(.8),
+              Theme.of(context).colorScheme.surface.withValues(alpha: .8),
           foregroundColor: Theme.of(context).colorScheme.onSurface,
           shape: const CircleBorder(),
           padding: const EdgeInsets.all(12),
@@ -158,7 +151,7 @@ class _Dots extends StatelessWidget {
               decoration: BoxDecoration(
                 color: on
                     ? Theme.of(context).colorScheme.primary
-                    : Colors.white.withOpacity(.8),
+                    : Colors.white.withValues(alpha: .8),
                 shape: BoxShape.circle,
               ),
             );

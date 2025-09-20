@@ -17,7 +17,9 @@ const Map<String, String> _kLabelMap = {
   'kha': 'ข่า',
 };
 
-const double _kAutoFillThreshold = 0.80;
+// ignore: unused_element
+const double _kAutoFillThreshold =
+    0.80; // เดิม: เกณฑ์ Autofill ≥ 80% (ยังเก็บไว้เผื่อย้อนกลับมาใช้)
 
 // ★ ธง/เกณฑ์สำหรับเตือนกรณีมีหลายวัตถุดิบในภาพ
 const double _kMultiGap = 0.10; // top1 - top2 < 0.10
@@ -30,8 +32,11 @@ const _bgColor = Color(0xFFFFE8CB); // ครีมอ่อน
 const _ink = Color(0xFF3D2B1F); // น้ำตาลเข้ม
 const _cta = Color(0xFF8C5E3C); // Cocoa (ปุ่มหลัก/บวก)
 const _ctaHover = Color(0xFF7A4E2D); // Cocoa เข้มตอนกด
+// ignore: unused_element
 const _chipBg = Color(0xFFFFF7EE); // พื้นหลังชิป (เดิม) – ยังเก็บไว้เผื่อใช้
+// ignore: unused_element
 const _chipLine = Color(0xFFB58763); // เส้นขอบชิป (เดิม)
+// ignore: unused_element
 const _chipText = Color(0xFF5B3E2B); // ตัวอักษรชิป
 
 // ★ สีแท่งผลทำนาย (สดขึ้น) – ใช้โทนอุ่น/ชัดขึ้น แต่ยังเข้าธีม
@@ -62,7 +67,7 @@ class _IngredientPredictionResultScreenState
   final _selected = <String>{};
 
   List<Map<String, dynamic>> _topPredictions = [];
-  bool _showPredictions = false; // ⬅️ ปิดไว้ก่อน ต้องกดลูกศรลงเพื่อเปิด
+  bool _showPredictions = true; // ⬅️ เปิดไว้เป็นค่าเริ่มต้นตามสเปคใหม่
 
   // ★ ธงเตือน ‘หลายวัตถุดิบ’
   bool _multiObjectSuspected = false;
@@ -75,11 +80,8 @@ class _IngredientPredictionResultScreenState
 
     if (widget.allPredictions.isNotEmpty) {
       final top = widget.allPredictions.first;
-      final conf = (top['confidence'] as num).toDouble();
-      //   Autofill เฉพาะ ≥ 80%
-      if (conf >= _kAutoFillThreshold) {
-        _inputCtrl.text = _mapLabel(top['label'] as String);
-      }
+      // ⛔ เปลี่ยนสเปค: กรอกอัตโนมัติด้วยผลอันดับ 1 ทันที (ไม่ผูกกับ 80%)
+      _inputCtrl.text = _mapLabel(top['label'] as String);
       if (widget.allPredictions.length >= 2) {
         final c1 = (widget.allPredictions[0]['confidence'] as num).toDouble();
         final c2 = (widget.allPredictions[1]['confidence'] as num).toDouble();
@@ -108,6 +110,8 @@ class _IngredientPredictionResultScreenState
   }
 
   // ─────────────────── Logic: เพิ่ม / ลบ / สรุป ───────────────────
+  // ⛔ สเปคใหม่ไม่ใช้ลิสต์หลายรายการแล้ว — เก็บเมธอดไว้เผื่อสลับกลับในอนาคต
+  // ignore: unused_element
   void _addToList({String? valueOverride}) {
     final value = (valueOverride ?? _inputCtrl.text).trim();
     if (value.isEmpty) return;
@@ -181,7 +185,7 @@ class _IngredientPredictionResultScreenState
     return ok == true;
   }
 
-  Future<bool> _onWillPop() async => _confirmCancelIfNeeded();
+  // PopScope handles back navigation; no onWillPop needed.
 
   @override
   Widget build(BuildContext context) {
@@ -191,8 +195,15 @@ class _IngredientPredictionResultScreenState
     final canAdd = _inputCtrl.text.trim().isNotEmpty;
     final canConfirm = canAdd || _selected.isNotEmpty;
 
-    return WillPopScope(
-      onWillPop: _onWillPop, // ⬅️ จัดการปุ่ม Back ของระบบ
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        // Capture navigator BEFORE awaiting to avoid using BuildContext across async gaps
+        final nav = Navigator.of(context);
+        final ok = await _confirmCancelIfNeeded();
+        if (ok) nav.pop();
+      },
       child: Scaffold(
         backgroundColor: _bgColor,
         appBar: AppBar(
@@ -205,10 +216,10 @@ class _IngredientPredictionResultScreenState
             icon: const Icon(Icons.close),
             tooltip: 'ยกเลิก',
             onPressed: () async {
-              if (await _confirmCancelIfNeeded()) {
-                // ignore: use_build_context_synchronously
-                Navigator.pop(context);
-              }
+              // Capture navigator BEFORE awaiting to avoid using BuildContext across async gaps
+              final nav = Navigator.of(context);
+              final ok = await _confirmCancelIfNeeded();
+              if (ok) nav.pop();
             },
           ),
           actions: [
@@ -275,22 +286,22 @@ class _IngredientPredictionResultScreenState
 
                 const SizedBox(height: 24),
 
-                // ★ ข้อความบอกเกณฑ์ ≥80%
+                // ★ ข้อความบอกเกณฑ์ (อัปเดตตามสเปคใหม่)
                 Row(
                   children: [
                     Icon(Icons.tips_and_updates_outlined,
-                        size: 18, color: _ink.withOpacity(.7)),
+                        size: 18, color: _ink.withValues(alpha: .7)),
                     const SizedBox(width: 6),
                     Text(
-                      'กรอกให้อัตโนมัติเมื่อความมั่นใจ ≥ ${(_kAutoFillThreshold * 100).toInt()}%',
-                      style:
-                          tt.bodySmall?.copyWith(color: _ink.withOpacity(.75)),
+                      'กรอกให้อัตโนมัติด้วยผลอันดับ 1 (แก้ไขได้)',
+                      style: tt.bodySmall
+                          ?.copyWith(color: _ink.withValues(alpha: .75)),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
 
-                // ───────── ช่องกรอก + ปุ่มบวก ─────────
+                // ───────── ช่องกรอก (เอาปุ่มบวกออกตามสเปคใหม่) ─────────
                 Row(
                   children: [
                     Expanded(
@@ -312,54 +323,54 @@ class _IngredientPredictionResultScreenState
                           ),
                         ),
                         textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _addToList(),
+                        // ⛔ เปลี่ยนสเปค: ไม่เพิ่มเข้ารายการเมื่อกด Enter แล้ว
+                        onSubmitted: (_) => FocusScope.of(context).unfocus(),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      style: IconButton.styleFrom(
-                        backgroundColor: canAdd ? _cta : _cta.withOpacity(.35),
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: _cta.withOpacity(.25),
-                      ),
-                      icon: const Icon(Icons.add),
-                      tooltip: 'เพิ่มเข้ารายการ',
-                      onPressed: canAdd ? () => _addToList() : null,
-                    ),
+                    // ⛔ เปลี่ยนสเปค: เอาปุ่ม + ออกเลย
+                    // const SizedBox(width: 8),
+                    // IconButton.filled(
+                    //   style: IconButton.styleFrom(
+                    //     backgroundColor: canAdd ? _cta : _cta.withOpacity(.35),
+                    //     foregroundColor: Colors.white,
+                    //     disabledBackgroundColor: _cta.withOpacity(.25),
+                    //   ),
+                    //   icon: const Icon(Icons.add),
+                    //   tooltip: 'เพิ่มเข้ารายการ',
+                    //   onPressed: canAdd ? () => _addToList() : null,
+                    // ),
                   ],
                 ),
 
                 const SizedBox(height: 16),
 
-                // ───────── ผลลัพธ์การทำนาย (ปิดไว้ก่อน) ─────────
+                // ───────── ผลลัพธ์การทำนาย (เปิดไว้เป็นค่าเริ่มต้น) ─────────
                 _buildPredictionSection(tt),
 
                 const SizedBox(height: 24),
 
-                // ───────── รายการวัตถุดิบที่เลือก ─────────
-                _buildSelectedItemsSection(tt),
+                // ⛔ เปลี่ยนสเปค: ไม่ใช้รายการวัตถุดิบแบบหลายชิ้นแล้ว
+                // _buildSelectedItemsSection(tt),
 
                 const SizedBox(height: 24),
 
                 // ───────── ปุ่มยืนยัน ─────────
                 FilledButton.icon(
                   onPressed: canConfirm ? _onConfirm : null,
-                  icon: const Icon(Icons.search),
-                  label: Text(
-                    _selected.isNotEmpty
-                        ? 'ดูสูตรอาหาร (${_selected.length})'
-                        : 'ดูสูตรอาหาร',
-                  ),
+                  // ★ เปลี่ยนเป็น “ส่งผลการทำนาย” และใช้ไอคอนส่ง
+                  icon: const Icon(Icons.send),
+                  label: const Text('ส่งผลการทำนาย'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: canConfirm ? _cta : _cta.withOpacity(.35),
+                    backgroundColor:
+                        canConfirm ? _cta : _cta.withValues(alpha: .35),
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: _cta.withOpacity(.25),
+                    disabledBackgroundColor: _cta.withValues(alpha: .25),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: const StadiumBorder(),
                   ).copyWith(
                     overlayColor: WidgetStateProperty.resolveWith(
                       (s) => s.contains(WidgetState.pressed)
-                          ? _ctaHover.withOpacity(.18)
+                          ? _ctaHover.withValues(alpha: .18)
                           : null,
                     ),
                   ),
@@ -404,7 +415,8 @@ class _IngredientPredictionResultScreenState
 
   Widget _buildPredictionBar(Map<String, dynamic> p, int i) {
     final fill = _barColors[i % _barColors.length];
-    final bg = fill.withOpacity(0.12); // ★ ทำแทร็กจางลง เพื่อให้สีแท่งดู “สด”
+    final bg =
+        fill.withValues(alpha: 0.12); // ★ ทำแทร็กจางลง เพื่อให้สีแท่งดู “สด”
     final label = _mapLabel(p['label'] as String);
     final score = (p['confidence'] as num).toDouble();
 
@@ -412,11 +424,16 @@ class _IngredientPredictionResultScreenState
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Semantics(
         button: true,
+        // ⛔ เปลี่ยนสเปค: แตะ = ใส่ลงช่องกรอก (ไม่ใช่เพิ่มลิสต์)
         label:
-            'เพิ่ม $label ลงในรายการ ความมั่นใจ ${(score * 100).toInt()} เปอร์เซ็นต์',
+            'ใส่ $label ลงในช่อง ความมั่นใจ ${(score * 100).toInt()} เปอร์เซ็นต์',
         child: InkWell(
-          onTap: () =>
-              _addToList(valueOverride: label), // ➕ แตะ = เพิ่มเข้ารายการ
+          onTap: () {
+            _inputCtrl.text = label;
+            _inputCtrl.selection = TextSelection.fromPosition(
+                TextPosition(offset: _inputCtrl.text.length));
+            setState(() {});
+          },
           borderRadius: BorderRadius.circular(18),
           child: Container(
             height: 36,
@@ -463,19 +480,12 @@ class _IngredientPredictionResultScreenState
   }
 
   // ส่วน: รายการวัตถุดิบที่เลือก (Wrap ชิป + ปุ่ม “ล้างทั้งหมด”)
+  // ⛔ สเปคใหม่ไม่ใช้ลิสต์หลายรายการแล้ว — เก็บ UI เดิมไว้เผื่อสลับกลับในอนาคต
+  // ignore: unused_element
   Widget _buildSelectedItemsSection(TextTheme tt) {
+    // ⛔ เปลี่ยนสเปค: ไม่ใช้รายการหลายชิ้นแล้ว — เก็บโค้ดไว้เป็นตัวเลือกในอนาคต
     if (_selected.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('รายการวัตถุดิบ', style: tt.titleMedium?.copyWith(color: _ink)),
-          const SizedBox(height: 8),
-          Text(
-            'ยังไม่มีรายการ — พิมพ์แล้วกดปุ่ม + หรือเปิด “ผลลัพธ์การทำนาย” เพื่อเลือก',
-            style: tt.bodyMedium?.copyWith(color: _ink.withOpacity(.7)),
-          ),
-        ],
-      );
+      return const SizedBox.shrink();
     }
 
     return Column(
@@ -543,11 +553,14 @@ class _IngredientPredictionResultScreenState
               children: [
                 Text('📝 วิธีใช้หน้านี้', style: t.titleLarge),
                 const SizedBox(height: 16),
-                _bullet('ผลลัพธ์การทำนายถูกปิดไว้ก่อน — กดหัวข้อเพื่อเปิด', t),
-                _bullet('แตะแท่งผลลัพธ์เพื่อ “เพิ่ม” ลงในรายการวัตถุดิบ', t),
-                _bullet('Autofill จะกรอกให้เองถ้าอันดับ 1 ≥ 80%', t),
-                _bullet('พิมพ์ชื่อเองแล้วกด “+” เพื่อเพิ่มได้เช่นกัน', t),
-                _bullet('แตะ ✕ เพื่อลบออกจากรายการ หรือกด “ล้างทั้งหมด”', t),
+                _bullet(
+                    'ผลลัพธ์การทำนายเปิดให้ดูเป็นค่าเริ่มต้น (ปิด/เปิดได้ที่หัวข้อ)',
+                    t),
+                _bullet(
+                    'แตะแท่งผลลัพธ์เพื่อใส่ชื่อวัตถุดิบลง “ช่องกรอก” ทันที', t),
+                _bullet('ระบบจะกรอกให้อัตโนมัติด้วยผลอันดับ 1 (แก้ไขได้)', t),
+                _bullet(
+                    'ตรวจสอบ/แก้ไขชื่อ แล้วกด “ส่งผลการทำนาย” เพื่อยืนยัน', t),
               ],
             ),
           );

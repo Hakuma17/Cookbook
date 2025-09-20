@@ -19,8 +19,7 @@ class _FeatureIntroPageData {
 class _StepCalloutData {
   final int number;
   final String text;
-  final Color? bulletColor;
-  const _StepCalloutData(this.number, this.text, {this.bulletColor});
+  const _StepCalloutData(this.number, this.text);
 }
 
 class OnboardingScreen extends StatefulWidget {
@@ -158,7 +157,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   count: _pages.length,
                   index: _index,
                   activeColor: theme.colorScheme.primary,
-                  inactiveColor: theme.colorScheme.surfaceVariant,
+                  inactiveColor: theme.colorScheme.surfaceContainerHighest,
                   onDotTap: (i) => _pc.animateToPage(
                     i,
                     duration: const Duration(milliseconds: 250),
@@ -199,7 +198,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 child: IgnorePointer(
                   ignoring: true,
                   child: Container(
-                    color: theme.colorScheme.surface.withOpacity(0.4),
+                    color: theme.colorScheme.surface.withValues(alpha: 0.4),
                     alignment: Alignment.center,
                     child: const CircularProgressIndicator(),
                   ),
@@ -310,7 +309,7 @@ class _StepCallout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = data.bulletColor ?? theme.colorScheme.primary;
+    final color = theme.colorScheme.primary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
@@ -319,7 +318,7 @@ class _StepCallout extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 12,
-            backgroundColor: color.withOpacity(0.15),
+            backgroundColor: color.withValues(alpha: 0.15),
             child: Text(
               '${data.number}',
               style: theme.textTheme.labelSmall

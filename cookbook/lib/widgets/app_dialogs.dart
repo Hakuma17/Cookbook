@@ -162,8 +162,8 @@ class AllergyWarningDialog extends StatelessWidget {
                   children: badIngredientNames.map((n) {
                     return Chip(
                       label: Text(n),
-                      side: BorderSide(color: cs.error.withOpacity(.5)),
-                      backgroundColor: cs.errorContainer.withOpacity(.45),
+                      side: BorderSide(color: cs.error.withValues(alpha: .5)),
+                      backgroundColor: cs.errorContainer.withValues(alpha: .45),
                       labelStyle: tt.labelMedium?.copyWith(color: cs.error),
                     );
                   }).toList(),

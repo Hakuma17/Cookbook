@@ -163,8 +163,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       if (!mounted) return;
 
       if (result['success'] == true) {
-        final token = _extractResetToken(
-            (result is Map<String, dynamic>) ? result : <String, dynamic>{});
+        final token = _extractResetToken(result);
         if (token == null || token.isEmpty) {
           setState(() => _errorMsg = 'ไม่พบโทเค็นสำหรับตั้งรหัสผ่านใหม่');
           return;
@@ -211,12 +210,17 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           if (msg.isEmpty) msg = 'เกิดข้อผิดพลาด กรุณาลองใหม่';
       }
 
-      if (mounted) setState(() => _errorMsg = msg);
+      if (mounted) {
+        setState(() => _errorMsg = msg);
+      }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => _errorMsg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -248,9 +252,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       height: 68,
       textStyle: textTheme.titleLarge,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outline.withOpacity(0.5)),
+        border:
+            Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.5)),
       ),
     );
 

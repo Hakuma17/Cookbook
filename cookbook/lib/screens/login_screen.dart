@@ -36,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _googleSignIn = GoogleSignIn(
     scopes: const ['email', 'profile', 'openid'],
     serverClientId:
-        '84901598956-dui13r3k1qmvo0t0kpj6h5mhjrjbvoln.apps.googleusercontent.com',
+        '84901598956-f1jcvtke9f9lg84lgso1qpr3hf5rhhkr.apps.googleusercontent.com',
   );
 
   /* ── UI state ─────────────────────────────────────────────────── */
@@ -92,12 +92,16 @@ class _LoginScreenState extends State<LoginScreen> {
         .toUpperCase();
     if (code == 'EMAIL_NOT_VERIFIED' ||
         code == 'VERIFY_REQUIRED' ||
-        code == 'UNVERIFIED') return true;
+        code == 'UNVERIFIED') {
+      return true;
+    }
 
     if (resOrData['must_verify'] == true ||
         resOrData['require_verify'] == true ||
         resOrData['require_email_verify'] == true ||
-        resOrData['email_verified'] == false) return true;
+        resOrData['email_verified'] == false) {
+      return true;
+    }
 
     final cand = <String>[];
     final msg = resOrData['message'];
@@ -123,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: cs.errorContainer,
-          border: Border.all(color: cs.error.withOpacity(.7)),
+          border: Border.all(color: cs.error.withValues(alpha: .7)),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -159,6 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _passCtrl.text,
       );
 
+      if (!mounted) return;
       if (res['success'] != true) {
         final msg =
             (res['message'] ?? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง').toString();
@@ -168,17 +173,20 @@ class _LoginScreenState extends State<LoginScreen> {
             msg.toLowerCase().contains('verify');
 
         if (looksUnverified) {
+          if (!mounted) return;
           setState(() {
             _emailVerifyError = 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ';
             _errorMsg = null;
           });
         } else {
+          if (!mounted) return;
           setState(() => _errorMsg = msg);
         }
         return;
       }
 
       await AuthService.saveLoginData(res['data']);
+      if (!mounted) return;
       _navToHome();
     } on ApiException catch (e) {
       final msg = e.message;
@@ -188,16 +196,18 @@ class _LoginScreenState extends State<LoginScreen> {
           msg.toLowerCase().contains('verify');
 
       if (looksUnverified) {
-        setState(() {
-          _emailVerifyError =
-              msg.isNotEmpty ? msg : 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ';
-          _errorMsg = null;
-        });
+        if (mounted) {
+          setState(() {
+            _emailVerifyError =
+                msg.isNotEmpty ? msg : 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ';
+            _errorMsg = null;
+          });
+        }
       } else {
-        setState(() => _errorMsg = msg);
+        if (mounted) setState(() => _errorMsg = msg);
       }
     } catch (_) {
-      setState(() => _errorMsg = 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
+      if (mounted) setState(() => _errorMsg = 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
     } finally {
       _setLoading(false);
     }
@@ -217,22 +227,18 @@ class _LoginScreenState extends State<LoginScreen> {
         throw ApiException('ไม่สามารถดึง Google ID Token ได้');
       }
 
-      // ถ้าใส่ helper googleSignInAndStore() ตามที่เพิ่มไว้ ให้ใช้บรรทัดนี้แทนสองบรรทัดล่าง
-      // await ApiService.googleSignInAndStore(token);
-
-      final res = await ApiService.googleSignIn(token);
-      if (res['success'] != true) {
-        setState(
-            () => _errorMsg = res['message'] ?? 'ล็อกอินด้วย Google ล้มเหลว');
-        return;
-      }
-      await AuthService.saveLoginData(res['data']);
+      // ใช้ helper ที่ห่อทั้งการเรียก API + บันทึกข้อมูลลง SharedPreferences ให้เรียบร้อย
+      // พร้อม normalize URL รูปโปรไฟล์เพื่อให้โหลดได้แน่นอน
+      await ApiService.googleSignInAndStore(token);
+      if (!mounted) return;
       _navToHome();
     } on ApiException catch (e) {
-      setState(() => _errorMsg = e.message);
+      if (mounted) setState(() => _errorMsg = e.message);
       await _googleSignIn.signOut();
     } catch (_) {
-      setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการล็อกอินด้วย Google');
+      if (mounted) {
+        setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการล็อกอินด้วย Google');
+      }
       await _googleSignIn.signOut();
     } finally {
       _setLoading(false);
@@ -478,8 +484,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           label: const Text('ดำเนินการต่อด้วย Google'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: cs.onSurface,
-                            side:
-                                BorderSide(color: Colors.black.withOpacity(.2)),
+                            side: BorderSide(
+                              color: Colors.black.withValues(alpha: .2),
+                            ),
                           ),
                         ),
                       ),
@@ -505,7 +512,7 @@ class _LoginScreenState extends State<LoginScreen> {
             if (_isLoading)
               IgnorePointer(
                 ignoring: true,
-                child: Container(color: Colors.black.withOpacity(.12)),
+                child: Container(color: Colors.black.withValues(alpha: .12)),
               ),
           ],
         ),

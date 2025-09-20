@@ -16,7 +16,7 @@ class CommentEditor extends StatefulWidget {
   });
 
   @override
-  _CommentEditorState createState() => _CommentEditorState();
+  State<CommentEditor> createState() => _CommentEditorState();
 }
 
 class _CommentEditorState extends State<CommentEditor> {
@@ -111,12 +111,13 @@ class _CommentEditorState extends State<CommentEditor> {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final mq = MediaQuery.of(context);
-    final clampedScale = mq.textScaleFactor.clamp(1.0, 1.12).toDouble();
+    final clampedScaler =
+        mq.textScaler.clamp(minScaleFactor: 1.0, maxScaleFactor: 1.12);
 
     final isEditing = widget.initialText.isNotEmpty;
 
     return MediaQuery(
-      data: mq.copyWith(textScaleFactor: clampedScale),
+      data: mq.copyWith(textScaler: clampedScaler),
       child: Padding(
         padding: EdgeInsets.only(
           left: 16,
@@ -132,7 +133,7 @@ class _CommentEditorState extends State<CommentEditor> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: theme.colorScheme.outline.withOpacity(0.5),
+                color: theme.colorScheme.outline.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),

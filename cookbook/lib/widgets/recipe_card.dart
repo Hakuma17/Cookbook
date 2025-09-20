@@ -25,9 +25,7 @@ const double kRecipeCardVerticalWidth = 188;
 // เดิมใช้ 1:1 → ตอนนี้ใช้ 4:3 เพื่อแก้ปัญหารูปสูงเกิน/overflow
 const double kRecipeCardVerticalImageAspectRatio = 4 / 3;
 
-// ★★★ [NEW] กันยิงคำขอซ้ำตอนผู้ใช้กดหัวใจรัว ๆ ต่อเมนูเดียวกัน
-// [NOTE] หลังปรับไปใช้ Optimistic UI ใน _MetaOneLine แล้ว ตัวแปรนี้ไม่ถูกใช้ในไฟล์นี้
-final Set<int> _favInFlight = <int>{};
+// (removed) in-flight tracking handled at API/store level
 
 class RecipeCard extends StatelessWidget {
   const RecipeCard({
@@ -50,46 +48,7 @@ class RecipeCard extends StatelessWidget {
     return _buildVerticalCard(context);
   }
 
-  // ★★★ [NEW] รวมลอจิก toggle หัวใจไว้ที่เดียว (รอผลจริง + กันซ้อน)
-  // [NOTE] เวอร์ชัน Optimistic UI ย้ายไปจัดการภายใน _MetaOneLine แล้ว
-  // ฟังก์ชันนี้คงไว้เพื่อความเข้ากันได้ (เผื่อเรียกใช้จากที่อื่น)
-  Future<void> _handleToggleFavorite(BuildContext context) async {
-    // เช็กล็อกอินตามเดิม
-    if (!await AuthService.isLoggedIn()) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อน')),
-        );
-        Navigator.pushNamed(context, '/login');
-      }
-      return;
-    }
-
-    // กันยิงซ้ำเมนูเดียวกัน
-    if (_favInFlight.contains(recipe.id)) return;
-    _favInFlight.add(recipe.id);
-
-    final favStore = context.read<FavoriteStore>();
-    final bool desired = !favStore.contains(recipe.id);
-
-    try {
-      // ★★★ [CHANGED] เดิม fire-and-forget → ตอนนี้รอผลจริงจาก backend
-      final result = await ApiService.toggleFavorite(recipe.id, desired);
-
-      // ★★★ [CHANGED] อัปเดต store ตาม "ผลจริง" เพื่อลด desync
-      await favStore.set(recipe.id, result.isFavorited);
-
-      // หมายเหตุ: ถ้าต้องลบการ์ดในหน้า Favorites ทันทีให้จัดการที่หน้าลิสต์
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('บันทึกเมนูโปรดไม่สำเร็จ')),
-        );
-      }
-    } finally {
-      _favInFlight.remove(recipe.id);
-    }
-  }
+  // (removed) legacy _handleToggleFavorite (optimistic handled in _MetaOneLine)
 
   /* ───────────────────── VERTICAL ───────────────────── */
   Widget _buildVerticalCard(BuildContext context) {
@@ -99,7 +58,7 @@ class RecipeCard extends StatelessWidget {
 
     // ★★★ [CHANGED] เลิกสูตรชดเชยเลขหัวใจ (±1/−1) เพื่อกัน desync
     // ใช้ค่าที่มากับ recipe ตรง ๆ; ถ้าต้องการเลขสดใหม่ ให้ parent รีเฟรชข้อมูล
-    final favCount = (recipe.favoriteCount ?? 0);
+    final favCount = recipe.favoriteCount;
 
     return SizedBox(
       width: kRecipeCardVerticalWidth,
@@ -134,7 +93,7 @@ class RecipeCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                 child: _MetaOneLine(
                   //   แบบที่ 1 (ค่าเริ่มต้น)
-                  key: ValueKey('v:${recipe.id}:${favCount}'), // ★★★ [FIX]
+                  key: ValueKey('v:${recipe.id}:$favCount'), // ★★★ [FIX]
                   recipeId: recipe.id, // [NEW]
                   rating: recipe.averageRating,
                   reviewCount: recipe.reviewCount,
@@ -156,7 +115,7 @@ class RecipeCard extends StatelessWidget {
     final isFav = favStore.contains(recipe.id);
 
     // ★★★ [CHANGED] ไม่ชดเชยเลขหัวใจ
-    final favCount = (recipe.favoriteCount ?? 0);
+    final favCount = recipe.favoriteCount;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -187,7 +146,7 @@ class RecipeCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               child: _MetaOneLine(
-                key: ValueKey('c:${recipe.id}:${favCount}'), // ★★★ [FIX]
+                key: ValueKey('c:${recipe.id}:$favCount'), // ★★★ [FIX]
                 recipeId: recipe.id, // [NEW]
                 rating: recipe.averageRating,
                 reviewCount: recipe.reviewCount,
@@ -208,7 +167,7 @@ class RecipeCard extends StatelessWidget {
     final isFav = favStore.contains(recipe.id);
 
     // ★★★ [CHANGED] ไม่ชดเชยเลขหัวใจ
-    final favCount = (recipe.favoriteCount ?? 0);
+    final favCount = recipe.favoriteCount;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -240,7 +199,7 @@ class RecipeCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   _MetaOneLine(
-                    key: ValueKey('e:${recipe.id}:${favCount}'), // ★★★ [FIX]
+                    key: ValueKey('e:${recipe.id}:$favCount'), // ★★★ [FIX]
                     recipeId: recipe.id, // [NEW]
                     rating: recipe.averageRating,
                     reviewCount: recipe.reviewCount,
@@ -534,9 +493,9 @@ class _AllergyIndicator extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: cs.errorContainer.withOpacity(0.92),
+            color: cs.errorContainer.withValues(alpha: 0.92),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: cs.error.withOpacity(.6), width: 1),
+            border: Border.all(color: cs.error.withValues(alpha: .6), width: 1),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

@@ -13,7 +13,6 @@ import '../models/ingredient.dart';
 import '../models/recipe.dart';
 import '../models/recipe_detail.dart';
 import '../models/comment.dart';
-import '../models/cart_item.dart';
 import '../models/cart_response.dart';
 import '../models/cart_ingredient.dart';
 import '../models/search_response.dart';
@@ -138,7 +137,22 @@ class ApiService {
     final isLocalHost =
         (u.host == 'localhost' || u.host == '127.0.0.1' || u.host == '::1');
     if (isLocalHost) {
-      u = u.replace(host: base.host, port: base.hasPort ? base.port : null);
+      if (base.hasPort) {
+        // ถ้า base มีพอร์ต → ใช้พอร์ตเดียวกัน
+        u = u.replace(host: base.host, port: base.port);
+      } else {
+        // ถ้า base ไม่มีพอร์ต → ลบพอร์ตเดิมออกไปด้วย (สร้าง Uri ใหม่โดยไม่ระบุ port)
+        final hasQuery = u.query.isNotEmpty;
+        final hasFrag = u.fragment.isNotEmpty;
+        u = Uri(
+          scheme: u.scheme.isNotEmpty ? u.scheme : base.scheme,
+          userInfo: u.userInfo.isNotEmpty ? u.userInfo : null,
+          host: base.host,
+          path: u.path,
+          query: hasQuery ? u.query : null,
+          fragment: hasFrag ? u.fragment : null,
+        );
+      }
     }
     return u.toString();
   }
@@ -152,7 +166,7 @@ class ApiService {
   }
 
   static Map<String, dynamic> _asMap(dynamic v) =>
-      v is Map ? Map<String, dynamic>.from(v as Map) : <String, dynamic>{};
+      v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
 
   /// ★ คลี่ชั้นให้เหลือ Map ชั้นในสุด (ลอง data → user → me)
   static Map<String, dynamic> _unwrapUser(dynamic raw) {
@@ -204,11 +218,11 @@ class ApiService {
   /// ใช้ในหน้าล็อกอินกรณี Google: ยิง endpoint แล้วบันทึกลง AuthService ให้เรียบร้อย
   static Future<Map<String, dynamic>> googleSignInAndStore(
       String idToken) async {
-    final res = await googleSignIn(idToken); // เรียกของเดิม
-    // แกะ payload ให้เป็น Map data เดียว
-    final data = (res is Map && res['data'] is Map)
+    final Map<String, dynamic> res = await googleSignIn(idToken);
+    // แกะ payloadให้เป็น Map data เดียว
+    final Map<String, dynamic> data = (res['data'] is Map)
         ? Map<String, dynamic>.from(res['data'] as Map)
-        : (res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{});
+        : Map<String, dynamic>.from(res);
 
     // ปรับ URL รูปภาพให้เข้ากับ emulator/host (ถ้าจำเป็น)
     if (data['path_imgProfile'] is String) {
@@ -672,42 +686,71 @@ class ApiService {
 
   static Future<Map<String, dynamic>> updateProfile({
     required String profileName,
-    String? imageUrl,
     String? profileInfo,
+    String? imageUrl, // null = ไม่แตะ, "" = ลบ, http(s) = external URL
+    File? file, // ถ้ามี → ส่ง multipart
   }) async {
-    // สร้าง payload ตามคีย์ที่ BE รองรับ (snake_case)
-    final payload = <String, dynamic>{
-      'profile_name': profileName,
-    };
+    final uri = Uri.parse('${baseUrl}update_profile.php');
 
-    // หมายเหตุ:
-    // - ส่ง imageUrl เป็น "" เพื่อ "ลบรูป" (BE จะเซ็ตเป็นค่า default)
-    // - ถ้า imageUrl == null จะไม่ส่งคีย์นี้ -> BE ไม่แตะรูป
-    if (imageUrl != null) {
-      payload['profile_image'] = imageUrl;
+    http.BaseRequest req;
+    if (file != null) {
+      // Multipart: แนบไฟล์และฟิลด์
+      final m = http.MultipartRequest('POST', uri);
+      final headers = await _headers();
+      headers.remove('Content-Type');
+      m.headers.addAll(headers);
+      m.fields['profile_name'] = profileName;
+      if (profileInfo != null) m.fields['profile_info'] = profileInfo;
+      // แนบชื่อพารามิเตอร์สองแบบเพื่อความเข้ากันได้
+      m.files
+          .add(await http.MultipartFile.fromPath('profile_image', file.path));
+      m.files.add(await http.MultipartFile.fromPath('file', file.path));
+      req = m;
+    } else {
+      // JSON: ส่ง image_url ถ้าระบุ (null → omit), ใส่ profile_image ด้วยเพื่อความเข้ากันได้
+      final payload = <String, dynamic>{'profile_name': profileName};
+      if (profileInfo != null) payload['profile_info'] = profileInfo;
+      if (imageUrl != null) {
+        payload['image_url'] = imageUrl; // ตามสเปกใหม่
+        payload['profile_image'] = imageUrl; // เพื่อรองรับสเปกเดิม
+      }
+
+      req = http.Request('POST', uri)
+        ..headers.addAll(await _headers(json: true))
+        ..body = jsonEncode(payload);
     }
 
-    // profileInfo: null = ไม่แตะ, "" = ลบค่า
-    if (profileInfo != null) {
-      payload['profile_info'] = profileInfo;
-    }
-
-    final r = await _client
-        .post(
-          Uri.parse('${baseUrl}update_profile.php'),
-          headers: await _headers(json: true),
-          body: jsonEncode(payload),
-        )
-        .timeout(_timeout);
-
-    await _captureCookie(r);
-
-    final json = _processResponse(r);
-    // BE ตอบ {"success":true,"data":{...}}
+    final streamed = await _client.send(req).timeout(_timeout);
+    final resp = await http.Response.fromStream(streamed);
+    await _captureCookie(resp);
+    final json = _processResponse(resp);
     if (json is Map && json['data'] is Map<String, dynamic>) {
       return Map<String, dynamic>.from(json['data'] as Map);
     }
     return {};
+  }
+
+  /// อัปโหลดรูปโปรไฟล์จาก bytes (เช่น ดาวน์โหลดมาจาก Google แล้วย่ออัปโหลดต่อ)
+  static Future<String> uploadProfileImageBytes(Uint8List bytes,
+      {String filename = 'avatar.jpg'}) async {
+    final req = http.MultipartRequest(
+        'POST', Uri.parse('${baseUrl}upload_profile_image.php'));
+    final headers = await _headers();
+    headers.remove('Content-Type');
+    req.headers.addAll(headers);
+    req.files.add(http.MultipartFile.fromBytes('profile_image', bytes,
+        filename: filename));
+    final streamed = await req.send().timeout(_timeout);
+    final resp = await http.Response.fromStream(streamed);
+    await _captureCookie(resp);
+    final json = _processResponse(resp);
+    final path = (json is Map && json['data'] is Map)
+        ? (json['data']['relative_path'] ?? json['data']['image_url'])
+        : null;
+    if (path is! String || path.isEmpty) {
+      throw ApiException('ไม่พบ path ของรูปภาพที่อัปโหลด');
+    }
+    return path;
   }
 
   // เพิ่มใน class ApiService

@@ -1,5 +1,3 @@
-import 'dart:collection';
-import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
 class FavoriteStore extends ChangeNotifier {
@@ -12,7 +10,7 @@ class FavoriteStore extends ChangeNotifier {
   final Set<int> _ids = {};
 
   // ---- Read-only helpers ----
-  UnmodifiableSetView<int> get ids => UnmodifiableSetView(_ids);
+  Set<int> get ids => Set<int>.unmodifiable(_ids);
   int get length => _ids.length;
   bool get isEmpty => _ids.isEmpty;
   bool get isNotEmpty => _ids.isNotEmpty;
@@ -36,8 +34,7 @@ class FavoriteStore extends ChangeNotifier {
   /// แทนที่ทั้งหมดด้วยเซ็ตใหม่
   Future<void> replace(Set<int> ids) async {
     final next = ids.where((e) => e > 0).toSet();
-    if (const SetEquality<int>().equals(_ids, next))
-      return; // ไม่เปลี่ยน ไม่ต้อง notify
+    if (setEquals(_ids, next)) return; // ไม่เปลี่ยน ไม่ต้อง notify
     _ids
       ..clear()
       ..addAll(next);

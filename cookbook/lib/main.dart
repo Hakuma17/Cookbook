@@ -12,7 +12,6 @@ import 'dart:developer';
 
 import 'package:cookbook/screens/change_password_screen.dart'
     show ChangePasswordScreen;
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -145,7 +144,6 @@ class MyApp extends StatelessWidget {
       );
 
       return base.copyWith(
-        useMaterial3: true,
         textTheme: textTheme,
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         pageTransitionsTheme: const PageTransitionsTheme(
@@ -219,8 +217,9 @@ class MyApp extends StatelessWidget {
           filled: true,
           fillColor: base.brightness == Brightness.light
               ? Colors.grey.shade100
-              : cs.surfaceVariant.withOpacity(.25),
-          hintStyle: TextStyle(color: cs.onSurfaceVariant.withOpacity(0.7)),
+              : cs.surfaceContainerHighest.withValues(alpha: .25),
+          hintStyle:
+              TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.7)),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none,
@@ -246,14 +245,14 @@ class MyApp extends StatelessWidget {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           color: cs.surface,
-          shadowColor: Colors.black.withOpacity(0.08),
+          shadowColor: Colors.black.withValues(alpha: 0.08),
         ),
 
         // Chip: ป้ายกรอง/แท็ก
         chipTheme: base.chipTheme.copyWith(
           shape: const StadiumBorder(),
-          side: BorderSide(color: cs.primary.withOpacity(0.5)),
-          backgroundColor: cs.primaryContainer.withOpacity(0.2),
+          side: BorderSide(color: cs.primary.withValues(alpha: 0.5)),
+          backgroundColor: cs.primaryContainer.withValues(alpha: 0.2),
           labelStyle: GoogleFonts.itim(
             fontSize: 14,
             color: cs.primary,
@@ -305,6 +304,26 @@ class MyApp extends StatelessWidget {
           theme: appLight,
           darkTheme: appDark,
           themeMode: settings.themeMode, // ← ผูกกับ SettingsStore
+          // ★ Global layout guard: กัน overflow บนอุปกรณ์หลากหลาย
+          // - บังคับ textScaleFactor อยู่ในช่วง 1.0–1.2 เพื่อกัน UI พัง
+          // - ครอบทุกหน้าด้วย SafeArea (โดยเฉพาะแถบล่าง/บน) แต่ยังคง AppBar/BottomNav ทำงานเหมือนเดิม
+          builder: (context, child) {
+            final mq = MediaQuery.of(context);
+            final clamped = mq.copyWith(
+              textScaler: MediaQuery.textScalerOf(context)
+                  .clamp(minScaleFactor: 1.0, maxScaleFactor: 1.2),
+            );
+            // เราไม่ครอบ SafeArea กับ Dialogs/Popups โดยตรง ให้เฉพาะเพจหลัก
+            return MediaQuery(
+              data: clamped,
+              child: SafeArea(
+                // ให้ขอบล่าง/บน แต่ปล่อยซ้ายขวาเพื่อคงดีไซน์การ์ด/เต็มจอ
+                left: false,
+                right: false,
+                child: child ?? const SizedBox.shrink(),
+              ),
+            );
+          },
           initialRoute: '/splash',
           onGenerateRoute: _onGenerateRoute,
           onUnknownRoute: (_) => MaterialPageRoute(

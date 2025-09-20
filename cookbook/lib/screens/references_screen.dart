@@ -48,7 +48,7 @@ class ReferencesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    // theme not needed here
 
     // ❌ (OLD) ขยายทั้งหน้าด้วย textScaler ทำให้ดู “ใหญ่แต่แน่น”
     // final mq = MediaQuery.of(context).copyWith(
@@ -217,7 +217,7 @@ class ReferencesScreen extends StatelessWidget {
                 errorBuilder: (_, __, ___) => Container(
                   width: 60,
                   height: 60,
-                  color: cs.surfaceVariant,
+                  color: cs.surfaceContainerHighest,
                   alignment: Alignment.center,
                   child: Icon(Icons.image_not_supported,
                       color: cs.onSurfaceVariant),
@@ -242,7 +242,7 @@ class ReferencesScreen extends StatelessWidget {
         ),
       ),
       trailing: Icon(Icons.open_in_new,
-          size: 18, color: cs.onSurfaceVariant.withOpacity(.9)),
+          size: 18, color: cs.onSurfaceVariant.withValues(alpha: .9)),
       onTap: () => _launchURL(url, context),
       contentPadding:
           const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
@@ -274,7 +274,7 @@ class ReferencesScreen extends StatelessWidget {
               errorBuilder: (_, __, ___) => Container(
                 width: 76,
                 height: 100,
-                color: cs.surfaceVariant,
+                color: cs.surfaceContainerHighest,
                 alignment: Alignment.center,
                 child:
                     Icon(Icons.image_not_supported, color: cs.onSurfaceVariant),
@@ -331,7 +331,7 @@ class _PeopleTile extends StatelessWidget {
     return ListTile(
       leading: CircleAvatar(
         radius: 18, // เล็กลงให้สมดุลกับความสูงบรรทัด
-        backgroundColor: cs.primary.withOpacity(.15),
+        backgroundColor: cs.primary.withValues(alpha: .15),
         foregroundColor: cs.primary,
         child: Text(initials),
       ),
