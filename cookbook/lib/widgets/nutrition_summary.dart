@@ -28,9 +28,10 @@ final NumberFormat _nTh = NumberFormat.decimalPattern('th_TH');
 
 String _fmtNut(double n) {
   final x = n.abs();
-  if (x >= 1000)
+  if (x >= 1000) {
     return _nTh
         .format(n.round()); // หลักพันขึ้นไปปัดเป็นจำนวนเต็ม + คั่นหลักพัน
+  }
   if (x >= 100) return _trimZeros(n.toStringAsFixed(0));
   if (x >= 10) return _trimZeros(n.toStringAsFixed(1));
   if (x >= 1) return _trimZeros(n.toStringAsFixed(1));
