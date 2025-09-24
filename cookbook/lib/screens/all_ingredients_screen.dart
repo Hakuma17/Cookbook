@@ -24,7 +24,6 @@ enum ListingMode { groups, ingredients }
 class AllIngredientsScreen extends StatefulWidget {
   final bool selectionMode;
   final void Function(Ingredient)? onSelected;
-
   const AllIngredientsScreen({
     super.key,
     this.selectionMode = false,
@@ -39,11 +38,9 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
   /* ─── state ───────────────────────────────────────────── */
   late Future<void> _initFuture;
 
-  // วัตถุดิบรายตัว
+  // ข้อมูลทั้งหมดและผลลัพธ์ที่กรองแล้ว
   List<Ingredient> _allIng = [];
   List<Ingredient> _filteredIng = [];
-
-  // กลุ่มวัตถุดิบ
   List<IngredientGroup> _allGroups = [];
   List<IngredientGroup> _filteredGroups = [];
 
@@ -497,6 +494,23 @@ class _AllIngredientsScreenState extends State<AllIngredientsScreen> {
                 ),
               ),
 
+              // ★ แสดงจำนวนทั้งหมดในระบบตามโหมดปัจจุบัน
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _TotalsBadge(
+                    isGroupMode: _mode == ListingMode.groups,
+                    totalGroups: _allGroups.length,
+                    totalIngredients: _allIng.length,
+                    foundCount: _mode == ListingMode.groups
+                        ? _filteredGroups.length
+                        : _filteredIng.length,
+                    hasQuery: _searchCtrl.text.trim().isNotEmpty,
+                  ),
+                ),
+              ),
+
               /* ─── grid list ─── */
               Expanded(
                 child: Padding(
@@ -751,6 +765,47 @@ class _HeaderBar extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/*──────────────────── totals badge ───────────────────*/
+class _TotalsBadge extends StatelessWidget {
+  final bool isGroupMode;
+  final int totalGroups;
+  final int totalIngredients;
+  final int? foundCount; // จำนวนรายการที่กรองแล้วตามคำค้น
+  final bool hasQuery; // มีคำค้นหรือไม่
+  const _TotalsBadge({
+    required this.isGroupMode,
+    required this.totalGroups,
+    required this.totalIngredients,
+    this.foundCount,
+    this.hasQuery = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final total = isGroupMode ? totalGroups : totalIngredients;
+    final labelAll = isGroupMode ? 'กลุ่มทั้งหมด' : 'วัตถุดิบทั้งหมด';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.secondaryContainer.withValues(alpha: .55),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        hasQuery
+            ? 'พบ ${foundCount ?? 0} รายการ ($labelAll: $total)'
+            : '$labelAll: $total รายการ',
+        style: tt.bodyMedium?.copyWith(
+          color: cs.onSecondaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
