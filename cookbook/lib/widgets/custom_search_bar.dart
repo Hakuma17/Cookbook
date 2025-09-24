@@ -181,6 +181,18 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
             controller: _controller,
             suggestionsCallback: _suggest,
             debounceDuration: const Duration(milliseconds: 250),
+            emptyBuilder: (context) => Material(
+              elevation: 2,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Text(
+                  'ไม่พบคำแนะนำ',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            ),
             builder: (context, textController, focusNode) => TextField(
               controller: textController,
               focusNode: focusNode,
