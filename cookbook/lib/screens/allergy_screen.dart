@@ -56,8 +56,12 @@ class _AllergyScreenState extends State<AllergyScreen> {
   @override
   void initState() {
     super.initState();
-    _loadAllergyList();
     _searchCtrl.addListener(_onSearchChanged);
+    // เลื่อนไปเรียกหลังเฟรมแรก เพื่อหลีกเลี่ยงการพึ่งพา InheritedWidget ใน initState
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadAllergyList();
+    });
   }
 
   @override
@@ -83,39 +87,15 @@ class _AllergyScreenState extends State<AllergyScreen> {
       // [OLD]
       // final list = await ApiService.fetchAllergyIngredients();
 
-      // [NEW] โหลด “รายการเดี่ยว” + “สรุปกลุ่ม”
-      final results = await Future.wait([
-        ApiService.fetchAllergyIngredients(), // 0: รายการเดี่ยว
-        ApiService.fetchAllergyGroups(), // 1: สรุปกลุ่ม (ชื่อกลุ่ม + rep_id)
-      ]);
-
-      final list = results[0] as List<Ingredient>;
-      final rawGroups = results[1] as List<Map<String, dynamic>>;
-
-      // ผูกภาพตัวแทนของกลุ่มจาก rep_id กับรายการเดี่ยว ถ้าหาเจอ
-      final imageById = {for (final i in list) i.id: i.imageUrl};
-      final nameById = {for (final i in list) i.id: (i.displayName ?? i.name)};
-
-      final groups = rawGroups.map((g) {
-        final rep = (g['representative_ingredient_id'] is int)
-            ? g['representative_ingredient_id'] as int
-            : int.tryParse('${g['representative_ingredient_id'] ?? 0}') ?? 0;
-        final gn = (g['group_name'] ?? '').toString();
-        final img = imageById[rep];
-        final repName = nameById[rep];
-        return _GroupSummary(
-          groupName: gn,
-          representativeIngredientId: rep,
-          representativeImageUrl: (img != null && img.isNotEmpty) ? img : null,
-          representativeName: repName,
-        );
-      }).toList();
+      // [NEW] โหลด "รายการเดี่ยว" (อาจโหลดสรุปกลุ่มจาก backend เพิ่มได้ แต่เราจะคำนวณกลุ่มจากรายการเดี่ยว
+      // เพื่อให้ UI อัปเดตทันทีแบบไม่ต้องรีเฟรช)
+      final list = await ApiService.fetchAllergyIngredients();
 
       if (!mounted) return;
       setState(() {
         _allergyList = _sorted(list);
         _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
-        _groups = groups;
+        _groups = _buildGroupsFromList(_allergyList);
       });
     } on UnauthorizedException {
       // ★ ป้องกัน use_build_context_synchronously: ตรวจ mounted และจับ nav ก่อน await
@@ -148,6 +128,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
       _removingIds.add(ing.id);
       _allergyList.removeWhere((e) => e.id == ing.id);
       _filteredList.removeWhere((e) => e.id == ing.id);
+      _groups = _buildGroupsFromList(_allergyList);
     });
 
     // กัน SnackBar ซ้อน
@@ -173,6 +154,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
           _allergyList.add(ing);
           _allergyList = _sorted(_allergyList);
           _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+          _groups = _buildGroupsFromList(_allergyList);
         });
       }
     }).whenComplete(() {
@@ -207,11 +189,18 @@ class _AllergyScreenState extends State<AllergyScreen> {
 
     if (ok != true) return;
 
-    // Optimistic UI: เอาชิปกลุ่มออกก่อน
+    // Optimistic UI: เอาชิปกลุ่มออกก่อน + ลบรายการทั้งหมดในกลุ่มออกจากลิสต์ทันที
+    // เก็บชุดที่ลบไว้เพื่อ rollback หาก API ล้มเหลว
+    final groupKey = _groupKeyFromName(g.groupName);
+    final removedItems =
+        _allergyList.where((i) => _groupKey(i) == groupKey).toList();
     setState(() {
       _removingGroupRepIds.add(g.representativeIngredientId);
       _groups.removeWhere(
           (x) => x.representativeIngredientId == g.representativeIngredientId);
+      _allergyList.removeWhere((i) => _groupKey(i) == groupKey);
+      _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+      _groups = _buildGroupsFromList(_allergyList);
     });
 
     messenger.hideCurrentSnackBar();
@@ -221,13 +210,19 @@ class _AllergyScreenState extends State<AllergyScreen> {
 
     try {
       await ApiService.removeAllergyGroup([g.representativeIngredientId]);
-      // หลังลบจริง โหลดทั้งหน้าใหม่เพื่อให้รายการเดี่ยวตรงกับกลุ่ม
-      if (!mounted) return; // กัน context หลัง await
-      await _loadAllergyList();
+      // สำเร็จ: UI ถูกอัปเดตไปแล้วแบบทันที ไม่จำเป็นต้องรีเฟรชทั้งหน้า
     } catch (_) {
       _showError('เกิดข้อผิดพลาด: ไม่สามารถลบกลุ่ม “${g.groupName}” ได้');
-      // Rollback เฉพาะชิปกลุ่ม (รายการเดี่ยวจะรีเฟรชอยู่ดี)
-      if (mounted) setState(() => _groups.add(g));
+      // Rollback ทั้งกลุ่มและรายการเดี่ยว
+      if (mounted) {
+        setState(() {
+          _groups.add(g);
+          _allergyList.addAll(removedItems);
+          _allergyList = _sorted(_allergyList);
+          _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+          _groups = _buildGroupsFromList(_allergyList);
+        });
+      }
     } finally {
       if (mounted) {
         setState(
@@ -244,6 +239,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
       _allergyList.add(ing);
       _allergyList = _sorted(_allergyList);
       _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+      _groups = _buildGroupsFromList(_allergyList);
     });
     try {
       await ApiService.addAllergy(ing.id);
@@ -254,6 +250,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
       setState(() {
         _allergyList.removeWhere((e) => e.id == ing.id);
         _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+        _groups = _buildGroupsFromList(_allergyList);
       });
     }
   }
@@ -272,6 +269,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
         _allergyList.add(picked);
         _allergyList = _sorted(_allergyList);
         _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+        _groups = _buildGroupsFromList(_allergyList);
       });
       try {
         await ApiService.addAllergy(picked.id);
@@ -283,6 +281,7 @@ class _AllergyScreenState extends State<AllergyScreen> {
         setState(() {
           _allergyList.removeWhere((e) => e.id == picked.id);
           _filteredList = _applyFilter(_allergyList, _searchCtrl.text);
+          _groups = _buildGroupsFromList(_allergyList);
         });
       }
     }
@@ -361,6 +360,42 @@ class _AllergyScreenState extends State<AllergyScreen> {
       return ka.compareTo(kb);
     });
     return list;
+  }
+
+  // ★ Added: ฟังก์ชันช่วยจัดกลุ่มในฝั่งไคลเอนต์ เพื่อให้ UI อัปเดตทันที
+  String _groupKey(Ingredient i) =>
+      (i.displayName?.isNotEmpty == true ? i.displayName! : i.name)
+          .trim()
+          .toLowerCase();
+
+  String _groupKeyFromName(String name) => name.trim().toLowerCase();
+
+  List<_GroupSummary> _buildGroupsFromList(List<Ingredient> src) {
+    final map = <String, List<Ingredient>>{}; // key = ชื่อกลุ่มแบบ normalize
+    for (final i in src) {
+      final k = _groupKey(i);
+      (map[k] ??= []).add(i);
+    }
+    final groups = <_GroupSummary>[];
+    map.forEach((k, items) {
+      // จัดเรียงภายในเล็กน้อยเพื่อเลือกตัวแทนที่คาดเดาได้
+      items.sort((a, b) => (a.displayName ?? a.name)
+          .toLowerCase()
+          .compareTo((b.displayName ?? b.name).toLowerCase()));
+      final rep = items.first;
+      final displayName =
+          rep.displayName?.isNotEmpty == true ? rep.displayName! : rep.name;
+      groups.add(_GroupSummary(
+        groupName: displayName,
+        representativeIngredientId: rep.id,
+        representativeImageUrl: rep.imageUrl.isNotEmpty ? rep.imageUrl : null,
+        representativeName: displayName,
+      ));
+    });
+    // เรียงกลุ่มตามชื่อ A→Z เพื่อเสถียรภาพ
+    groups.sort((a, b) =>
+        a.groupName.toLowerCase().compareTo(b.groupName.toLowerCase()));
+    return groups;
   }
 
   void _showError(String msg) {
