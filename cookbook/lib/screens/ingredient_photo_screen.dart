@@ -1,7 +1,7 @@
 // lib/screens/ingredient_photo_screen.dart
 import 'dart:io';
 import 'dart:math' as math;
-// import 'dart:typed_data'; // no longer needed
+// import 'dart:typed_data'; // ไม่จำเป็นอีกต่อไป
 
 import 'package:camera/camera.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -9,7 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
-// import 'package:image_cropper/image_cropper.dart'; // replaced by custom in-app cropper
+// import 'package:image_cropper/image_cropper.dart'; // ถูกแทนด้วยตัวครอปในแอป
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -520,7 +520,7 @@ class _IngredientPhotoScreenState
   }
 }
 
-// ───────── Helpers: TFLite
+// ───────── ตัวช่วย: TFLite
 class _ModelHelper {
   late tfl.Interpreter _interpreter;
   late List<String> _labels;
@@ -532,7 +532,7 @@ class _ModelHelper {
         'assets/converted_tflite_quantized/model_unquant.tflite',
       );
 
-      // Use rootBundle to avoid holding BuildContext across async gaps
+      // ใช้ rootBundle เพื่อหลีกเลี่ยงการถือ BuildContext ข้ามช่วง async
       final labelsString = await rootBundle
           .loadString('assets/converted_tflite_quantized/labels.txt');
 

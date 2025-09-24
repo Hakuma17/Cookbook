@@ -21,7 +21,7 @@ class _NutItem {
   const _NutItem(this.label, this.value, this.unit);
 }
 
-/*───────── CURRENT number formatting ─────────*/
+/*───────── รูปแบบตัวเลข (ปัจจุบัน) ─────────*/
 // แสดง K ตั้งแต่หลักพัน (เช่น 2.1K, 22.5K)
 // ★ Changed: เปลี่ยนเป็นคั่นหลักพันด้วย NumberFormat (เลิกใช้ K)
 final NumberFormat _nTh = NumberFormat.decimalPattern('th_TH');

@@ -334,7 +334,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Nutrition
+                // โภชนาการ
                 if (recipe.nutrition != null) ...[
                   Text('โภชนาการ', style: theme.textTheme.titleLarge),
                   const SizedBox(height: 8),
@@ -346,7 +346,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                   const SizedBox(height: 24),
                 ],
 
-                // Steps
+                // ขั้นตอนการทำ
                 Text('วิธีทำ', style: theme.textTheme.titleLarge),
                 const SizedBox(height: 8),
                 if (hasSteps)
@@ -371,7 +371,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                   ),
                 const SizedBox(height: 24),
 
-                // Favorite
+                // ปุ่มเพิ่ม/ลบสูตรโปรด
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -397,7 +397,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Voice button
+                // ปุ่มอ่านออกเสียงขั้นตอน
                 VoiceButton(
                   enabled: hasSteps,
                   onPressed: hasSteps
@@ -417,7 +417,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
             ),
           ),
 
-          // Comments
+          // ความคิดเห็น
           CommentSection(
             key: _commentKey,
             myComment: _comments.firstWhere((c) => c.isMine,
@@ -432,14 +432,14 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
             onDelete: (_) => _deleteComment(),
           ),
 
-          // bottom padding to avoid overflow
+          // ช่องว่างด้านล่างเพื่อหลีกเลี่ยง overflow
           SizedBox(height: 32 + bottomPad),
         ],
       ),
     );
   }
 
-  /* ───── dots indicator ───── */
+  /* ───── จุดบอกตำแหน่ง (dots indicator) ───── */
   Widget _buildDotsIndicator(int count, ThemeData theme) => Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: List.generate(

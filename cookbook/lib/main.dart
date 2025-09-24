@@ -306,21 +306,49 @@ class MyApp extends StatelessWidget {
           themeMode: settings.themeMode, // ← ผูกกับ SettingsStore
           // ★ Global layout guard: กัน overflow บนอุปกรณ์หลากหลาย
           // - บังคับ textScaleFactor อยู่ในช่วง 1.0–1.2 เพื่อกัน UI พัง
-          // - ครอบทุกหน้าด้วย SafeArea (โดยเฉพาะแถบล่าง/บน) แต่ยังคง AppBar/BottomNav ทำงานเหมือนเดิม
+          // - ครอบทุกหน้าด้วย SafeArea (โดยเฉพาะแถบล่าง/บน)
           builder: (context, child) {
             final mq = MediaQuery.of(context);
             final clamped = mq.copyWith(
               textScaler: MediaQuery.textScalerOf(context)
                   .clamp(minScaleFactor: 1.0, maxScaleFactor: 1.2),
             );
+            // ปรับสี System Navigation Bar ให้เข้ากับธีม (แก้พท.ล่างเป็นสีดำ)
+            final theme = Theme.of(context);
+            final bg = theme.scaffoldBackgroundColor;
+            final isDarkBg =
+                ThemeData.estimateBrightnessForColor(bg) == Brightness.dark;
+            SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+              // Status bar (ด้านบน)
+              statusBarColor: bg,
+              statusBarIconBrightness:
+                  isDarkBg ? Brightness.light : Brightness.dark,
+              // iOS ใช้ statusBarBrightness (กลับด้าน)
+              statusBarBrightness:
+                  isDarkBg ? Brightness.dark : Brightness.light,
+
+              // Navigation bar (ด้านล่าง)
+              systemNavigationBarColor: bg,
+              systemNavigationBarIconBrightness:
+                  isDarkBg ? Brightness.light : Brightness.dark,
+              systemNavigationBarDividerColor: Colors.transparent,
+              // ปิดการบังคับคอนทราสต์ เพื่อไม่ให้ระบบเปลี่ยนพื้นเป็นสีดำ
+              systemNavigationBarContrastEnforced: false,
+            ));
+
             // เราไม่ครอบ SafeArea กับ Dialogs/Popups โดยตรง ให้เฉพาะเพจหลัก
+
             return MediaQuery(
               data: clamped,
-              child: SafeArea(
-                // ให้ขอบล่าง/บน แต่ปล่อยซ้ายขวาเพื่อคงดีไซน์การ์ด/เต็มจอ
-                left: false,
-                right: false,
-                child: child ?? const SizedBox.shrink(),
+              child: ColoredBox(
+                // <<— ระบายสีพื้นให้กินถึง safe area
+                color:
+                    bg, // เปลี่ยนเป็นสีที่ต้องการได้ เช่น theme.colorScheme.surface
+                child: SafeArea(
+                  left: false,
+                  right: false,
+                  child: child ?? const SizedBox.shrink(),
+                ),
               ),
             );
           },

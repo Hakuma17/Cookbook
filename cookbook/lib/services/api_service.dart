@@ -127,7 +127,7 @@ class ApiService {
       return v;
     }
 
-    // relative → absolute
+    // สร้าง URL แบบ relative → absolute
     if (!u.hasScheme) {
       final p = v.startsWith('/') ? v.substring(1) : v;
       u = base.resolve(p);

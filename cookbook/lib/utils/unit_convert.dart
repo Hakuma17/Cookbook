@@ -2,7 +2,7 @@
 import 'dart:math' as math;
 // import 'package:intl/intl.dart'; // (แนะนำ) สำหรับ NumberFormat ที่ยืดหยุ่นกว่า
 
-/// A utility class for converting and formatting kitchen units.
+/// ยูทิลิตี้สำหรับแปลงและจัดรูปแบบหน่วยในครัว
 class UnitConvert {
   UnitConvert._();
 
@@ -22,9 +22,9 @@ class UnitConvert {
     'ถ้วย': 240, 'cup': 240,
   };
 
-  /// Approximates the gram value for a given quantity and unit.
+  /// ประมาณค่าน้ำหนัก (กรัม) จากจำนวนและหน่วยที่ระบุ
   ///
-  /// Returns the value in grams if the unit is recognized, otherwise returns `null`.
+  /// คืนค่าน้ำหนักเป็นกรัมหากรู้จักหน่วย ไม่เช่นนั้นจะคืนค่า `null`
   static double? approximateGrams(double quantity, String unit) {
     // ★ 2. เปลี่ยนมาใช้การค้นหาจาก Map โดยตรง (O(1)) ซึ่งเร็วกว่า .firstWhere (O(n)) มาก
     final u = unit.trim().toLowerCase();
@@ -34,9 +34,8 @@ class UnitConvert {
     return quantity * g;
   }
 
-  /// Formats a number for easy reading by removing trailing zeros
-  /// and limiting decimal places.
-  /// e.g., 5.0 -> "5", 5.251 -> "5.25", 5.20 -> "5.2"
+  /// จัดรูปแบบตัวเลขให้อ่านง่าย โดยตัดศูนย์ท้ายทศนิยมและจำกัดตำแหน่งทศนิยม
+  /// เช่น 5.0 -> "5", 5.251 -> "5.25", 5.20 -> "5.2"
   static String fmtNum(double v, {int maxDecimals = 2}) {
     // ★ 3. ปรับปรุง `fmtNum` ให้อ่านง่ายและแม่นยำขึ้น
     if (v.isNaN) return '0';
@@ -68,6 +67,6 @@ class UnitConvert {
   }
   */
 
-  /// Formats a gram value into a display string, e.g., "150 กรัม".
+  /// จัดรูปแบบค่าน้ำหนักเป็นข้อความแสดงผล เช่น "150 กรัม"
   static String fmtGrams(double grams) => '${fmtNum(grams)} กรัม';
 }

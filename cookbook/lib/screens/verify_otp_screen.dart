@@ -18,7 +18,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
-import 'package:google_fonts/google_fonts.dart'; // Import Google Fonts
+import 'package:google_fonts/google_fonts.dart'; // นำเข้า Google Fonts
 
 import 'package:cookbook/services/auth_service.dart';
 import 'package:cookbook/services/api_service.dart';
@@ -223,12 +223,12 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     final theme = Theme.of(context);
     final txt = theme.textTheme;
 
-    // ★ Define custom colors for this screen
+    // ★ กำหนดสีเฉพาะของหน้าจอนี้
     const primaryBrown = Color(0xFF967259);
     const pinBoxBg = Color(0xFFF5E4DE);
     const pinBoxBorder = Color(0xFFDBC8C1);
 
-    // ★ Define PinTheme using custom colors
+    // ★ กำหนด PinTheme โดยใช้สีที่กำหนดเอง
     final defaultPinTheme = PinTheme(
       width: 58,
       height: 62,
@@ -253,7 +253,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     );
 
     return PopScope(
-      canPop: false, // Prevent back navigation
+      canPop: false, // ป้องกันการย้อนกลับ
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
@@ -293,7 +293,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                   Pinput(
                     length: 6,
                     controller: _otpCtrl,
-                    autofocus: true,
+                    autofocus: true, // โฟกัสอัตโนมัติที่ช่อง PIN
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     defaultPinTheme: defaultPinTheme,
@@ -369,6 +369,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                   ),
                   const SizedBox(height: 4),
                   TextButton(
+                    // ปุ่มยกเลิกกระบวนการยืนยัน
                     onPressed: _cancelVerification,
                     child: Text(
                       'ยกเลิก',
