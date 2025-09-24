@@ -234,7 +234,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         _notHaveGroupSet.clear();
       });
 
-  /// ส่งค่ากลับให้หน้าก่อนหน้า
+  /// ส่งค่า  กลับให้หน้าก่อนหน้า
   void _popWithResult() {
     // [OLD] เดิมส่งกลับแค่ 2 ชุด: [_haveSet.toList(), _notHaveSet.toList()]
     // Navigator.pop(context, [_haveSet.toList(), _notHaveSet.toList()]);
