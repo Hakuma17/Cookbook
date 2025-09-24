@@ -105,9 +105,11 @@ class IngredientCard extends StatelessWidget {
         : ingredient!.imageUrl;
     final bool hasRemoteImage = rawUrl.trim().isNotEmpty;
 
-    // จำนวนสูตรบนการ์ด (เฉพาะกลุ่ม)
-    final int recipeCount =
-        (group?.recipeCount ?? group?.totalRecipes ?? 0).clamp(0, 1 << 31);
+    // จำนวนสูตรบนการ์ด (รองรับทั้งกลุ่มและวัตถุดิบเดี่ยว)
+    final int recipeCount = (isGroupCard
+            ? (group?.recipeCount ?? group?.totalRecipes ?? 0)
+            : (ingredient?.recipeCount ?? ingredient?.totalRecipes ?? 0))
+        .clamp(0, 1 << 31);
 
     return SizedBox(
       width: cardW,
@@ -144,8 +146,8 @@ class IngredientCard extends StatelessWidget {
                             : 'assets/images/default_ingredients.png',
                       ),
 
-                    // มุมซ้ายบน: ป้าย "สูตร N" — ย้ายมุมซ้ายแทนไอคอนเดิม
-                    if (isGroupCard && recipeCount > 0)
+                    // มุมซ้ายบน: ป้าย "สูตร N" สำหรับทั้งกลุ่มและวัตถุดิบเดี่ยว
+                    if (recipeCount > 0)
                       Positioned(
                         top: 8,
                         left: 8,
