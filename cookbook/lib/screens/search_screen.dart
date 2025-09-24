@@ -58,6 +58,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
 
   /* ───────── controllers ───────── */
   final _scrollCtl = ScrollController();
+  Timer? _queryDebounce; // debounce สำหรับพิมพ์/ลบคำค้น
 
   /* ───────── state ───────── */
   late Future<void> _initFuture;
@@ -83,6 +84,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   bool _hasMore = true;
   int _page = 1;
   late int _sortIndex;
+  bool _loadingNewSearch = false; // โหลดรอบใหม่ (หน้า 1) ระหว่างพิมพ์/ลบ
   bool _isLoggedIn = false;
   String? _paginationErrorMsg;
   int _reqId = 0;
@@ -93,6 +95,11 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
 
   // ★ Guard: กันไม่ให้ didPopNext รีเฟรชเมื่อปิด overlay ภายในหน้า (dialog/bottom sheet)
   bool _suppressNextDidPopNextRefresh = false;
+
+  // ★ เพิ่มคีย์ sort สำหรับยิง API โดยตรง (ซ่อนชิปไว้ชั่วคราว)
+  // ค่าเริ่มต้น: เรียงตามชื่อเมนู ก→ฮ
+  String _sortKey =
+      'name_asc'; // ถ้า BE ใช้คีย์อื่น ปรับที่นี่ได้ เช่น 'name_th_asc'
 
   bool get _hasGroupFilter =>
       _group != null ||
@@ -105,7 +112,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     super.initState();
     _includeNames = [...?widget.ingredients];
     _excludeNames = [...?widget.excludeIngredients];
-    _sortIndex = widget.initialSortIndex ?? 2;
+    _sortIndex = widget.initialSortIndex ?? 2; // เก็บไว้แม้จะไม่แสดงชิปตอนนี้
     _scrollCtl.addListener(_onScroll);
     _initFuture = _initialize();
   }
@@ -128,6 +135,22 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
             (args['group'] ?? args['Group'] ?? args['catagorynew'])?.toString();
         if (g != null && g.trim().isNotEmpty) {
           _group = g.trim();
+        }
+
+        // ★ รองรับการส่ง initialSortIndex หรือ sort จากหน้า Home
+        final sortFromIndex = args['initialSortIndex'];
+        if (sortFromIndex is int) {
+          _sortIndex = sortFromIndex;
+          // map index → key ให้ตรงกับ _sortOptions ดั้งเดิม
+          if (sortFromIndex >= 0 && sortFromIndex < _sortOptions.length) {
+            _sortKey = _sortOptions[sortFromIndex].key; // popular/latest/...
+          }
+        } else if (args['sort'] is String) {
+          final s = (args['sort'] as String).trim();
+          if (s.isNotEmpty) _sortKey = s; // อนุญาตส่งคีย์ตรง ๆ
+        } else {
+          // ไม่มี args → โหมดค่าเริ่มต้น: แสดง “ทั้งหมด” เรียงชื่อ
+          _sortKey = 'name_asc';
         }
 
         final incG = args['include_groups'] as List<String>?;
@@ -153,6 +176,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   @override
   void dispose() {
     _scrollCtl.dispose();
+    _queryDebounce?.cancel();
     routeObserver.unsubscribe(this);
     super.dispose();
   }
@@ -196,15 +220,25 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     }
   }
 
-  // หยุดยิงระหว่างพิมพ์; รอ submit
+  // อัปเดตผลแบบ Live ด้วย Debounce (พิมพ์/ลบแล้วอัปเดตเร็ว ไม่หน่วง)
   void _onQueryChanged(String q) {
-    setState(() => _searchQuery = Sanitize.query(q));
+    final cleaned = Sanitize.query(q);
+    if (cleaned == _searchQuery) return; // ไม่เปลี่ยนจริง → ข้าม
+    setState(() => _searchQuery = cleaned);
+
+    // หน่วงเล็กน้อยเพื่อรวมคีย์สโตรคต่อเนื่อง และยกเลิกงานเก่า
+    _queryDebounce?.cancel();
+    _queryDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _performSearch(jumpToTop: false);
+    });
   }
 
   Future<void> _performSearch({
     String? query,
     bool isInitialLoad = false,
     int? forceReqId,
+    bool jumpToTop = true,
   }) async {
     final myId = forceReqId ?? ++_reqId;
     if (mounted) {
@@ -213,25 +247,25 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         _page = 1;
         _hasMore = true;
         _paginationErrorMsg = null;
-        _recipes.clear();
         _total = null; // รีเซ็ตจำนวนรวมเมื่อเริ่มค้นหาใหม่
+        _loadingNewSearch = true; // แสดงแถบโหลดบาง ๆ แต่คงรายการเดิมไว้
         // _emptyDialogShownForReq = null; // ⛔️ ไม่ใช้แล้ว
       });
     }
 
-    if (_scrollCtl.hasClients) {
+    if (jumpToTop && _scrollCtl.hasClients) {
       _scrollCtl.jumpTo(0);
     }
 
+    // ถ้า query ว่างและไม่มีฟิลเตอร์เลย ให้เรียกแบบค่าเริ่มต้น (ยังยิงเพื่อโชว์ "ทั้งหมด")
+    // หมายเหตุ: เราไม่ block คำขอ แต่พึ่งพา _reqId เพื่อทิ้งผลลัพธ์เก่า ช่วยกันค้างเมื่อเปลี่ยนคำเร็ว ๆ
+
     final fut = _fetchPage(1, myId);
     if (isInitialLoad) {
+      // โหลดครั้งแรกเท่านั้นที่ผูกกับ FutureBuilder
       await fut;
     } else {
-      if (mounted) {
-        setState(() {
-          _initFuture = fut; //   อัปเดต state แบบ synchronous
-        });
-      }
+      // โหลดครั้งต่อไป: อย่าแตะ _initFuture เพื่อไม่ให้ทั้งหน้าถูกแทนด้วยวงกลมโหลด
       await fut;
     }
   }
@@ -256,7 +290,8 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         query: _searchQuery,
         page: page,
         limit: _pageSize,
-        sort: _sortOptions[_sortIndex].key,
+        // ใช้คีย์ sort ใหม่ (_sortKey) เพื่อกำหนดพฤติกรรมเริ่มต้น: เรียงชื่อ ก→ฮ
+        sort: _sortKey,
         ingredientNames: _includeNames,
         excludeIngredientNames: _excludeNames,
         tokenize: tokenize,
@@ -274,6 +309,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         if (res.total != null) _total = res.total;
         if (page == 1) {
           _recipes = res.recipes;
+          _loadingNewSearch = false; // จบโหลดรอบใหม่
         } else {
           _recipes.addAll(res.recipes);
         }
@@ -368,11 +404,22 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
                 controller: _scrollCtl,
                 slivers: [
                   _buildAppBar(context),
-                  if (_searchQuery.isNotEmpty) _buildResultHeading(context),
+                  if (_loadingNewSearch)
+                    const SliverToBoxAdapter(
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                  // ★ แสดงหัวข้อเสมอ: ถ้าไม่มีคำค้นให้บอกว่า "เมนูทั้งหมด (N)"
+                  _buildResultHeading(context),
                   _buildFilterSummary(context),
                   if (_recipes.isNotEmpty) ...[
                     if (_page == 1) _buildHero(context),
+                    /*
+                    ─────────────────────────────────────────────
+                    ชิปเรียง 4 อัน (ยอดนิยม/มาแรง/ล่าสุด/แนะนำ)
+                    ปิดการแสดงผลไว้ชั่วคราวตามคำขอ แต่เก็บโค้ดไว้ไม่ลบ
+                    ─────────────────────────────────────────────
                     _buildSortOptions(context),
+                    */
                     _buildGrid(),
                   ],
                   if (_recipes.isEmpty &&
@@ -461,10 +508,37 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   Widget _buildResultHeading(BuildContext context) => SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Text(
-            'ผลการค้นหาสำหรับ “$_searchQuery” (${_total ?? _recipes.length})',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
+          child: Builder(builder: (_) {
+            final count = _total ?? _recipes.length;
+            // เลเบลกรณีเปิดมาจากหน้า Home → ดูเพิ่มเติม (popular/latest/…)
+            String? seeMoreLabel;
+            switch (_sortKey) {
+              case 'popular':
+                seeMoreLabel = 'เมนูยอดนิยม';
+                break;
+              case 'latest':
+                seeMoreLabel = 'เมนูอัปเดตใหม่';
+                break;
+              case 'trending':
+                seeMoreLabel = 'เมนูมาแรง';
+                break;
+              case 'recommended':
+                seeMoreLabel = 'เมนูแนะนำ';
+                break;
+            }
+
+            final text = _searchQuery.isNotEmpty
+                ? 'ผลการค้นหาสำหรับ “$_searchQuery” ($count)'
+                : (seeMoreLabel != null &&
+                        _group == null &&
+                        _includeNames.isEmpty &&
+                        _excludeNames.isEmpty &&
+                        _includeGroupNames.isEmpty &&
+                        _excludeGroupNames.isEmpty)
+                    ? 'ผลการค้นหา$seeMoreLabel ($count)'
+                    : 'เมนูทั้งหมด ($count)'; // โหมดค่าเริ่มต้น (เรียงชื่อ ก→ฮ)
+            return Text(text, style: Theme.of(context).textTheme.titleLarge);
+          }),
         ),
       );
 
@@ -566,12 +640,16 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
     );
   }
 
+  // ignore: unused_element
   Widget _buildSortOptions(BuildContext _) => SliverToBoxAdapter(
         child: ChoiceChipFilter(
           options: _sortOptions,
           initialIndex: _sortIndex,
           onChanged: (i, _) {
-            setState(() => _sortIndex = i);
+            setState(() {
+              _sortIndex = i;
+              _sortKey = _sortOptions[i].key; // sync กับคีย์ที่ยิง API
+            });
             _performSearch();
           },
         ),
