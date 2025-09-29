@@ -17,18 +17,71 @@
 
 ### ความต้องการ
 - Flutter SDK 3.6.0+
-- Dart SDK 3.0+
+- Dart SDK 3.7.0+
+- Android Studio (พร้อม Android SDK)
+- Java JDK 11+
+- NDK version 27.0.12077973 (สำหรับ TensorFlow Lite)
 
-### การติดตั้ง
+### การติดตั้งและตั้งค่า
 
-1. Clone หรือ download โปรเจกต์
-2. เปิด terminal ในโฟลเดอร์โปรเจกต์
-3. รันคำสั่ง:
+#### วิธีที่ 1: ใช้ Setup Script (แนะนำ)
+**Windows:**
+```cmd
+setup.bat
+```
 
+**macOS/Linux:**
 ```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+#### วิธีที่ 2: ติดตั้งแบบ Manual
+
+1. **ตรวจสอบ Flutter Environment:**
+```bash
+flutter doctor -v
+```
+
+2. **ติดตั้ง Dependencies:**
+```bash
+flutter clean
 flutter pub get
+```
+
+3. **ยอมรับ Android Licenses:**
+```bash
+flutter doctor --android-licenses
+```
+
+4. **รันโปรเจค:**
+```bash
 flutter run
 ```
+
+### หากเกิดปัญหา
+
+#### ❌ Flutter command not found
+- ตรวจสอบการติดตั้ง Flutter และเพิ่มใน PATH
+- Windows: เพิ่ม `C:\flutter\bin` ใน Environment Variables
+- macOS/Linux: เพิ่ม export PATH="$PATH:[PATH_TO_FLUTTER_GIT_DIRECTORY]/bin" ใน `.bashrc` หรือ `.zshrc`
+
+#### ❌ Gradle build failed
+```bash
+cd android
+./gradlew clean
+cd ..
+flutter clean
+flutter pub get
+```
+
+#### ❌ TensorFlow Lite issues
+- ตรวจสอบไฟล์ `model_unquant.tflite` และ `labels.txt` ใน `assets/converted_tflite_quantized/`
+- ตรวจสอบ NDK version 27.0.12077973 ติดตั้งแล้ว
+
+#### ❌ Google Sign-In ไม่ทำงาน
+- ตรวจสอบไฟล์ `google-services.json` ใน `android/app/`
+- ตรวจสอบ SHA-1 fingerprint ใน Firebase Console
 
 ### การสร้าง APK/IPA
 
