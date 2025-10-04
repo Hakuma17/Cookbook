@@ -2,6 +2,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 // import 'dart:typed_data'; // ไม่จำเป็นอีกต่อไป
+import 'dart:typed_data'; // ✅ ต้องใช้สำหรับ Float32List (เพิ่มเพื่อความชัดเจน)
 
 import 'package:camera/camera.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -17,6 +18,9 @@ import 'package:tflite_flutter/tflite_flutter.dart' as tfl;
 import 'crop_square_screen.dart';
 
 import 'ingredient_prediction_result_screen.dart';
+
+// ✅ Move enum outside of class
+enum Norm { zeroOne, minusOneToOne } // สูตร normalize
 
 /// ------------------------------------------------------------
 /// เรียกใช้จากภายนอก
@@ -81,10 +85,27 @@ class _IngredientPhotoScreenState
 
   // ★ ขนาด “กล่องพรีวิวจริง” (พื้นที่ของ body ใต้ AppBar)
   Size? _previewBoxSize;
+  // Debug-only: bypass cover-crop step to verify if cropping causes mismatch
+  bool _devBypassCoverCrop = false;
 
   @override
   void initState() {
     super.initState();
+
+    // 🎯 System UI configuration
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarBrightness: Brightness.dark,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.black,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ));
+
     _cameraHelper = _CameraHelper();
     _modelHelper = _ModelHelper();
     _imageHelper = _ImageHelper(context: context);
@@ -127,12 +148,14 @@ class _IngredientPhotoScreenState
       //   ใช้ “ขนาดกล่องพรีวิวจริง” แทน MediaQuery.size
       if (!mounted) return;
       final pvSize = _previewBoxSize ?? MediaQuery.of(context).size;
-
-      final cropped = await _imageHelper.cropImageFromCoverPreview(
-        rawFile,
-        pvSize,
-        _kFrameFraction,
-      );
+      // ครอปภาพจากพรีวิวแบบ cover ด้วยกรอบสี่เหลี่ยมจัตุรัสตาม _kFrameFraction
+      final cropped = _devBypassCoverCrop
+          ? rawFile
+          : await _imageHelper.cropImageFromCoverPreview(
+              rawFile,
+              pvSize,
+              _kFrameFraction,
+            );
 
       if (!await _enforceImageConstraints(cropped)) return;
 
@@ -168,6 +191,8 @@ class _IngredientPhotoScreenState
     }
 
     final predictions = await _modelHelper.predict(imageFile);
+    // หมายเหตุ: ตัดการแจ้งเตือน/overlay ออกเพื่อลดความกวนใจ
+
     if (predictions.isEmpty) {
       _showSnack('ไม่รู้จักวัตถุดิบในภาพ');
       return;
@@ -227,6 +252,144 @@ class _IngredientPhotoScreenState
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  // ★ เพิ่มฟังก์ชันแสดงเคล็ดลับการถ่ายภาพ
+  void _showCameraGuide() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        minChildSize: 0.5,
+        builder: (context, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  height: 4,
+                  width: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    '📸 เคล็ดลับการถ่ายภาพให้แม่นยำ',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    children: [
+                      _buildTipCard(
+                        '🎯 จัดวางให้ดี',
+                        [
+                          'วางวัตถุดิบตรงกลางกรอบ',
+                          'ใช้พื้นหลังสีเรียบ (ขาว/เทา)',
+                          'วางชิ้นเดียวต่อรูป',
+                          'แสดงลักษณะเด่นของวัตถุดิบ'
+                        ],
+                      ),
+                      _buildTipCard(
+                        '💡 แสงสว่าง',
+                        [
+                          'ถ่ายในที่แสงเพียงพอ',
+                          'หลีกเลี่ยงเงาแรง',
+                          'ใช้แสงธรรมชาติ (กลางวัน)',
+                          'เปิดไฟฉายถ้าแสงไม่พอ'
+                        ],
+                      ),
+                      _buildTipCard(
+                        '📱 เทคนิคการถ่าย',
+                        [
+                          'ถือมือให้นิ่ง',
+                          'ทำความสะอาดเลนส์',
+                          'ถ่ายหลายมุม',
+                          'ใช้กริดช่วยจัดวาง'
+                        ],
+                      ),
+                      _buildTipCard(
+                        '🌿 เฉพาะใบไผ่',
+                        [
+                          'กางใบให้เห็นรูปร่าง',
+                          'เลือกใบสด ไม่เหี่ยว',
+                          'หลีกเลี่ยงแสงแรงจัด',
+                          'แสดงลายเส้นใบ'
+                        ],
+                      ),
+                      _buildTipCard(
+                        '🌶️ เฉพาะพริก',
+                        [
+                          'วางเรียงให้เห็นรูปร่าง',
+                          'แสดงสีที่แท้จริง',
+                          'วางห่างกันให้แยกได้',
+                          'ถ่ายทั้งผลสดและแก่'
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('เข้าใจแล้ว'),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTipCard(String title, List<String> tips) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...tips.map((tip) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• ', style: TextStyle(color: Colors.orange)),
+                      Expanded(child: Text(tip)),
+                    ],
+                  ),
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<bool> _enforceImageConstraints(File f) async {
     const maxBytes = _kMaxBytes;
 
@@ -238,7 +401,8 @@ class _IngredientPhotoScreenState
     }
     var im = img.bakeOrientation(im0);
 
-    for (final q in [85, 75, 65, 55, 45, 35]) {
+    // ★ ปรับปรุง: เริ่มจาก quality สูงกว่าเพื่อรักษาคุณภาพสำหรับ AI
+    for (final q in [95, 90, 85, 80, 75, 70]) {
       final jpg = img.encodeJpg(im, quality: q);
       if (jpg.lengthInBytes <= maxBytes) {
         await f.writeAsBytes(jpg, flush: true);
@@ -251,7 +415,8 @@ class _IngredientPhotoScreenState
         im,
         width: im.width >= im.height ? side : null,
         height: im.height > im.width ? side : null,
-        interpolation: img.Interpolation.average,
+        interpolation: img.Interpolation
+            .linear, // ✅ ใช้ bilinear ให้คงที่กับ TM (แทน average)
       );
       for (final q in [80, 70, 60, 50, 40]) {
         final jpg = img.encodeJpg(resized, quality: q);
@@ -262,7 +427,12 @@ class _IngredientPhotoScreenState
       }
     }
 
-    final tiny = img.copyResize(im, width: 1200);
+    final tiny = img.copyResize(
+      im,
+      width: 1200,
+      interpolation:
+          img.Interpolation.linear, // ✅ ระบุให้ชัดเจน (bilinear) ตอนย่อ
+    );
     final jpg = img.encodeJpg(tiny, quality: 50);
     await f.writeAsBytes(jpg, flush: true);
     return _checkMinDim(f);
@@ -327,7 +497,17 @@ class _IngredientPhotoScreenState
                   fit: StackFit.expand,
                   children: [
                     // ───────── ส่วนพรีวิว (cover)
-                    _cameraHelper.buildPreview(),
+                    Builder(
+                      builder: (context) {
+                        final preview = _cameraHelper.buildPreview();
+                        if (!kDebugMode) return preview;
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onLongPress: () => _showDebugBottomSheet(),
+                          child: preview,
+                        );
+                      },
+                    ),
 
                     // ───────── ส่วน Overlay (cutout)
                     const _CameraOverlay(), // ไม่กำหนด size → เต็ม Stack
@@ -376,6 +556,15 @@ class _IngredientPhotoScreenState
         ),
       ),
       actions: [
+        // ★ เพิ่มปุ่มเคล็ดลับการใช้งาน
+        Padding(
+          padding: EdgeInsets.only(top: topGuard),
+          child: IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: 'เคล็ดลับการถ่ายภาพ',
+            onPressed: _showCameraGuide,
+          ),
+        ),
         Padding(
             padding: EdgeInsets.only(top: topGuard),
             child: IconButton(
@@ -387,44 +576,6 @@ class _IngredientPhotoScreenState
                 if (mounted) setState(() {});
               },
             )),
-        Padding(
-          padding: EdgeInsets.only(top: topGuard),
-          child: IconButton(
-            icon: const Icon(Icons.help_outline),
-            onPressed: () => showModalBottomSheet(
-              context: context,
-              builder: (ctx) {
-                final t = Theme.of(ctx).textTheme;
-                Widget bullet(String s) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('• ', style: TextStyle(fontSize: 16)),
-                          Expanded(child: Text(s, style: t.bodyMedium)),
-                        ],
-                      ),
-                    );
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('📝 คำแนะนำการถ่าย/เลือกภาพ', style: t.titleLarge),
-                      const SizedBox(height: 12),
-                      bullet('จัดวางวัตถุดิบให้อยู่ในกรอบสี่เหลี่ยม (1:1)'),
-                      bullet('พื้นหลังเรียบ แสงสว่างพอ ไม่ย้อนแสง'),
-                      bullet('ถ้ามีหลายวัตถุดิบ ให้ครอบให้เหลือชิ้นเดียว'),
-                      bullet(
-                          'ไฟล์ไม่เกิน 10MB และขนาดอย่างน้อย 224×224 พิกเซล'),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -449,7 +600,7 @@ class _IngredientPhotoScreenState
           gradient: LinearGradient(
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter,
-            colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
+            colors: [Colors.black.withOpacity(0.7), Colors.transparent],
           ),
         ),
         padding: EdgeInsets.fromLTRB(24, 24, 24, 16 + extraBottomGuard),
@@ -518,6 +669,140 @@ class _IngredientPhotoScreenState
       ),
     );
   }
+
+  // Developer-only bottom sheet (debug builds only)
+  void _showDebugBottomSheet() async {
+    if (!kDebugMode) return;
+    final model = _modelHelper; // access for lastDumpPath and toggle
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      showDragHandle: true,
+      builder: (ctx) {
+        final dumpPath = model.lastDumpPath;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('TM Debug Tools',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 96,
+                      height: 96,
+                      color: Colors.black,
+                      child: dumpPath != null
+                          ? Image.file(File(dumpPath), fit: BoxFit.cover)
+                          : const Center(
+                              child: Text('no dump',
+                                  style: TextStyle(
+                                      color: Colors.white54, fontSize: 12))),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                              'Resize policy: TM stretch = ${_ModelHelper.kUseTmStretchResize}',
+                              style: const TextStyle(color: Colors.white70)),
+                          const SizedBox(height: 4),
+                          Text(
+                              'Float norm: [-1,1] = ${_ModelHelper.kUseMinusOneToOneForFloat}',
+                              style: const TextStyle(color: Colors.white54)),
+                          const SizedBox(height: 4),
+                          Text(
+                              'Tensor dtypes: inputFloat=${model._inputIsFloat}, outputFloat=${model._outputIsFloat}',
+                              style: const TextStyle(color: Colors.white54)),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              ElevatedButton(
+                                onPressed: () async {
+                                  final dir = await getTemporaryDirectory();
+                                  if (kDebugMode)
+                                    debugPrint(
+                                        '[TFLite] temp dir = ${dir.path}');
+                                  if (mounted) Navigator.pop(ctx);
+                                },
+                                child: const Text('Open folder'),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _devBypassCoverCrop = !_devBypassCoverCrop;
+                                  });
+                                  if (kDebugMode)
+                                    debugPrint(
+                                        '[Dev] Bypass cover-crop -> ${_devBypassCoverCrop}');
+                                },
+                                child: const Text('Bypass crop'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _ModelHelper.kUseTmStretchResize =
+                                        !_ModelHelper.kUseTmStretchResize;
+                                  });
+                                  if (kDebugMode)
+                                    debugPrint(
+                                        '[TFLite] kUseTmStretchResize -> ${_ModelHelper.kUseTmStretchResize}');
+                                },
+                                child: const Text('Toggle stretch'),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _ModelHelper.kUseMinusOneToOneForFloat =
+                                        !_ModelHelper.kUseMinusOneToOneForFloat;
+                                  });
+                                  if (kDebugMode)
+                                    debugPrint(
+                                        '[TFLite] kUseMinusOneToOneForFloat -> ${_ModelHelper.kUseMinusOneToOneForFloat}');
+                                },
+                                child: const Text('Toggle [-1,1]'),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _ModelHelper.kSwapRBForTest =
+                                        !_ModelHelper.kSwapRBForTest;
+                                  });
+                                  if (kDebugMode)
+                                    debugPrint(
+                                        '[TFLite] kSwapRBForTest -> ${_ModelHelper.kSwapRBForTest}');
+                                },
+                                child: const Text('Swap R/B'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (dumpPath != null)
+                  Text(dumpPath,
+                      style:
+                          const TextStyle(color: Colors.white38, fontSize: 12)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 // ───────── ตัวช่วย: TFLite
@@ -526,22 +811,138 @@ class _ModelHelper {
   late List<String> _labels;
   bool isReady = false;
 
+  // ✅ สวิตช์สำคัญที่เพิ่ม - ตั้งค่าให้ตรงกับ Teachable Machine
+  static const bool kUseEnhancement = false; // ไม่แต่งภาพเพื่อความแม่นยำ
+
+  // --- TM compatibility knobs ---
+  static bool kUseTmStretchResize =
+      true; // set true to match TM preview exactly (debug-toggleable)
+  static const bool kDebugDumpInput =
+      true; // save 224x224 input for side-by-side checks
+  // Float normalization policy for float32 inputs:
+  // false => [0,1] (v/255.0), true => [-1,1] (v/127.5 - 1)
+  static bool kUseMinusOneToOneForFloat = false;
+  // Debug-only: test channel order mismatch
+  static bool kSwapRBForTest = false;
+
+  // Last dumped 224x224 input path (debug only)
+  String? lastDumpPath;
+
+  // Cached tensor meta (inspect once during load)
+  bool _inputIsFloat = true;
+  bool _outputIsFloat = true;
+  int _outputDim = 0;
+  double _outScale = 1.0;
+  int _outZeroPoint = 0;
+
+  // ── helpers: convert flat buffers to 4D [1,224,224,3] without using reshape
+  List to4DFromF32(Float32List flat) {
+    var i = 0;
+    return [
+      List.generate(
+          224,
+          (y) => List.generate(224, (x) {
+                final r = flat[i++], g = flat[i++], b = flat[i++];
+                return [r, g, b];
+              }))
+    ];
+  }
+
+  List to4DFromU8(Uint8List flat) {
+    var i = 0;
+    return [
+      List.generate(
+          224,
+          (y) => List.generate(224, (x) {
+                final r = flat[i++], g = flat[i++], b = flat[i++];
+                return [r, g, b];
+              }))
+    ];
+  }
+
   Future<void> load(BuildContext context) async {
     try {
+      // ★ ใช้ Interpreter options เพื่อเพิ่มประสิทธิภาพ
+      final options = tfl.InterpreterOptions()
+        ..threads = 2; // ใช้ 2 threads เพื่อประสิทธิภาพ
+
       _interpreter = await tfl.Interpreter.fromAsset(
         'assets/converted_tflite_quantized/model_unquant.tflite',
+        options: options,
       );
+
+      // Inspect tensors once (debug-only logs)
+      final inT = _interpreter.getInputTensor(0);
+      final outT = _interpreter.getOutputTensor(0);
+      assert(inT.shape.length == 4, 'Expected NHWC input');
+      final inputType = inT.type; // float32 or uint8
+      final inputShape = inT.shape; // [1,224,224,3] expected
+      final outputShape = outT.shape; // [1,numLabels]
+      _inputIsFloat = inputType.toString().toLowerCase().contains('float');
+      _outputIsFloat = outT.type.toString().toLowerCase().contains('float');
+      _outputDim = outputShape.last;
+      _outScale = outT.params.scale;
+      _outZeroPoint = outT.params.zeroPoint;
+
+      if (kDebugMode) {
+        debugPrint('[TFLite] input=$inputType shape=$inputShape '
+            'quant(s=${inT.params.scale}, z=${inT.params.zeroPoint})');
+        debugPrint('[TFLite] output=${outT.type} shape=$outputShape '
+            'quant(s=${outT.params.scale}, z=${outT.params.zeroPoint})');
+      }
 
       // ใช้ rootBundle เพื่อหลีกเลี่ยงการถือ BuildContext ข้ามช่วง async
       final labelsString = await rootBundle
           .loadString('assets/converted_tflite_quantized/labels.txt');
 
-      _labels = labelsString
+      // ★ Parse labels โดยอิง index หน้า label เพื่อให้ตรงกับ output 100%
+      final lines = labelsString
           .split('\n')
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
-          .map((e) => e.replaceFirst(RegExp(r'^\d+\s+'), ''))
           .toList();
+
+      final Map<int, String> byIndex = {};
+      int maxIdx = -1;
+      final re = RegExp(r'^(\d+)\s+(.+)$');
+      for (final line in lines) {
+        final m = re.firstMatch(line);
+        if (m != null) {
+          final idx = int.parse(m.group(1)!);
+          final name = m.group(2)!.trim();
+          byIndex[idx] = name;
+          if (idx > maxIdx) maxIdx = idx;
+        } else {
+          maxIdx += 1;
+          byIndex[maxIdx] = line; // fallback order
+        }
+      }
+      _labels = List<String>.generate(maxIdx + 1, (i) => byIndex[i] ?? '');
+
+      // Validate labels vs outputDim (hard fail)
+      if (kDebugMode) {
+        debugPrint('[TFLite] labels count = ${_labels.length}');
+      }
+      if (_labels.length != _outputDim) {
+        throw StateError(
+            'labels.txt (${_labels.length}) != model outDim (${_outputDim}). '
+            'Ensure labels.txt matches TM export used for the .tflite');
+      }
+
+      // ★ Warm up โมเดลด้วยการรันครั้งแรก (dummy data) ตามชนิดอินพุต/เอาต์พุตจริง (ไม่ใช้ reshape)
+      if (_inputIsFloat) {
+        final dummyInput = Float32List(1 * 224 * 224 * 3);
+        final dummyOutput = _outputIsFloat
+            ? [List<double>.filled(_labels.length, 0.0)]
+            : [List<int>.filled(_labels.length, 0)];
+        _interpreter.run(to4DFromF32(dummyInput), dummyOutput);
+      } else {
+        final dummyInput = Uint8List(1 * 224 * 224 * 3);
+        final dummyOutput = _outputIsFloat
+            ? [List<double>.filled(_labels.length, 0.0)]
+            : [List<int>.filled(_labels.length, 0)];
+        _interpreter.run(to4DFromU8(dummyInput), dummyOutput);
+      }
 
       isReady = true;
     } catch (e) {
@@ -550,39 +951,103 @@ class _ModelHelper {
   }
 
   Future<List<Map<String, dynamic>>> predict(File imageFile) async {
-    final bytes = await imageFile.readAsBytes();
-    final decoded0 = img.decodeImage(bytes);
-    if (decoded0 == null) return [];
+    // Heavy preprocessing in isolate (no UI jank)
+    final tempDirPath = (kDebugMode && kDebugDumpInput)
+        ? (await getTemporaryDirectory()).path
+        : null;
+    final packed = await compute(_preprocessAndPackIsolate, {
+      'imagePath': imageFile.path,
+      'useStretch': _ModelHelper.kUseTmStretchResize,
+      'useEnhancement': kUseEnhancement,
+      'isFloat': _inputIsFloat,
+      'useMinusOneToOne': _ModelHelper.kUseMinusOneToOneForFloat,
+      'swapRB': _ModelHelper.kSwapRBForTest,
+      'debugDump': kDebugMode && kDebugDumpInput,
+      'tempDir': tempDirPath,
+    });
+    if (packed == null) return [];
 
-    final decoded = img.bakeOrientation(decoded0);
-    final resized = img.copyResize(decoded, width: 224, height: 224);
-
-    final input = Float32List(1 * 224 * 224 * 3);
-    var i = 0;
-    for (var y = 0; y < 224; y++) {
-      for (var x = 0; x < 224; x++) {
-        final p = resized.getPixel(x, y);
-        input[i++] = p.r / 255.0;
-        input[i++] = p.g / 255.0;
-        input[i++] = p.b / 255.0;
-      }
+    // Update last dump path for debug UI
+    if (kDebugMode && packed['dumpPath'] is String) {
+      lastDumpPath = packed['dumpPath'] as String;
+      debugPrint('[TFLite] dumped input224=$lastDumpPath');
     }
 
-    final output =
-        List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
-    _interpreter.run(input.reshape([1, 224, 224, 3]), output);
+    // Build model input from packed data
+    final isFloatPacked = (packed['isFloat'] as bool?) ?? _inputIsFloat;
+    final data = packed['packed'];
+    dynamic modelInput; // [1,224,224,3]
+    if (isFloatPacked && data is Float32List) {
+      modelInput = to4DFromF32(data);
+    } else if (!isFloatPacked && data is Uint8List) {
+      modelInput = to4DFromU8(data);
+    } else {
+      if (kDebugMode) {
+        debugPrint(
+            '[TFLite] ⚠ Packed type mismatch: ${data.runtimeType} isFloat=$isFloatPacked');
+      }
+      return [];
+    }
+
+    // 5) เตรียม output container ตามชนิดเอาต์พุตจริง
+    dynamic modelOutput;
+    if (_outputIsFloat) {
+      modelOutput = [List<double>.filled(_labels.length, 0.0)];
+    } else {
+      modelOutput = [List<int>.filled(_labels.length, 0)];
+    }
+
+    // Debug: โชว์ชนิดอินพุต/เอาต์พุต และขนาด
+    if (kDebugMode) {
+      debugPrint(
+          '🔧 Tensor Debug: inputFloat=$_inputIsFloat, outputFloat=$_outputIsFloat, outDim=$_outputDim');
+    }
+
+    // รัน prediction
+    _interpreter.run(modelInput, modelOutput);
+
+    // ★ ปรับการแสดงผลให้ตรงกับ TM มากขึ้น
+    // 4.1 เก็บค่าแบบเวคเตอร์เพื่อทำ softmax หากจำเป็น
+    final rawVec = List<double>.generate(_labels.length, (i) {
+      if (_outputIsFloat) {
+        return (modelOutput[0][i] as num).toDouble();
+      } else {
+        final q = (modelOutput[0][i] as num).toInt();
+        return _outScale * (q - _outZeroPoint);
+      }
+    });
+
+    // 4.2 ถ้าไม่ใช่ probs (sum ไม่ใกล้ 1) ให้ทำ softmax แบบ stable
+    double sum = 0;
+    for (final v in rawVec) sum += v.isFinite ? v : 0.0;
+    List<double> probs;
+    if (!(sum > 0.9 && sum < 1.1)) {
+      final maxLogit = rawVec.reduce((a, b) => a > b ? a : b);
+      final exps = rawVec
+          .map((v) => math.exp((v - maxLogit).clamp(-40.0, 40.0)))
+          .toList();
+      final exSum = exps.fold<double>(0.0, (acc, v) => acc + v);
+      probs = exps.map((e) => (e / (exSum == 0 ? 1 : exSum))).toList();
+    } else {
+      // ข้อมูลเป็น probs อยู่แล้ว
+      probs = rawVec.map((v) => v.clamp(0.0, 1.0)).toList();
+    }
 
     final res = <Map<String, dynamic>>[];
     for (var idx = 0; idx < _labels.length; idx++) {
-      final score = (output[0][idx] as num).toDouble();
-      if (score > 0.05) {
-        res.add({'label': _labels[idx], 'confidence': score});
+      final confidence = probs[idx];
+      if (confidence > 0.01) {
+        res.add({'label': _labels[idx], 'confidence': confidence});
       }
     }
+
+    // ★ เรียงตามคะแนนสูงสุด
     res.sort((a, b) =>
         (b['confidence'] as double).compareTo(a['confidence'] as double));
     return res;
   }
+
+  // Removed unused functions - moved to isolate versions
 
   void dispose() {
     try {
@@ -610,10 +1075,20 @@ class _CameraHelper {
 
     _controller = CameraController(
       cams.first,
-      ResolutionPreset.high,
+      ResolutionPreset.veryHigh, // ★ ใช้ resolution สูงสุดเพื่อคุณภาพดีที่สุด
       enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.jpeg, // ★ กำหนดฟอร์แมต JPEG
     );
     await _controller!.initialize();
+
+    // ★ ตั้งค่าเพิ่มเติมสำหรับคุณภาพภาพ
+    try {
+      await _controller!.setExposureMode(ExposureMode.auto);
+      await _controller!.setFocusMode(FocusMode.auto);
+      await _controller!.setFlashMode(FlashMode.off);
+    } catch (_) {
+      // บางอุปกรณ์อาจไม่รองรับ
+    }
 
     try {
       minZoom = await _controller!.getMinZoomLevel();
@@ -670,10 +1145,7 @@ class _ImageHelper {
 
   // Minimum acceptable width/height for a picked image (pre-crop)
   static const int _kMinPickDim = 224; // keep consistent with pipeline
-  // Downscaled analysis size for sharpness check (longest side)
-  static const int _kAnalysisSide = 640;
-  // Empirical threshold for variance of Laplacian; tune if needed
-  static const double _kMinSharpness = 60.0;
+  // ★ ลบตัวแปรที่ไม่ใช้แล้วเพื่อประหยัดหน่วยความจำ
 
   // Decision for picked image confirmation flow
   static const _PickDecision _proceed = _PickDecision.proceed;
@@ -688,12 +1160,12 @@ class _ImageHelper {
     }
     final picked = await _picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 90,
-      maxWidth: 2048,
-      maxHeight: 2048,
+      imageQuality: 85, // ★ ลดจาก 90 เป็น 85 เพื่อความเร็ว
+      maxWidth: 1500, // ★ ลดจาก 2048 เป็น 1500
+      maxHeight: 1500, // ★ ลดจาก 2048 เป็น 1500
     );
     if (picked == null) return null;
-    // วิเคราะห์คุณภาพ ถ้าผ่านให้เข้าไปครอปทันที ถ้าไม่ผ่านให้แสดงตัวเลือก
+    // ★ วิเคราะห์คุณภาพแบบเร็ว (ข้ามการตรวจสอบความคมชัดเฉพาะ Gallery)
     try {
       final f = File(picked.path);
       final bytes = await f.readAsBytes();
@@ -703,30 +1175,30 @@ class _ImageHelper {
         return null;
       }
       final im = img.bakeOrientation(decoded0);
-      final sharp = _estimateSharpness(im);
+
+      // ★ ข้ามการตรวจสอบความคมชัดสำหรับ Gallery (ประหยัดเวลา)
+      // final sharp = _estimateSharpness(im);
       final fileSize = await f.length();
-
       final tooSmall = im.width < _kMinPickDim || im.height < _kMinPickDim;
-      final tooBlur = sharp < _kMinSharpness;
+      // ★ ข้ามการตรวจสอบความคมชัดสำหรับ Gallery images
+      // final tooBlur = sharp < _kMinSharpness;
 
-      // ถ้าผ่านเงื่อนไขทั้งหมด → ไปครอบตัดทันที (ไม่ต้องถาม)
-      if (!tooSmall && !tooBlur) {
+      // ★ Gallery images มักจะคุณภาพดี ตรวจแค่ขนาด (ข้ามการตรวจความคมชัด)
+      if (!tooSmall) {
         return _cropImage(picked.path);
       }
 
-      // ไม่ผ่าน → แสดงตัวเลือก
+      // ไม่ผ่าน → แสดงตัวเลือกสำหรับรูปเล็ก
       final decision = await _confirmPickedInfo(
         path: picked.path,
         width: im.width,
         height: im.height,
         bytes: fileSize,
-        sharpness: sharp,
-        canProceed: !tooSmall && !tooBlur,
+        sharpness: 100.0, // ★ ใช้ค่าดัมมี่เพราะข้ามการตรวจ
+        canProceed: !tooSmall, // ★ ตรวจแค่ขนาด
         reason: tooSmall
             ? 'รูปเล็กเกินไป (อย่างน้อย $_kMinPickDim×$_kMinPickDim พิกเซล)'
-            : (tooBlur
-                ? 'รูปไม่คมชัด (อาจเบลอ/แตก) กรุณาเลือกรูปที่คมชัดกว่าเดิม'
-                : null),
+            : null,
         showUpscale: tooSmall,
       );
       if (decision == _chooseAgain || decision == null) return null;
@@ -752,51 +1224,7 @@ class _ImageHelper {
     return _cropImage(picked.path);
   }
 
-  double _estimateSharpness(img.Image im) {
-    // Downscale to normalize scale
-    final longest = math.max(im.width, im.height);
-    final src = longest > _kAnalysisSide
-        ? img.copyResize(
-            im,
-            width: im.width >= im.height ? _kAnalysisSide : null,
-            height: im.height > im.width ? _kAnalysisSide : null,
-            interpolation: img.Interpolation.cubic,
-          )
-        : im;
-
-    // Compute variance of 4-neighbor Laplacian over luminance
-    double sum = 0.0, sum2 = 0.0;
-    int count = 0;
-    // Precompute luminance map to speed up
-    final w = src.width, h = src.height;
-    final lums = List<double>.filled(w * h, 0.0, growable: false);
-    for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
-        final px = src.getPixel(x, y); // Pixel object in image v4
-        final r = px.r.toDouble();
-        final g = px.g.toDouble();
-        final b = px.b.toDouble();
-        lums[y * w + x] = 0.299 * r + 0.587 * g + 0.114 * b;
-      }
-    }
-    for (int y = 1; y < h - 1; y++) {
-      for (int x = 1; x < w - 1; x++) {
-        final c = lums[y * w + x];
-        final l = lums[y * w + (x - 1)];
-        final r = lums[y * w + (x + 1)];
-        final u = lums[(y - 1) * w + x];
-        final d = lums[(y + 1) * w + x];
-        final lap = 4 * c - (l + r + u + d);
-        sum += lap;
-        sum2 += lap * lap;
-        count++;
-      }
-    }
-    if (count == 0) return 0.0;
-    final mean = sum / count;
-    final variance = sum2 / count - mean * mean;
-    return variance.abs();
-  }
+  // ★ ลบฟังก์ชัน _estimateSharpness เพื่อลดความซับซ้อนและเพิ่มความเร็ว
 
   Future<_PickDecision?> _confirmPickedInfo({
     required String path,
@@ -820,8 +1248,9 @@ class _ImageHelper {
     }
 
     String sharpLabel(double v) {
-      if (v >= _kMinSharpness * 2) return 'คมชัดดี';
-      if (v >= _kMinSharpness) return 'พอใช้';
+      // ★ ใช้ค่าคงที่แทนตัวแปรที่ถูกลบ
+      if (v >= 120.0) return 'คมชัดดี';
+      if (v >= 60.0) return 'พอใช้';
       return 'ไม่คมชัด';
     }
 
@@ -958,7 +1387,8 @@ class _ImageHelper {
       im,
       width: newW,
       height: newH,
-      interpolation: img.Interpolation.cubic,
+      interpolation:
+          img.Interpolation.linear, // ✅ ใช้ bilinear ตอนขยายเพื่อความสม่ำเสมอ
     );
     final dir = await getTemporaryDirectory();
     final file =
@@ -1000,12 +1430,20 @@ class _ImageHelper {
     final cropY = offsetY + frameScreenY * scale;
     final cropSize = frameScreenSize * scale;
 
+    // 🚀 ปรับปรุงการ crop ให้เร็วขึ้น
+    final cropXInt = cropX.round().clamp(0, imgW.toInt() - 1);
+    final cropYInt = cropY.round().clamp(0, imgH.toInt() - 1);
+    final cropSizeInt = cropSize
+        .round()
+        .clamp(1, math.min(imgW.toInt() - cropXInt, imgH.toInt() - cropYInt))
+        .toInt();
+
     final cropped = img.copyCrop(
       original,
-      x: cropX.round().clamp(0, imgW.toInt() - 1),
-      y: cropY.round().clamp(0, imgH.toInt() - 1),
-      width: cropSize.round().clamp(1, imgW.toInt()),
-      height: cropSize.round().clamp(1, imgH.toInt()),
+      x: cropXInt,
+      y: cropYInt,
+      width: cropSizeInt,
+      height: cropSizeInt,
     );
 
     final jpg = img.encodeJpg(cropped, quality: 90);
@@ -1109,7 +1547,7 @@ const GuideStyle kActiveGuideStyle =
 //   [0.50, 0.66]             → เส้นที่ 50% และ 66%
 //   [0.33, 0.50, 0.66]       → สามเส้น 1/3, 1/2, 2/3
 // เพิ่ม/ลบค่าได้อิสระ (ค่าต้องอยู่ระหว่าง 0–1 ไม่รวมปลาย) และเรียงลำดับเองเพื่อความสวยงาม
-const List<double> kMeasureLineMarkers = [0.1, 0.90];
+const List<double> kMeasureLineMarkers = [0.2, 0.80];
 // ความยาวขีดสั้นของ marker (พาดขวางเส้นตั้งกลาง)
 const double kMeasureMarkerLen = 18.0;
 // ระยะ tolerance สำหรับจับคู่ label พิเศษ (เช่น 2/3) หน่วยเป็นสัดส่วนของกรอบ
@@ -1182,7 +1620,7 @@ class _CutoutOverlayPainter extends CustomPainter {
     final overlayPath =
         Path.combine(PathOperation.difference, fullScreenPath, cutoutPath);
 
-    final overlayPaint = Paint()..color = Colors.black.withValues(alpha: 0.5);
+    final overlayPaint = Paint()..color = Colors.black.withOpacity(0.5);
     canvas.drawPath(overlayPath, overlayPaint);
 
     // วาดไกด์ภายในกรอบ (clip ให้เห็นเฉพาะใน cutout)
@@ -1261,12 +1699,20 @@ class _CutoutOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _CutoutOverlayPainter oldDelegate) {
+    return frameFraction != oldDelegate.frameFraction ||
+        borderColor != oldDelegate.borderColor ||
+        borderWidth != oldDelegate.borderWidth ||
+        cornerRadius != oldDelegate.cornerRadius ||
+        guideStyle != oldDelegate.guideStyle ||
+        showLabel != oldDelegate.showLabel ||
+        labelText != oldDelegate.labelText;
+  }
 
   // ───────── guides ─────────
   void _drawRuleOfThirds(Canvas canvas, Rect r) {
     final paintLine = Paint()
-      ..color = Colors.white.withValues(alpha: 0.6)
+      ..color = Colors.white.withOpacity(0.6)
       ..strokeWidth = 1.2;
 
     // 2 เส้นแนวตั้ง + 2 เส้นแนวนอน (แบ่ง 3 ส่วน)
@@ -1286,7 +1732,7 @@ class _CutoutOverlayPainter extends CustomPainter {
     // จุดกึ่งกลางเล็ก ๆ
     final center = r.center;
     canvas.drawCircle(
-        center, 2.0, Paint()..color = Colors.white.withValues(alpha: 0.9));
+        center, 2.0, Paint()..color = Colors.white.withOpacity(0.9));
 
     // มุม L-brackets เล็กน้อยช่วยกะขอบ
     final notch = 12.0;
@@ -1339,7 +1785,7 @@ class _CutoutOverlayPainter extends CustomPainter {
     }
 
     // เส้นกึ่งกลางบาง ๆ ช่วยตั้งศูนย์และวัดความยาวรวม
-    final midPaint = Paint()..color = Colors.white.withValues(alpha: 0.35);
+    final midPaint = Paint()..color = Colors.white.withOpacity(0.35);
     canvas.drawLine(
         Offset(r.left, r.center.dy), Offset(r.right, r.center.dy), midPaint);
   }
@@ -1353,14 +1799,14 @@ class _CutoutOverlayPainter extends CustomPainter {
         center,
         rad,
         Paint()
-          ..color = Colors.white.withValues(alpha: 0.5)
+          ..color = Colors.white.withOpacity(0.5)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5,
       );
     }
     // กากบาทเล็กที่จุดศูนย์กลาง
     final crossPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.6)
+      ..color = Colors.white.withOpacity(0.6)
       ..strokeWidth = 1.0;
     const cross = 8.0;
     canvas.drawLine(Offset(center.dx - cross, center.dy),
@@ -1491,5 +1937,129 @@ class _CutoutOverlayPainter extends CustomPainter {
       if (dy + tp.height > r.bottom - 4) dy = y - tp.height - 2;
       tp.paint(canvas, Offset(r.left + 8, dy));
     }
+  }
+}
+
+img.Image _enhanceImageIsolate(img.Image original) {
+  var adjusted = img.adjustColor(original,
+      brightness: 1.05, contrast: 1.1, saturation: 1.02);
+  return img.gaussianBlur(adjusted, radius: 1);
+}
+
+img.Image _resizeAndCropIsolate(img.Image original, int targetW, int targetH) {
+  final aspectRatio = original.width / original.height;
+  final targetAspectRatio = targetW / targetH;
+
+  img.Image resized;
+  if (aspectRatio > targetAspectRatio) {
+    final newWidth = (original.height * targetAspectRatio).round();
+    resized = img.copyResize(original, width: newWidth);
+  } else {
+    final newHeight = (original.width / targetAspectRatio).round();
+    resized = img.copyResize(original, height: newHeight);
+  }
+
+  final x = ((resized.width - targetW) / 2).round();
+  final y = ((resized.height - targetH) / 2).round();
+  return img.copyCrop(resized, x: x, y: y, width: targetW, height: targetH);
+}
+
+// Isolate: decode, bake orientation, resize to 224x224, and pack to Float32List/Uint8List
+Map<String, Object?>? _preprocessAndPackIsolate(Map<String, Object?> args) {
+  try {
+    final imagePath = args['imagePath'] as String;
+    final useStretch = args['useStretch'] as bool? ?? true;
+    final useEnh = args['useEnhancement'] as bool? ?? false;
+    final isFloat = args['isFloat'] as bool? ?? true;
+    final useMinusOneToOne = args['useMinusOneToOne'] as bool? ?? false;
+    final swapRB = args['swapRB'] as bool? ?? false;
+    final debugDump = args['debugDump'] as bool? ?? false;
+    final tempDir = args['tempDir'] as String?;
+
+    final bytes = File(imagePath).readAsBytesSync();
+    final decoded0 = img.decodeImage(bytes);
+    if (decoded0 == null) return null;
+    final decoded = img.bakeOrientation(decoded0);
+    final enhanced = useEnh ? _enhanceImageIsolate(decoded) : decoded;
+
+    img.Image pre;
+    if (useStretch) {
+      pre = img.copyResize(enhanced,
+          width: 224, height: 224, interpolation: img.Interpolation.linear);
+    } else {
+      pre = _resizeAndCropIsolate(enhanced, 224, 224);
+    }
+
+    String? dumpPath;
+    if (debugDump && tempDir != null) {
+      dumpPath =
+          '$tempDir/tm_input_${DateTime.now().millisecondsSinceEpoch}.png';
+      File(dumpPath).writeAsBytesSync(img.encodePng(pre));
+    }
+
+    if (isFloat) {
+      final out = Float32List(1 * 224 * 224 * 3);
+      var i = 0;
+      for (var y = 0; y < 224; y++) {
+        for (var x = 0; x < 224; x++) {
+          final p = pre.getPixel(x, y);
+          int r = p.r.toInt() & 0xFF;
+          int g = p.g.toInt() & 0xFF;
+          int b = p.b.toInt() & 0xFF;
+          if (swapRB) {
+            final tmp = r;
+            r = b;
+            b = tmp;
+          }
+          if (useMinusOneToOne) {
+            // [-1, 1]
+            out[i++] = (r / 127.5) - 1.0;
+            out[i++] = (g / 127.5) - 1.0;
+            out[i++] = (b / 127.5) - 1.0;
+          } else {
+            // [0, 1]
+            out[i++] = r / 255.0;
+            out[i++] = g / 255.0;
+            out[i++] = b / 255.0;
+          }
+        }
+      }
+      return {
+        'packed': out,
+        'isFloat': true,
+        'width': 224,
+        'height': 224,
+        'dumpPath': dumpPath,
+      };
+    } else {
+      final out = Uint8List(1 * 224 * 224 * 3);
+      var i = 0;
+      for (var y = 0; y < 224; y++) {
+        for (var x = 0; x < 224; x++) {
+          final p = pre.getPixel(x, y);
+          int r = p.r.toInt() & 0xFF;
+          int g = p.g.toInt() & 0xFF;
+          int b = p.b.toInt() & 0xFF;
+          if (swapRB) {
+            final tmp = r;
+            r = b;
+            b = tmp;
+          }
+          out[i++] = r;
+          out[i++] = g;
+          out[i++] = b;
+        }
+      }
+      return {
+        'packed': out,
+        'isFloat': false,
+        'width': 224,
+        'height': 224,
+        'dumpPath': dumpPath,
+      };
+    }
+  } catch (e) {
+    // Keep isolate silent but return null to indicate failure
+    return null;
   }
 }

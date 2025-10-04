@@ -8,7 +8,7 @@ const Map<String, String> _kLabelMap = {
   'hom daeng': 'หอมแดง',
   'kaprao': 'ใบกะเพรา',
   'krathiam': 'กระเทียม',
-  'makrut': 'ใบมะกรูด',
+  'makrut': 'มะกรูด',
   'manao': 'มะนาว',
   'prik chi fa': 'พริกชี้ฟ้า',
   'prik khi nu': 'พริกขี้หนู',

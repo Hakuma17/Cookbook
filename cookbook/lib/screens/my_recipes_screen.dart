@@ -258,12 +258,15 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    _buildTabButton('สูตรโปรดของฉัน', 0, theme),
-                    _buildTabButton('ตะกร้าวัตถุดิบ', 1, theme),
-                  ],
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: _kHeaderHPad),
+                  child: Row(
+                    children: [
+                      _buildTabButton('สูตรโปรดของฉัน', 0, theme),
+                      _buildTabButton('ตะกร้าวัตถุดิบ', 1, theme),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 6),
               ] else ...[
@@ -548,7 +551,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
       padding: const EdgeInsets.all(4),
       child: Icon(
         selected ? Icons.check : Icons.radio_button_unchecked,
-        size: 18,
+        size: 20,
         color: selected ? cs.onPrimary : cs.onSurfaceVariant,
       ),
     );
