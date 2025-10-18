@@ -374,41 +374,188 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) {
-        final t = Theme.of(ctx).textTheme;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('📝 วิธีกรอกตัวกรอง', style: t.titleLarge),
-              const SizedBox(height: 12),
-              Text(
-                isGroupMode
-                    ? 'โหมด “กลุ่มวัตถุดิบ” — พิมพ์ชื่อกลุ่ม เช่น “นมวัว, พริก, อาหารทะเล” (ใส่หลายชื่อคั่น , หรือ ; ได้)'
-                    : 'โหมด “ชื่อวัตถุดิบ” — พิมพ์ชื่อวัตถุดิบ เช่น “ใบกะเพรา, กระเทียม, ตะไคร้” (ใส่หลายชื่อคั่น , หรือ ; ได้)',
-                style: t.bodyMedium,
-              ),
-              const SizedBox(height: 8),
-              if (isGroupMode)
+        final theme = Theme.of(ctx);
+        final t = theme.textTheme;
+        final cs = theme.colorScheme;
+
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.8,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // หัวข้อหลัก
+                Row(
+                  children: [
+                    Icon(Icons.help_outline, color: cs.primary, size: 28),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'คู่มือการใช้ตัวกรองวัตถุดิบ',
+                        style: t.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: cs.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // โหมดปัจจุบัน
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            isGroupMode ? Icons.category : Icons.inventory_2,
+                            color: cs.onPrimaryContainer,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'โหมดปัจจุบัน: ${isGroupMode ? "กลุ่มวัตถุดิบ" : "ชื่อวัตถุดิบ"}',
+                            style: t.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: cs.onPrimaryContainer,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        isGroupMode
+                            ? 'โหมดกลุ่มวัตถุดิบ: ใช้ชื่อ “กลุ่ม” เพื่อค้นหาเมนูที่มีหรือไม่มีวัตถุดิบในกลุ่มนั้น'
+                            : 'โหมดชื่อวัตถุดิบ: ใช้ชื่อวัตถุดิบรายตัวเพื่อคัดกรองเมนู',
+                        style: t.bodyMedium
+                            ?.copyWith(color: cs.onPrimaryContainer),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // หน้าที่ของหน้านี้
+                Row(
+                  children: [
+                    Icon(Icons.tune, color: cs.secondary),
+                    const SizedBox(width: 8),
+                    Text('หน้าที่ของหน้านี้',
+                        style: t.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const _HelpBullet(
+                    'คัดกรองสูตรอาหารจากวัตถุดิบที่ “ต้องมี” หรือ “ต้องไม่มี”'),
+                const _HelpBullet(
+                    'สลับได้ระหว่าง โหมดชื่อวัตถุดิบ และ โหมดกลุ่มวัตถุดิบ'),
+                const _HelpBullet(
+                    'แก้ไข/ลบรายการที่เพิ่มแล้วได้ โดยแตะที่ชิปหรือปุ่ม ×'),
+                const SizedBox(height: 16),
+
+                // วิธีการกรอกข้อมูล
+                Row(
+                  children: [
+                    Icon(Icons.keyboard, color: cs.secondary),
+                    const SizedBox(width: 8),
+                    Text('การพิมพ์ตัวกรอง',
+                        style: t.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
-                    'ตัวอย่างชื่อกลุ่ม: นมวัว, พริก, สมุนไพรไทย, อาหารทะเล, เส้นก๋วยเตี๋ยว',
-                    style: t.bodySmall),
-              const SizedBox(height: 16),
-              Text('📷 ทริคการถ่ายรูปให้ทายแม่นยำ', style: t.titleMedium),
-              const SizedBox(height: 8),
-              const _HelpBullet('วางให้มี “วัตถุดิบเดียว” ชัด ๆ ในภาพ'),
-              const _HelpBullet('พื้นหลังเรียบ แสงเพียงพอ ไม่ย้อนแสง'),
-              const _HelpBullet('ขนาดภาพ ≥ 224×224 px และไฟล์ ≤ 10MB'),
-              const SizedBox(height: 8),
-              Text(
-                isGroupMode
-                    ? 'ในโหมดกลุ่ม ระบบจะ: ถ่ายรูป → รู้ชื่อวัตถุดิบ → แม็ปเป็น “กลุ่ม” ให้อัตโนมัติ'
-                    : 'ในโหมดชื่อ ระบบจะ: ถ่ายรูป → รู้ชื่อวัตถุดิบ แล้วเติมลงช่องให้',
-                style: t.bodySmall,
-              ),
-            ],
+                  isGroupMode
+                      ? 'พิมพ์ชื่อกลุ่ม เช่น “นมวัว, พริก, อาหารทะเล” (ใส่หลายรายการคั่นด้วย , หรือ ;)'
+                      : 'พิมพ์ชื่อวัตถุดิบ เช่น “ใบกะเพรา, กระเทียม, ตะไคร้” (ใส่หลายรายการคั่นด้วย , หรือ ;)',
+                  style: t.bodyMedium,
+                ),
+                const SizedBox(height: 6),
+                const _HelpBullet(
+                    'เลือกจากรายชื่อแนะนำเพื่อหลีกเลี่ยงการสะกดผิด'),
+                const _HelpBullet('กด Enter เพื่อเพิ่มจากข้อความที่พิมพ์'),
+                if (!isGroupMode)
+                  const _HelpBullet(
+                      'ถ้ารายการนั้นอยู่ใน “วัตถุดิบที่แพ้” จะถูกทำเครื่องหมายและไม่สามารถลบจากการแจ้งเตือนได้'),
+                const SizedBox(height: 12),
+
+                // ตัวอย่างอินพุต
+                Builder(
+                  builder: (_) {
+                    final samples = isGroupMode
+                        ? ['นมวัว', 'พริก', 'อาหารทะเล', 'สมุนไพรไทย']
+                        : ['ใบกะเพรา', 'กระเทียม', 'ตะไคร้', 'ข่า'];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ตัวอย่าง',
+                            style: t.titleSmall
+                                ?.copyWith(color: cs.onSurfaceVariant)),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: samples
+                              .map((s) => Chip(
+                                    label: Text(s),
+                                    side: BorderSide(color: cs.outlineVariant),
+                                    backgroundColor: cs.surfaceContainerHighest
+                                        .withValues(alpha: .3),
+                                  ))
+                              .toList(),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 16),
+                Divider(color: cs.outlineVariant),
+                const SizedBox(height: 12),
+
+                // สัญลักษณ์บนหน้าจอ
+                Row(
+                  children: [
+                    Icon(Icons.info_outline, color: cs.secondary),
+                    const SizedBox(width: 8),
+                    Text('สัญลักษณ์บนหน้านี้',
+                        style: t.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const _HelpBullet('ไอคอนเครื่องหมายคำถาม (?) เปิดคู่มือนี้'),
+                const _HelpBullet(
+                    'ไอคอนกล้อง ใช้ช่วยกรอกอย่างรวดเร็ว (คำแนะนำการถ่ายภาพอยู่ในหน้ากล้อง)'),
+                const _HelpBullet(
+                    'ปุ่ม “ใช้ตัวกรอง” จะส่งค่าทั้งหมดกลับไปใช้กับการค้นหา'),
+                const SizedBox(height: 20),
+
+                // ปุ่มปิด
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.check),
+                    label: const Text('เข้าใจแล้ว'),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -427,12 +574,11 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         _haveGroupSet.length +
         _notHaveGroupSet.length;
 
-    // ย้ายไปใช้ PopScope แทน WillPopScope (รองรับ predictive back)
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
+    // ใช้ WillPopScope เพื่อรองรับการกด back แล้วส่งผลลัพธ์กลับ
+    return WillPopScope(
+      onWillPop: () async {
         _popWithResult();
+        return false;
       },
       child: Scaffold(
         backgroundColor: theme.colorScheme.surface,
@@ -730,11 +876,6 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
               }
             },
             showSelectedIcon: false,
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              padding: WidgetStateProperty.all(
-                  const EdgeInsets.symmetric(horizontal: 8)),
-            ),
           ),
         ),
       ],

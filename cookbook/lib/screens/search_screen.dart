@@ -23,7 +23,7 @@ import '../services/auth_service.dart';
 import '../widgets/search_recipe_card.dart';
 import '../widgets/custom_search_bar.dart';
 import '../widgets/custom_bottom_nav.dart';
-import '../widgets/hero_carousel.dart';
+// import '../widgets/hero_carousel.dart'; // คอมเมนต์ปิดไว้เพราะไม่ใช้แล้ว
 import '../widgets/choice_chip_filter.dart'; // ใช้เฉพาะตัวเลือก sort (single)
 import '../widgets/allergy_warning_dialog.dart';
 import '../main.dart' show routeObserver;
@@ -97,9 +97,8 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   bool _suppressNextDidPopNextRefresh = false;
 
   // ★ เพิ่มคีย์ sort สำหรับยิง API โดยตรง (ซ่อนชิปไว้ชั่วคราว)
-  // ค่าเริ่มต้น: เรียงตามชื่อเมนู ก→ฮ
-  String _sortKey =
-      'name_asc'; // ถ้า BE ใช้คีย์อื่น ปรับที่นี่ได้ เช่น 'name_th_asc'
+  // ค่าเริ่มต้น: เรียงตามชื่อ (ก→ฮ) เป็นพื้นฐานทั่วไป
+  String _sortKey = 'name_asc';
 
   bool get _hasGroupFilter =>
       _group != null ||
@@ -149,7 +148,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
           final s = (args['sort'] as String).trim();
           if (s.isNotEmpty) _sortKey = s; // อนุญาตส่งคีย์ตรง ๆ
         } else {
-          // ไม่มี args → โหมดค่าเริ่มต้น: แสดง “ทั้งหมด” เรียงชื่อ
+          // ไม่มี args → โหมดค่าเริ่มต้น: เรียงตามชื่อ (ก→ฮ)
           _sortKey = 'name_asc';
         }
 
@@ -528,7 +527,7 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
             }
 
             final text = _searchQuery.isNotEmpty
-                ? 'ผลการค้นหาสำหรับ “$_searchQuery” ($count)'
+                ? 'ผลการค้นหา ($count)'
                 : (seeMoreLabel != null &&
                         _group == null &&
                         _includeNames.isEmpty &&
@@ -629,6 +628,8 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   }
 
   Widget _buildHero(BuildContext _) {
+    // คอมเมนต์ปิดส่วนแสดง 3 อันดับไว้ไม่เอาแล้ว
+    /*
     final top3 = _recipes.take(3).toList();
     if (top3.isEmpty) return const SliverToBoxAdapter(child: SizedBox());
     return SliverToBoxAdapter(
@@ -638,6 +639,10 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
         onTap: _handleRecipeTap,
       ),
     );
+    */
+
+    // ส่งคืน SliverToBoxAdapter เปล่าแทน
+    return const SliverToBoxAdapter(child: SizedBox());
   }
 
   // ignore: unused_element
@@ -789,36 +794,191 @@ class _SearchScreenState extends State<SearchScreen> with RouteAware {
   }
 
   void _showSearchHelp(BuildContext ctx) {
-    final tt = Theme.of(ctx).textTheme;
-    Widget dot(String t) => Padding(
+    final theme = Theme.of(ctx);
+    final cs = theme.colorScheme;
+    final tt = theme.textTheme;
+
+    Widget bullet(String text) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('• ', style: TextStyle(fontSize: 16)),
-              Expanded(child: Text(t, style: tt.bodyMedium)),
+              Container(
+                width: 6,
+                height: 6,
+                margin: const EdgeInsets.only(top: 8, right: 10),
+                decoration: BoxDecoration(
+                  color: cs.primary,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              Expanded(child: Text(text, style: tt.bodyMedium)),
             ],
           ),
         );
-    showModalBottomSheet(
-      context: ctx,
-      builder: (_) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+
+    Widget section({
+      required IconData icon,
+      required String title,
+      required List<Widget> children,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 18),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('วิธีใช้งานการค้นหา', style: tt.titleLarge),
-            const SizedBox(height: 16),
-            dot('พิมพ์คำค้นแล้วกดปุ่มค้นหาบนคีย์บอร์ด'),
-            dot('ใช้ปุ่ม “กรอง” เพื่อเลือก/ยกเว้นวัตถุดิบ'),
-            dot('แตะ ✕ เพื่อถอดฟิลเตอร์'),
-            dot('แตะการ์ดสูตรเพื่อดูรายละเอียด'),
-            dot('ใส่หลายคำคั่นด้วยเว้นวรรคหรือจุลภาค เช่น กุ้ง กระเทียม หรือ กุ้ง,กระเทียม'),
-            dot('เริ่มค้นหาด้วย “กลุ่มวัตถุดิบ” ได้จากหน้าแรก: กดการ์ดกลุ่มเพื่อกรองเมนูในกลุ่มนั้นอัตโนมัติ'),
+            Row(
+              children: [
+                Icon(icon, color: cs.primary),
+                const SizedBox(width: 8),
+                Text(title,
+                    style:
+                        tt.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...children,
           ],
         ),
+      );
+    }
+
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
+      builder: (bctx) {
+        return FractionallySizedBox(
+          heightFactor: 0.6,
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 48,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: cs.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 8, 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.help_outline),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'วิธีใช้งานหน้าค้นหา',
+                        style: tt.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'ปิด',
+                      onPressed: () => Navigator.of(bctx).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      section(
+                        icon: Icons.search,
+                        title: 'ค้นหาอะไรได้บ้าง',
+                        children: [
+                          bullet(
+                              'ชื่อเมนู (ไทย/อังกฤษ) เช่น ผัดกะเพรา, Tom Yum'),
+                          bullet(
+                              'วัตถุดิบรายตัว: พิมพ์หลายคำได้ คั่นด้วยเว้นวรรค/จุลภาค'),
+                          bullet('กลุ่มวัตถุดิบ: เช่น ถั่ว, นม, อาหารทะเล'),
+                        ],
+                      ),
+                      section(
+                        icon: Icons.label_outline,
+                        title: 'สีของแท็ก/ฟิลเตอร์',
+                        children: [
+                          bullet('เขียว = วัตถุดิบที่ต้องมี (Include)'),
+                          bullet('แดง = วัตถุดิบที่ไม่เอา (Exclude)'),
+                          bullet(
+                              'กลุ่มวัตถุดิบ (เลือก) = ดูตัวอย่างชิปด้านล่าง'),
+                          bullet(
+                              'กลุ่มวัตถุดิบ (ไม่เอา) = ดูตัวอย่างชิปด้านล่าง'),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: [
+                              Chip(
+                                label: const Text('วัตถุดิบ (ต้องมี)'),
+                                backgroundColor: Colors.green.shade100,
+                                labelStyle: const TextStyle(
+                                  color: Color(0xFF0E7A36),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                side: BorderSide(color: Colors.green.shade400),
+                              ),
+                              Chip(
+                                label: Text('ไม่เอา วัตถุดิบ',
+                                    style: TextStyle(
+                                        color: cs.onErrorContainer,
+                                        fontWeight: FontWeight.w700)),
+                                backgroundColor: cs.errorContainer,
+                                side: BorderSide(
+                                    color: cs.error.withValues(alpha: .35)),
+                              ),
+                              Chip(
+                                label: const Text('กลุ่มวัตถุดิบ'),
+                                backgroundColor: cs.secondaryContainer,
+                                labelStyle:
+                                    TextStyle(color: cs.onSecondaryContainer),
+                              ),
+                              Chip(
+                                label: const Text('กลุ่ม (ไม่เอา)'),
+                                backgroundColor: cs.tertiaryContainer,
+                                labelStyle:
+                                    TextStyle(color: cs.onTertiaryContainer),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text('แตะ ✕ บนแท็กเพื่อถอดฟิลเตอร์',
+                              style: tt.bodySmall
+                                  ?.copyWith(color: cs.onSurfaceVariant)),
+                        ],
+                      ),
+                      section(
+                        icon: Icons.manage_search_outlined,
+                        title: 'ตัวอย่างผลการค้นหา',
+                        children: [
+                          bullet(
+                              '"ต้มยำ กุ้ง" → เจอเมนู ต้มยำกุ้ง, ต้มยำรวมมิตร (ที่มี กุ้ง)'),
+                          bullet(
+                              'Include: กะเพรา, ไก่ → เมนูที่มีทั้ง “กะเพรา” และ “ไก่”'),
+                          bullet('Exclude: นม → ตัดเมนูที่มีนม/ผลิตภัณฑ์นมออก'),
+                          bullet(
+                              'กลุ่ม: ผักใบ → เมนูที่มีวัตถุดิบในกลุ่มผักใบ'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

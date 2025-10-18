@@ -97,7 +97,7 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
   List<CartIngredient> _getProcessedAndSortedList() {
     if (widget.ingredients.isEmpty) return [];
 
-    // ★ เปลี่ยนไปใช้ `_unitMode` (สถานะภายใน) ไม่ใช่ widget.unitMode
+    // ★ ใช้ `_unitMode` (สถานะภายใน)
     final merged = _mergeForDisplay(widget.ingredients, _unitMode);
 
     merged.sort((a, b) {
@@ -135,10 +135,9 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
 
           // ── แถวเครื่องมือ: เรียงตาม + โหมดหน่วย ────────────────────────────
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            crossAxisAlignment: CrossAxisAlignment.center, // ★ กัน overflow
             children: [
-              // ★ ปุ่มเรียงตาม (แสดงเฉพาะชื่อแบบภาพตัวอย่าง)
+              // ซ้าย: เมนูเรียง (ยืด/หดได้)
               Flexible(
                 child: _SortMenu(
                   mode: _sort,
@@ -159,43 +158,53 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
                   labelOnly: true,
                 ),
               ),
-              const Spacer(),
-              // ★ ปุ่มเลือกหน่วย (เดิม/กรัม) – แสดงเครื่องหมายถูกบนตัวเลือกที่เลือก
-              SegmentedButton<UnitDisplayMode>(
-                showSelectedIcon: true,
-                segments: const [
-                  ButtonSegment(
-                    value: UnitDisplayMode.original,
-                    icon: Icon(Icons.layers_outlined),
-                    label: Text('เดิม'),
-                  ),
-                  ButtonSegment(
-                    value: UnitDisplayMode.grams,
-                    icon: Icon(Icons.scale),
-                    label: Text('กรัม'),
-                  ),
-                ],
-                selected: {_unitMode},
-                onSelectionChanged: (s) {
-                  final newMode = s.first;
-                  if (newMode != _unitMode) {
-                    setState(() {
-                      _unitMode = newMode;
-                      _displayIngredients = _getProcessedAndSortedList();
-                    });
-                    widget.onUnitModeChanged?.call(newMode);
-                    PageStorage.of(context).writeState(
-                      context,
-                      newMode.index,
-                      identifier: _psUnitKey,
-                    );
-                  }
-                },
-                style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  // เปลี่ยนเป็น WidgetStatePropertyAll ตามชั้น Widgets
-                  padding: WidgetStatePropertyAll(
-                    EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+              const SizedBox(width: 8),
+
+              // ขวา: ปุ่มหน่วย (ย่ออัตโนมัติเมื่อพื้นที่แคบ)
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown, // ★ สำคัญ: ย่อไม่ให้ล้นขวา
+                    child: SegmentedButton<UnitDisplayMode>(
+                      showSelectedIcon: true,
+                      segments: const [
+                        ButtonSegment(
+                          value: UnitDisplayMode.original,
+                          icon: Icon(Icons.layers_outlined),
+                          label: Text('เดิม',
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                        ButtonSegment(
+                          value: UnitDisplayMode.grams,
+                          icon: Icon(Icons.scale),
+                          label: Text('กรัม',
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                      selected: {_unitMode},
+                      onSelectionChanged: (s) {
+                        final newMode = s.first;
+                        if (newMode != _unitMode) {
+                          setState(() {
+                            _unitMode = newMode;
+                            _displayIngredients = _getProcessedAndSortedList();
+                          });
+                          widget.onUnitModeChanged?.call(newMode);
+                          PageStorage.of(context).writeState(
+                            context,
+                            newMode.index,
+                            identifier: _psUnitKey,
+                          );
+                        }
+                      },
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        padding: WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -229,7 +238,7 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest, // ขับให้เด่นขึ้น
+        color: cs.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: cs.outlineVariant, width: 1.2),
       ),
@@ -299,7 +308,7 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
       final List<Widget> groupedItems = [];
       String? currentGroup;
 
-      // หมายเหตุ: header คอลัมน์แสดงด้านบนครั้งเดียวแล้ว (ไม่ต้องซ้ำในแต่ละกลุ่ม)
+      // header คอลัมน์แสดงด้านบนครั้งเดียวแล้ว
       for (final ingredient in _displayIngredients) {
         final groupName = ingredient.groupName ?? 'อื่นๆ';
         if (groupName != currentGroup) {
@@ -312,7 +321,7 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
         }
         groupedItems.add(CartIngredientTile(
           ingredient: ingredient,
-          unitMode: _unitMode, // ★ ส่งหน่วยภายใน
+          unitMode: _unitMode,
         ));
       }
       return Column(children: groupedItems);
@@ -431,8 +440,8 @@ class _CartIngredientListSectionState extends State<CartIngredientListSection>
 class _SortMenu extends StatelessWidget {
   final _SortMode mode;
   final ValueChanged<_SortMode> onChanged;
-  final bool compact; // ★ ใหม่: โหมดปุ่มสั้น (ใช้ไอคอนช่วย)
-  final bool labelOnly; // ★ ใหม่: แสดงเฉพาะข้อความ (ไม่ขึ้นคำว่า "เรียงตาม:")
+  final bool compact; // ★ โหมดปุ่มสั้น
+  final bool labelOnly; // ★ แสดงเฉพาะข้อความ
 
   const _SortMenu({
     required this.mode,
@@ -465,6 +474,7 @@ class _SortMenu extends StatelessWidget {
       ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        constraints: const BoxConstraints(maxWidth: 260), // ★ กันยาวเกิน
         decoration: BoxDecoration(
           border: Border.all(color: cs.outlineVariant),
           borderRadius: BorderRadius.circular(22),
@@ -475,11 +485,13 @@ class _SortMenu extends StatelessWidget {
           children: [
             const Icon(Icons.sort, size: 18),
             const SizedBox(width: 6),
-            Text(
-              labelOnly
-                  ? label
-                  : (compact ? 'เรียง: $label' : 'เรียงตาม: $label'),
-              overflow: TextOverflow.ellipsis,
+            Flexible(
+              child: Text(
+                labelOnly
+                    ? label
+                    : (compact ? 'เรียง: $label' : 'เรียงตาม: $label'),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             const SizedBox(width: 6),
             const Icon(Icons.arrow_drop_down, size: 18),

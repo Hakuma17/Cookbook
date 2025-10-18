@@ -134,11 +134,14 @@ class Recipe {
         ? rawImagePath.toString()
         : null;
 
-    // [Compat] บาง endpoint อาจใช้คีย์ 'image' / 'thumbnail' แทน 'image_url'
-    final imageUrl = toStringSafe(
+// ใหม่: ถ้าไม่เจอ image_url ให้ใช้ imagePath แทน (หรือค่าว่างถ้าไม่มี)
+    final imageUrlCandidate = toStringSafe(
       j['image_url'] ?? j['image'] ?? j['thumbnail'],
     );
-
+    final imageUrl = imageUrlCandidate.isNotEmpty
+        ? imageUrlCandidate
+        : (imgPath ??
+            ''); // <- ใช้ imagePath เป็นตัวแทน URL ให้ SafeImage ไปจัดการต่
     return Recipe(
       id: toIntSafe(rid),
       name: toStringSafe(j['name'], fallback: 'ไม่มีชื่อสูตร'),

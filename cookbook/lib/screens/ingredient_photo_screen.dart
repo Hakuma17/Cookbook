@@ -88,6 +88,12 @@ class _IngredientPhotoScreenState
   // Debug-only: bypass cover-crop step to verify if cropping causes mismatch
   bool _devBypassCoverCrop = false;
 
+  // ★ AI Mode toggles (ซ่อนจาก UI แต่ยังทำงาน - เปิด TM N11)
+  bool _aiEnhancementMode = false; // โหมดปรับปรุงภาพ (ปิด)
+  bool _aiStretchResizeMode = true; // โหมด TM stretch resize (เปิด)
+  bool _aiNormalizationMode = true; // โหมด [-1,1] normalization (เปิด)
+  bool _aiDebugMode = false; // โหมด debug input dump (ปิด)
+
   @override
   void initState() {
     super.initState();
@@ -109,6 +115,12 @@ class _IngredientPhotoScreenState
     _cameraHelper = _CameraHelper();
     _modelHelper = _ModelHelper();
     _imageHelper = _ImageHelper(context: context);
+
+    // ★ Sync initial AI mode states with ModelHelper
+    _aiStretchResizeMode = _ModelHelper.kUseTmStretchResize;
+    _aiNormalizationMode = _ModelHelper.kUseMinusOneToOneForFloat;
+    // kUseEnhancement and kDebugDumpInput are const, so keep local tracking
+
     _initFuture = _initialize();
   }
 
@@ -184,6 +196,54 @@ class _IngredientPhotoScreenState
     }
   }
 
+  // ★ ซ่อนฟังก์ชัน AI Mode Selection (ยังคงไว้สำหรับใช้ในอนาคต)
+  // ignore: unused_element
+  void _handleAiModeSelection(String value) {
+    setState(() {
+      switch (value) {
+        case 'enhancement':
+          _aiEnhancementMode = !_aiEnhancementMode;
+          // Note: kUseEnhancement is const, so we keep track locally
+          break;
+        case 'stretch':
+          _aiStretchResizeMode = !_aiStretchResizeMode;
+          // Update ModelHelper stretch resize mode
+          _ModelHelper.kUseTmStretchResize = _aiStretchResizeMode;
+          break;
+        case 'normalize':
+          _aiNormalizationMode = !_aiNormalizationMode;
+          // Update ModelHelper normalization mode
+          _ModelHelper.kUseMinusOneToOneForFloat = _aiNormalizationMode;
+          break;
+        case 'debug':
+          _aiDebugMode = !_aiDebugMode;
+          // Note: kDebugDumpInput is const, so we keep track locally
+          break;
+      }
+    });
+
+    // แสดงข้อความแจ้งเตือนการเปลี่ยนแปลง
+    final modeNames = {
+      'enhancement': 'ปรับปรุงภาพ AI',
+      'stretch': 'TM Stretch Mode',
+      'normalize': 'Normalization [-1,1]',
+      'debug': 'Debug Input',
+    };
+
+    final isEnabled = {
+          'enhancement': _aiEnhancementMode,
+          'stretch': _aiStretchResizeMode,
+          'normalize': _aiNormalizationMode,
+          'debug': _aiDebugMode,
+        }[value] ??
+        false;
+
+    _showSnack(
+      '${modeNames[value]}: ${isEnabled ? "เปิด" : "ปิด"}',
+      isError: false,
+    );
+  }
+
   Future<void> _processImage(File imageFile) async {
     if (!_modelHelper.isReady) {
       _showSnack('โมเดลยังไม่พร้อมใช้งาน');
@@ -247,12 +307,200 @@ class _IngredientPhotoScreenState
     }
   }
 
-  void _showSnack(String msg) {
+  void _showSnack(String msg, {bool isError = true}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    final theme = Theme.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? theme.colorScheme.error : Colors.green[600],
+      ),
+    );
   }
 
-  // ★ เพิ่มฟังก์ชันแสดงเคล็ดลับการถ่ายภาพ
+  // ★ ซ่อนฟังก์ชันแสดงคำอธิบาย AI modes (ยังคงไว้สำหรับใช้ในอนาคต)
+  // ignore: unused_element
+  void _showAiModeGuide() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.smart_toy, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('คำอธิบายโหมด AI'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildAiModeCard(
+                '🤖 ปรับปรุงภาพ AI',
+                'ปรับปรุงคุณภาพภาพก่อนส่งเข้าโมเดล AI เพื่อเพิ่มความแม่นยำ',
+                [
+                  '✨ ลดสัญญาณรบกวน (noise) จากภาพ',
+                  '🔍 เพิ่มความคมชัดของขอบวัตถุ',
+                  '🌈 ปรับสมดุลแสงและสีให้เหมาะสม',
+                  '📸 ปรับปรุงภาพที่ถ่ายในแสงน้อย',
+                  '⚡ อาจทำให้การประมวลผลช้าขึ้นเล็กน้อย'
+                ],
+                _aiEnhancementMode,
+              ),
+              _buildAiModeCard(
+                '📐 TM Stretch Mode',
+                'โหมดที่ทำให้ผลลัพธ์ตรงกับ Teachable Machine web preview 100%',
+                [
+                  '🎯 ปรับขนาดภาพแบบ stretch เป็น 224×224 พิกเซล',
+                  '🌐 ใช้อัลกอริทึมเดียวกับ TM web preview',
+                  '✅ ผลลัพธ์จะตรงกับการทดสอบในเว็บไซต์ TM',
+                  '🔄 รองรับทั้งภาพสี่เหลี่ยมและสี่เหลี่ยมผืนผ้า',
+                  '⭐ แนะนำให้เปิดไว้เสมอเพื่อความแม่นยำสูงสุด'
+                ],
+                _aiStretchResizeMode,
+              ),
+              _buildAiModeCard(
+                '⚖️ Normalization [-1,1]',
+                'เปลี่ยนวิธีการแปลงค่าสีให้เหมาะสมกับโมเดล AI บางประเภท',
+                [
+                  '📊 โหมดปกติ: ค่าสี 0-255 → 0.0 ถึง 1.0',
+                  '🔄 โหมดนี้: ค่าสี 0-255 → -1.0 ถึง 1.0',
+                  '🧮 สูตร: (pixel / 127.5) - 1.0',
+                  '🤖 บางโมเดล AI ทำงานได้ดีกว่าในช่วงนี้',
+                  '🧪 หากผลลัพธ์ไม่ดี ลองเปิด/ปิดโหมดนี้ดู',
+                  '💡 แนะนำปิดไว้สำหรับโมเดลจาก TM'
+                ],
+                _aiNormalizationMode,
+              ),
+              _buildAiModeCard(
+                '🐛 Debug Input (ปิดใช้งานชั่วคราว)',
+                'เครื่องมือสำหรับนักพัฒนาและผู้ใช้ขั้นสูงเพื่อตรวจสอบการทำงาน',
+                [
+                  '💾 บันทึกภาพ 224×224 พิกเซลที่ป้อนเข้าโมเดล AI (ปิดใช้งาน)',
+                  '📁 ไฟล์จะถูกบันทึกใน Pictures/tm_input_*.png (ปิดใช้งาน)',
+                  '🔍 เปรียบเทียบกับภาพใน TM web preview',
+                  '🔧 ช่วยแก้ไขปัญหาเมื่อผลลัพธ์ไม่ตรงกัน',
+                  '📊 ดูข้อมูล RGB และ tensor input',
+                  '⚠️ ฟีเจอร์บันทึกภาพถูกปิดใช้งานชั่วคราว'
+                ],
+                _aiDebugMode,
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.lightbulb, color: Colors.blue, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          '💡 เคล็ดลับการใช้งาน',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      '🚀 เริ่มต้น: ใช้ค่าเริ่มต้น (TM Stretch เปิด, อื่นๆ ปิด)\n'
+                      '🎯 หากผลลัพธ์ไม่แม่นยำ: ลองเปิด "ปรับปรุงภาพ AI"\n'
+                      '🔄 หากยังไม่ตรง: ลองสลับ "Normalization [-1,1]"\n'
+                      '🐛 หากมีปัญหา: เปิด "Debug Input" และตรวจสอบไฟล์',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('เข้าใจแล้ว'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiModeCard(
+    String title,
+    String description,
+    List<String> features,
+    bool isActive,
+  ) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      color: isActive ? Colors.green.withOpacity(0.1) : null,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.green : Colors.grey,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isActive ? 'เปิด' : 'ปิด',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...features.map((feature) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    feature,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ★ ซ่อนฟังก์ชันแสดงเคล็ดลับการถ่ายภาพ (ยังคงไว้สำหรับใช้ในอนาคต)
+  // ignore: unused_element
   void _showCameraGuide() {
     showModalBottomSheet(
       context: context,
@@ -556,15 +804,7 @@ class _IngredientPhotoScreenState
         ),
       ),
       actions: [
-        // ★ เพิ่มปุ่มเคล็ดลับการใช้งาน
-        Padding(
-          padding: EdgeInsets.only(top: topGuard),
-          child: IconButton(
-            icon: const Icon(Icons.help_outline),
-            tooltip: 'เคล็ดลับการถ่ายภาพ',
-            onPressed: _showCameraGuide,
-          ),
-        ),
+        // ★ ซ่อน AI Info Button, AI Mode Toggle และ เคล็ดลับการใช้งาน
         Padding(
             padding: EdgeInsets.only(top: topGuard),
             child: IconButton(
@@ -616,6 +856,7 @@ class _IngredientPhotoScreenState
                   shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
                 ),
               ),
+              // ★ AI Status Indicators (ซ่อน)
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -647,18 +888,13 @@ class _IngredientPhotoScreenState
                     ),
                   ),
 
-                  // ตัวบอกระดับซูม
-                  SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: Center(
-                      child: Text(
-                        '${_zoom.toStringAsFixed(1)}x',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                  // ★ ซ่อน Quick AI Toggle - แสดงเฉพาะ Zoom
+                  Text(
+                    '${_zoom.toStringAsFixed(1)}x',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
                     ),
                   ),
                 ],
@@ -666,6 +902,83 @@ class _IngredientPhotoScreenState
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ★ ซ่อน AI Status Row (ยังคงไว้สำหรับใช้ในอนาคต)
+  // ignore: unused_element
+  Widget _buildAiStatusRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildAiStatusChip(
+          'AI',
+          _aiEnhancementMode,
+          Colors.blue,
+          Icons.auto_awesome,
+        ),
+        const SizedBox(width: 8),
+        _buildAiStatusChip(
+          'TM',
+          _aiStretchResizeMode,
+          Colors.green,
+          Icons.aspect_ratio,
+        ),
+        const SizedBox(width: 8),
+        _buildAiStatusChip(
+          'N11',
+          _aiNormalizationMode,
+          Colors.purple,
+          Icons.tune,
+        ),
+        const SizedBox(width: 8),
+        _buildAiStatusChip(
+          'DBG',
+          _aiDebugMode,
+          Colors.orange,
+          Icons.bug_report,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiStatusChip(
+    String label,
+    bool isActive,
+    Color activeColor,
+    IconData icon,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isActive
+            ? activeColor.withOpacity(0.8)
+            : Colors.grey.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isActive ? activeColor : Colors.grey,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 12,
+            color: isActive ? Colors.white : Colors.grey[400],
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: isActive ? Colors.white : Colors.grey[400],
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -817,8 +1130,8 @@ class _ModelHelper {
   // --- TM compatibility knobs ---
   static bool kUseTmStretchResize =
       true; // set true to match TM preview exactly (debug-toggleable)
-  static const bool kDebugDumpInput =
-      true; // save 224x224 input for side-by-side checks
+  // static const bool kDebugDumpInput =
+  //     false; // save 224x224 input for side-by-side checks (ปิดใช้งาน)
   // Float normalization policy for float32 inputs:
   // false => [0,1] (v/255.0), true => [-1,1] (v/127.5 - 1)
   static bool kUseMinusOneToOneForFloat = false;
@@ -952,9 +1265,10 @@ class _ModelHelper {
 
   Future<List<Map<String, dynamic>>> predict(File imageFile) async {
     // Heavy preprocessing in isolate (no UI jank)
-    final tempDirPath = (kDebugMode && kDebugDumpInput)
-        ? (await getTemporaryDirectory()).path
-        : null;
+    // การเตรียม tempDirPath สำหรับบันทึกภาพ debug (ชั่วคราวปิดใช้งาน)
+    // final tempDirPath = (kDebugMode && kDebugDumpInput)
+    //     ? (await getTemporaryDirectory()).path
+    //     : null;
     final packed = await compute(_preprocessAndPackIsolate, {
       'imagePath': imageFile.path,
       'useStretch': _ModelHelper.kUseTmStretchResize,
@@ -962,16 +1276,16 @@ class _ModelHelper {
       'isFloat': _inputIsFloat,
       'useMinusOneToOne': _ModelHelper.kUseMinusOneToOneForFloat,
       'swapRB': _ModelHelper.kSwapRBForTest,
-      'debugDump': kDebugMode && kDebugDumpInput,
-      'tempDir': tempDirPath,
+      'debugDump': false, // kDebugMode && kDebugDumpInput, (ปิดใช้งาน)
+      'tempDir': null, // tempDirPath, (ปิดใช้งาน)
     });
     if (packed == null) return [];
 
-    // Update last dump path for debug UI
-    if (kDebugMode && packed['dumpPath'] is String) {
-      lastDumpPath = packed['dumpPath'] as String;
-      debugPrint('[TFLite] dumped input224=$lastDumpPath');
-    }
+    // Update last dump path for debug UI (ชั่วคราวปิดใช้งาน)
+    // if (kDebugMode && packed['dumpPath'] is String) {
+    //   lastDumpPath = packed['dumpPath'] as String;
+    //   debugPrint('[TFLite] dumped input224=$lastDumpPath');
+    // }
 
     // Build model input from packed data
     final isFloatPacked = (packed['isFloat'] as bool?) ?? _inputIsFloat;
@@ -1973,8 +2287,8 @@ Map<String, Object?>? _preprocessAndPackIsolate(Map<String, Object?> args) {
     final isFloat = args['isFloat'] as bool? ?? true;
     final useMinusOneToOne = args['useMinusOneToOne'] as bool? ?? false;
     final swapRB = args['swapRB'] as bool? ?? false;
-    final debugDump = args['debugDump'] as bool? ?? false;
-    final tempDir = args['tempDir'] as String?;
+    // final debugDump = args['debugDump'] as bool? ?? false; // ชั่วคราวปิดใช้งาน
+    // final tempDir = args['tempDir'] as String?; // ชั่วคราวปิดใช้งาน
 
     final bytes = File(imagePath).readAsBytesSync();
     final decoded0 = img.decodeImage(bytes);
@@ -1991,11 +2305,12 @@ Map<String, Object?>? _preprocessAndPackIsolate(Map<String, Object?> args) {
     }
 
     String? dumpPath;
-    if (debugDump && tempDir != null) {
-      dumpPath =
-          '$tempDir/tm_input_${DateTime.now().millisecondsSinceEpoch}.png';
-      File(dumpPath).writeAsBytesSync(img.encodePng(pre));
-    }
+    // ฟังก์ชั่นบันทึกภาพ 224x224 พิกเซลลงเครื่องสำหรับ debug (ชั่วคราวปิดใช้งาน)
+    // if (debugDump && tempDir != null) {
+    //   dumpPath =
+    //       '$tempDir/tm_input_${DateTime.now().millisecondsSinceEpoch}.png';
+    //   File(dumpPath).writeAsBytesSync(img.encodePng(pre));
+    // }
 
     if (isFloat) {
       final out = Float32List(1 * 224 * 224 * 3);

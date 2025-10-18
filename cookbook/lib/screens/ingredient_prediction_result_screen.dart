@@ -17,9 +17,8 @@ const Map<String, String> _kLabelMap = {
   'kha': 'ข่า',
 };
 
-// ignore: unused_element
 const double _kAutoFillThreshold =
-    0.80; // เดิม: เกณฑ์ Autofill ≥ 80% (ยังเก็บไว้เผื่อย้อนกลับมาใช้)
+    0.80; // เกณฑ์กรอกอัตโนมัติ: ความมั่นใจอันดับ 1 ≥ 80%
 
 // ★ ธง/เกณฑ์สำหรับเตือนกรณีมีหลายวัตถุดิบในภาพ
 const double _kMultiGap = 0.10; // top1 - top2 < 0.10
@@ -80,10 +79,14 @@ class _IngredientPredictionResultScreenState
 
     if (widget.allPredictions.isNotEmpty) {
       final top = widget.allPredictions.first;
-      // ⛔ เปลี่ยนสเปค: กรอกอัตโนมัติด้วยผลอันดับ 1 ทันที (ไม่ผูกกับ 80%)
-      _inputCtrl.text = _mapLabel(top['label'] as String);
+      final topConfidence =
+          (top['confidence'] as num?)?.toDouble() ?? 0.0;
+      // กรอกอัตโนมัติเมื่อความมั่นใจอันดับ 1 ≥ 80%
+      if (topConfidence >= _kAutoFillThreshold) {
+        _inputCtrl.text = _mapLabel(top['label'] as String);
+      }
       if (widget.allPredictions.length >= 2) {
-        final c1 = (widget.allPredictions[0]['confidence'] as num).toDouble();
+        final c1 = topConfidence;
         final c2 = (widget.allPredictions[1]['confidence'] as num).toDouble();
         _multiObjectSuspected =
             ((c1 - c2) < _kMultiGap) && (c2 >= _kMultiSecond);
@@ -292,10 +295,13 @@ class _IngredientPredictionResultScreenState
                     Icon(Icons.tips_and_updates_outlined,
                         size: 18, color: _ink.withValues(alpha: .7)),
                     const SizedBox(width: 6),
-                    Text(
-                      'กรอกให้อัตโนมัติด้วยผลอันดับ 1 (แก้ไขได้)',
-                      style: tt.bodySmall
-                          ?.copyWith(color: _ink.withValues(alpha: .75)),
+                    Expanded(
+                      child: Text(
+                        'กรอกให้อัตโนมัติเมื่ออันดับ 1 มีความมั่นใจ ≥ 80% (แก้ไขได้)',
+                        style: tt.bodySmall
+                            ?.copyWith(color: _ink.withValues(alpha: .75)),
+                        softWrap: true,
+                      ),
                     ),
                   ],
                 ),
@@ -558,7 +564,8 @@ class _IngredientPredictionResultScreenState
                     t),
                 _bullet(
                     'แตะแท่งผลลัพธ์เพื่อใส่ชื่อวัตถุดิบลง “ช่องกรอก” ทันที', t),
-                _bullet('ระบบจะกรอกให้อัตโนมัติด้วยผลอันดับ 1 (แก้ไขได้)', t),
+                _bullet(
+                    'ระบบจะกรอกให้อัตโนมัติเมื่อผลอันดับ 1 ≥ 80% (แก้ไขได้)', t),
                 _bullet(
                     'ตรวจสอบ/แก้ไขชื่อ แล้วกด “ส่งผลการทำนาย” เพื่อยืนยัน', t),
               ],

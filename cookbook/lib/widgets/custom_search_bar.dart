@@ -3,6 +3,8 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 
 import '../utils/debouncer.dart';
 import '../services/api_service.dart';
+// ใช้ฟังก์ชันสแกนจากหน้ากล้อง
+import '../screens/ingredient_photo_screen.dart' show scanIngredient;
 
 enum _SearchMode { recipe, ingredient, group }
 
@@ -181,16 +183,24 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
             controller: _controller,
             suggestionsCallback: _suggest,
             debounceDuration: const Duration(milliseconds: 250),
-            emptyBuilder: (context) => Material(
-              elevation: 2,
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Text(
-                  'ไม่พบคำแนะนำ',
-                  style: theme.textTheme.bodyMedium,
-                ),
+            emptyBuilder: (context) => Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                'ไม่พบคำแนะนำ',
+                style: theme.textTheme.bodyMedium,
               ),
             ),
             builder: (context, textController, focusNode) => TextField(
@@ -212,6 +222,8 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
               decoration: InputDecoration(
                 hintText: hintTextLocal(),
                 prefixIcon: Icon(Icons.search, color: iconColor),
+                // แสดงไอคอนกล้องชิดขวาเมื่อยังไม่พิมพ์อะไร
+                // และสลับเป็นปุ่ม ✕ เมื่อตัวอักษรไม่ว่าง
                 suffixIcon: textController.text.isNotEmpty
                     ? Semantics(
                         button: true,
@@ -219,6 +231,11 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
                         child: IconButton(
                           icon: const Icon(Icons.close),
                           tooltip: 'ล้างคำค้นหา',
+                          padding: const EdgeInsets.only(right: 6),
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
                           onPressed: () {
                             _controller.clear();
                             widget.onChanged('');
@@ -226,7 +243,37 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
                           },
                         ),
                       )
-                    : null,
+                    : Semantics(
+                        button: true,
+                        label: 'สแกนจากกล้อง',
+                        child: IconButton(
+                          icon:
+                              Icon(Icons.camera_alt_outlined, color: iconColor),
+                          tooltip: 'สแกนจากกล้อง',
+                          padding: const EdgeInsets.only(right: 6),
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          onPressed: () async {
+                            // เปิดกล้องสแกนแล้วเติมคำค้นหาให้อัตโนมัติ
+                            final names = await scanIngredient(context);
+                            if (names.isEmpty) return;
+                            final joined = names.join(' ');
+                            _controller.text = joined;
+                            _controller.selection = TextSelection.fromPosition(
+                                TextPosition(offset: joined.length));
+                            widget.onChanged(joined.trim());
+                            widget.onSubmitted?.call(joined.trim());
+                            setState(() {});
+                          },
+                        ),
+                      ),
+                // บีบพื้นที่ด้านขวาให้แน่นขึ้นเพื่อให้ไอคอนชิดขวาจริง ๆ
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 32,
+                  minHeight: 32,
+                ),
                 filled: true,
                 fillColor: fillColor,
                 enabledBorder: OutlineInputBorder(
@@ -237,8 +284,11 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
                   borderRadius: BorderRadius.circular(40),
                   borderSide: BorderSide(color: focusColor, width: 1.4),
                 ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                // ลด right padding ลงเล็กน้อย ให้พื้นที่ไอคอนแนบขวาได้มากขึ้น
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 0,
+                ),
               ),
             ),
             itemBuilder: (_, s) => ListTile(

@@ -3,6 +3,9 @@
 // ปรับกริดการ์ดให้เท่ากันทุกใบ + ลดพื้นที่ขาวล่าง
 // + โหมดเลือกหลายรายการ (แท็บสูตรโปรด)
 // + โหมดสลับหน่วยแสดงผลในตะกร้าวัตถุดิบ (หน่วยเดิม/กรัม)
+// + แก้ error PopScope.onPopInvokedWithResult / RouteAware cast
+// + กัน overflow ด้วย SafeArea/ConstrainedBox/PageStorageKey/Scrollbar
+// + FIX: ปุ่มแท็บและแถบโหมดเลือกป้องกัน RenderFlex overflow ด้านขวา
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -135,7 +138,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    routeObserver.subscribe(this, ModalRoute.of(context)! as PageRoute);
+    // ★ ป้องกัน cast ผิดชนิด (บางครั้ง ModalRoute ไม่ใช่ PageRoute)
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.subscribe(this, route);
+    }
   }
 
   @override
@@ -146,6 +153,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
 
   @override
   void didPopNext() {
+    // ★ เรียก refresh เมื่อกลับมาหน้านี้
     setState(() {
       _initFuture = _initialize(forceRefresh: true);
     });
@@ -221,10 +229,10 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
-    // Back = ออกจากโหมดเลือกก่อน
+    // ★ ใช้ PopScope.onPopInvoked (เวอร์ชันเสถียร) แทน onPopInvokedWithResult
     return PopScope(
       canPop: true,
-      onPopInvokedWithResult: (didPop, result) {
+      onPopInvoked: (didPop) {
         if (didPop) return;
         if (_selectionMode) {
           _exitSelection();
@@ -344,14 +352,21 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
               ),
             ),
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: isSelected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
+          // ⬇️ FIX overflow: ย่อฟอนต์อัตโนมัติ + ellipsis
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: isSelected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         ),
@@ -364,34 +379,16 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     return FutureBuilder<List<Recipe>>(
       future: _futureFavorites,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done ||
-            !snapshot.hasData) {
-          return Padding(
-            padding:
-                const EdgeInsets.fromLTRB(_kHeaderHPad, 12, _kHeaderHPad, 6),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'ยกเลิก',
-                  icon: const Icon(Icons.close),
-                  onPressed: _exitSelection,
-                ),
-                Text(
-                  'เลือกไว้ ${_selectedIds.length}',
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-          );
-        }
-
-        final list = snapshot.data!;
+        final bool isLoading =
+            snapshot.connectionState != ConnectionState.done ||
+                !snapshot.hasData;
+        final list = snapshot.data ?? const <Recipe>[];
         final bool isAllSelected =
             _selectedIds.length == list.length && list.isNotEmpty;
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(_kHeaderHPad, 12, _kHeaderHPad, 6),
+          padding: const EdgeInsets.fromLTRB(
+              12, 12, 12, 6), // ลด padding เพื่อกันล้น
           child: Row(
             children: [
               IconButton(
@@ -399,17 +396,23 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
                 icon: const Icon(Icons.close),
                 onPressed: _exitSelection,
               ),
-              Text(
-                'เลือกไว้ ${_selectedIds.length}',
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
+              // ใช้ Flexible แทน Expanded เพื่อให้ Text ยืด/หดได้
+              Flexible(
+                child: Text(
+                  isLoading
+                      ? 'เลือกไว้ ${_selectedIds.length}'
+                      : 'เลือกไว้ ${_selectedIds.length}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
               ),
-              const Spacer(),
               IconButton(
                 tooltip:
                     isAllSelected ? 'ยกเลิกการเลือกทั้งหมด' : 'เลือกทั้งหมด',
                 icon: Icon(isAllSelected ? Icons.clear : Icons.checklist),
-                onPressed: () => _toggleSelectAll(list),
+                onPressed: isLoading ? null : () => _toggleSelectAll(list),
               ),
               IconButton(
                 tooltip: 'ลบ',
@@ -447,12 +450,11 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
           );
         }
 
-        //ล็อค 2 คอลัมน์ + คำนวณสัดส่วนจริงให้การ์ด “เต็มพอดี” ไม่เหลือพื้นขาวล่าง
+        // ล็อค 2 คอลัมน์ + คำนวณสัดส่วนจริงให้การ์ด “เต็มพอดี” ไม่เหลือพื้นขาวล่าง
         final bottomSafe = MediaQuery.of(context).padding.bottom;
         final ratio = _calcCardAspectRatio(context);
 
         return Scrollbar(
-          // ★ เพิ่ม Scrollbar
           child: GridView.builder(
             padding: EdgeInsets.fromLTRB(
               _kGridHPad,
@@ -607,6 +609,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ★ ใช้ความสูงคงที่ + ListView.separated แนวนอน เพื่อลดโอกาส overflow แนวตั้ง
             SizedBox(
               height: 256,
               child: ListView.separated(
@@ -635,7 +638,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
               },
             ),
 
-            const SizedBox(height: 72),
+            const SizedBox(height: 72), // ★ เผื่อพื้นที่ FAB/BottomNav
           ],
         ),
       ),
@@ -794,7 +797,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> with RouteAware {
     setState(() {
       _selectionMode = true;
       if (_selectedIds.length == allIds.length) {
-        // ★เลือกครบอยู่แล้ว → เคลียร์เป็น “ยกเลิกทั้งหมด”
+        // ★ เลือกครบอยู่แล้ว → เคลียร์เป็น “ยกเลิกทั้งหมด”
         _selectedIds.clear();
       } else {
         _selectedIds
@@ -852,6 +855,7 @@ class AlwaysScrollableScrollPhysicsWrapper extends StatelessWidget {
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       child: ConstrainedBox(
+        // ★ บังคับให้สูงอย่างน้อย ~60% หน้าจอ เพื่อลาก Refresh ได้และกัน overflow แปลก ๆ
         constraints: BoxConstraints(
           minHeight: MediaQuery.of(context).size.height * .6,
         ),

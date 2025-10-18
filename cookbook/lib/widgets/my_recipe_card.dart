@@ -431,12 +431,12 @@ class _AllergyBadge extends StatelessWidget {
   }
 }
 
-Widget _buildImage(String imageUrl) {
-  return SafeImage(
-    url: imageUrl.isNotEmpty ? imageUrl : 'assets/images/default_recipe.png',
-    fit: BoxFit.cover,
-  );
-}
+Widget _buildImage(String imageUrl) => SafeImage(
+      url: imageUrl, // ส่ง URL จริง (จะ normalize ให้)
+      fit: BoxFit.cover,
+      fallbackAsset:
+          'assets/images/default_recipe.png', // รูปสำรองถ้า URL ว่าง/พัง
+    );
 
 /* ───────────── META: ดาวอย่างเดียว ───────────── */
 class _MetaStarOnly extends StatelessWidget {

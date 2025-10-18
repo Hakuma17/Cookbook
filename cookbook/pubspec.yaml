@@ -53,12 +53,16 @@ dependencies:
   path_provider: ^2.1.5
   flutter_typeahead: ^5.2.0
   google_fonts: ^6.2.1
+  image_gallery_saver:
+    path: plugins/image_gallery_saver
   url_launcher: ^6.3.2
   pinput: ^5.0.1
   provider: ^6.1.5
   shimmer: ^3.0.0
   cached_network_image: ^3.4.1
   android_intent_plus: ^5.3.1
+  dio: ^5.9.0
+  fluttertoast: ^9.0.0
 
 dev_dependencies:
   flutter_test:
