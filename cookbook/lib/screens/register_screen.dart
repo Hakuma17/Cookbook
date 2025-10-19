@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../utils/sanitize.dart';
+import 'verify_otp_screen.dart'; // สำหรับ fallback นำทางตรงด้วย MaterialPageRoute
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -223,6 +224,56 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return raw.toString();
   }
 
+  // ===== Robust navigation to verify email =====
+  Future<void> _goVerifyEmail(String email, bool startCooldown) async {
+    if (!mounted) return;
+    final args = {'email': email, 'startCooldown': startCooldown};
+
+    // ปิด SnackBar ที่ค้างอยู่ก่อน
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    // 1) ลอง root navigator ก่อน
+    try {
+      final rootNav = Navigator.of(context, rootNavigator: true);
+      rootNav.pushNamedAndRemoveUntil('/verify_email', (_) => false,
+          arguments: args);
+      debugPrint('[_goVerifyEmail] root pushNamedAndRemoveUntil OK');
+      return;
+    } catch (e) {
+      debugPrint('[_goVerifyEmail] root push failed: $e');
+    }
+
+    // 2) ลอง navigator ปกติ
+    try {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/verify_email',
+        (_) => false,
+        arguments: args,
+      );
+      debugPrint('[_goVerifyEmail] context pushNamedAndRemoveUntil OK');
+      return;
+    } catch (e) {
+      debugPrint('[_goVerifyEmail] context push failed: $e');
+    }
+
+    // 3) สุดท้าย fallback เป็น MaterialPageRoute โดยตรง (กันปัญหา route table)
+    try {
+      // ignore: use_build_context_synchronously
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => VerifyOtpScreen(
+            email: email,
+            startCooldown: startCooldown,
+          ),
+        ),
+        (_) => false,
+      );
+      debugPrint('[_goVerifyEmail] MaterialPageRoute fallback OK');
+    } catch (e) {
+      debugPrint('[_goVerifyEmail] fallback failed: $e');
+    }
+  }
+
   // ===== Register =====
   Future<void> _register() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -244,20 +295,54 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final confirm = _confirmCtrl.text;
 
     try {
-      final nav = Navigator.of(context); // จับ nav ไว้ก่อน await
+      print('Calling register API with email: $email');
       final res = await ApiService.register(email, pass, confirm, username);
+      print('Register API response: $res');
       if (!mounted) return;
 
-      if (res['success'] == true) {
+      // ตรวจสอบหลายรูปแบบของ success
+      final isSuccess = res['success'] == true ||
+          res['success'] == 'true' ||
+          (res['status'] != null &&
+              res['status'].toString().toLowerCase() == 'success');
+
+      print(
+          'isSuccess check: $isSuccess, original success value: ${res['success']}');
+
+      if (isSuccess) {
+        print('Registration success block entered');
         final sent = res['email_sent'] == true;
         await AuthService.markPendingEmailVerify(
             email: email, startCooldown: sent);
-        nav.pushReplacementNamed(
-          '/verify_email',
-          arguments: {'email': email, 'startCooldown': sent},
-        );
+
+        print('Registration successful, navigating to verify_email...');
+        print('Email: $email, startCooldown: $sent');
+
+        // แสดงข้อความแจ้งให้ยืนยันอีเมล
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                sent
+                    ? 'สมัครสมาชิกสำเร็จ! กรุณาตรวจสอบอีเมลเพื่อยืนยันบัญชี'
+                    : 'สมัครสมาชิกสำเร็จ! กำลังส่งอีเมลยืนยัน',
+              ),
+              backgroundColor: Colors.green[600],
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+
+        // รอเล็กน้อยกันชน แล้วนำทางแบบ robust
+        await Future.delayed(const Duration(milliseconds: 300));
+        print(
+            'Navigating to verify_email with email: $email, startCooldown: $sent');
+        await _goVerifyEmail(email, sent);
         return;
       }
+      print('Registration failed, success check failed');
+      print('res[\'success\'] = ${res['success']}');
+      print('res[\'status\'] = ${res['status']}');
       final msgDyn = res['message'];
       final errs = res['errors'];
       final msg = (msgDyn is String && msgDyn.trim().isNotEmpty)

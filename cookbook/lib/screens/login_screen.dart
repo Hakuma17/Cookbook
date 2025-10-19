@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../services/google_oauth.dart';
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
@@ -34,9 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /* ── Google ───────────────────────────────────────────────────── */
   final _googleSignIn = GoogleSignIn(
-    scopes: const ['email', 'profile', 'openid'],
-    serverClientId:
-        '84901598956-f1jcvtke9f9lg84lgso1qpr3hf5rhhkr.apps.googleusercontent.com',
+    scopes: GoogleOAuthConfig.scopes,
+    serverClientId: GoogleOAuthConfig.webClientId,
   );
 
   /* ── UI state ─────────────────────────────────────────────────── */
@@ -235,9 +235,32 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (e) {
       if (mounted) setState(() => _errorMsg = e.message);
       await _googleSignIn.signOut();
-    } catch (_) {
+    } on PlatformException catch (pe) {
+      // Surface detailed error to help diagnose flaky sign-in
+      final code = pe.code;
+      final details = pe.details?.toString() ?? '';
+
+      // จัดการ network_error โดยเฉพาะ
+      String errorMessage;
+      if (code == 'network_error') {
+        errorMessage =
+            'เกิดข้อผิดพลาดเครือข่าย กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตและลองใหม่';
+      } else if (code == 'sign_in_canceled') {
+        errorMessage = 'ยกเลิกการล็อกอิน';
+      } else if (code == 'sign_in_failed') {
+        errorMessage = 'การล็อกอิน Google ล้มเหลว กรุณาลองใหม่';
+      } else {
+        errorMessage =
+            'เกิดข้อผิดพลาด Google Sign-In [$code] ${details.isNotEmpty ? '- $details' : ''}'
+                .trim();
+      }
+
+      if (mounted) setState(() => _errorMsg = errorMessage);
+      await _googleSignIn.signOut();
+    } catch (e) {
       if (mounted) {
-        setState(() => _errorMsg = 'เกิดข้อผิดพลาดในการล็อกอินด้วย Google');
+        setState(() => _errorMsg =
+            'เกิดข้อผิดพลาดในการล็อกอินด้วย Google: ${e.toString()}');
       }
       await _googleSignIn.signOut();
     } finally {

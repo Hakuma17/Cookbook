@@ -163,12 +163,14 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
           await AuthService.saveLoginData(data);
         }
         await _clearPending();
-        final loggedIn = await AuthService.isLoggedIn();
+        // แสดงข้อความยืนยันสำเร็จ
+        if (mounted) {
+          _showSnack('ยืนยันอีเมลสำเร็จ! ยินดีต้อนรับ', isError: false);
+        }
+        // รอสักครู่แล้วไปหน้า Home
+        await Future.delayed(const Duration(milliseconds: 1500));
         if (!mounted) return;
-        nav.pushNamedAndRemoveUntil(
-          loggedIn ? '/home' : '/login',
-          (_) => false,
-        );
+        nav.pushNamedAndRemoveUntil('/home', (_) => false);
       } else {
         setState(() => _errorMsg = _mapOtpError(res));
       }
@@ -260,6 +262,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
           title: const Text('ยืนยันอีเมล'),
           backgroundColor: theme.scaffoldBackgroundColor,
           elevation: 0,
+          centerTitle: true,
         ),
         body: Center(
           child: SingleChildScrollView(
@@ -276,8 +279,23 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'ป้อนรหัสที่ส่งไปยัง',
+                    'ยินดีต้อนรับสู่ Cookbook!',
+                    style: txt.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: primaryBrown,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'กรุณายืนยันอีเมลเพื่อเริ่มใช้งาน',
                     style: txt.bodyLarge?.copyWith(fontSize: 18),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'ป้อนรหัสที่ส่งไปยัง',
+                    style: txt.bodyLarge?.copyWith(fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -372,7 +390,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                     // ปุ่มยกเลิกกระบวนการยืนยัน
                     onPressed: _cancelVerification,
                     child: Text(
-                      'ยกเลิก',
+                      'ใช้อีเมลอื่น',
                       style: GoogleFonts.itim(
                         fontSize: 18,
                         color: theme.colorScheme.error,

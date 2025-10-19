@@ -594,7 +594,8 @@ class ApiService {
         'confirm_password': cPwd,
         'username': name,
       },
-      okStatuses: const {200, 400, 409, 422}, // เคส validation ทั้งหลาย
+      // ยอมรับ 201 (Created) จาก backend เมื่อสมัครสำเร็จด้วย
+      okStatuses: const {200, 201, 400, 409, 422},
     );
     return j;
   }

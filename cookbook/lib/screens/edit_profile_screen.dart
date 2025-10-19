@@ -29,6 +29,7 @@ import 'dart:io';
 import 'package:cookbook/screens/crop_avatar_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../services/google_oauth.dart';
 import '../utils/safe_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
@@ -78,9 +79,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final _ImagePickerHelper _picker;
   // ใช้ config เดียวกับหน้าเข้าสู่ระบบ เพื่อให้ได้สิทธิ์ profile/photo ครบ
   final _googleSignIn = GoogleSignIn(
-    scopes: const ['email', 'profile', 'openid'],
-    serverClientId:
-        '84901598956-f1jcvtke9f9lg84lgso1qpr3hf5rhhkr.apps.googleusercontent.com',
+    scopes: GoogleOAuthConfig.scopes,
+    serverClientId: GoogleOAuthConfig.webClientId,
   );
 
   // ───── Initial snapshot ─────
@@ -263,8 +263,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _currentImagePathRaw = null; // รูปภายนอก ไม่มี path บนเซิร์ฟเวอร์
       });
       _showSnack('คืนค่าข้อมูลจาก Google สำเร็จ', isError: false);
+    } on PlatformException catch (pe) {
+      final code = pe.code;
+      String errorMessage;
+      if (code == 'network_error') {
+        errorMessage =
+            'เกิดข้อผิดพลาดเครือข่าย กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตและลองใหม่';
+      } else if (code == 'sign_in_canceled') {
+        errorMessage = 'ยกเลิกการเข้าสู่ระบบ Google';
+      } else {
+        errorMessage = 'เกิดข้อผิดพลาด Google: [$code]';
+      }
+      _showSnack(errorMessage);
     } catch (e) {
-      _showSnack('เกิดข้อผิดพลาด: $e');
+      _showSnack('เกิดข้อผิดพลาด: ${e.toString()}');
     } finally {
       if (mounted) {
         setState(() {

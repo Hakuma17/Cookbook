@@ -47,13 +47,48 @@ class _SplashScreenState extends State<SplashScreen> {
         route = '/onboarding';
       } else {
         final isLoggedIn = await AuthService.isLoggedIn();
-        route = isLoggedIn ? '/home' : '/welcome';
+        if (isLoggedIn) {
+          // ★ ตรวจสอบว่ามี pending email verification หรือไม่
+          final pending = await AuthService.getPendingEmailVerify();
+          if (pending != null && pending['email'] != null) {
+            // มี email รอยืนยัน → ไปหน้ายืนยันอีเมลแทน
+            route = '/verify_email';
+          } else {
+            // ไม่มี pending → ไปหน้า home ปกติ
+            route = '/home';
+          }
+        } else {
+          route = '/welcome';
+        }
       }
     } catch (_) {
       // เงียบ ๆ แล้วใช้ค่า fallback ไป /welcome
     }
 
     if (!mounted) return;
+
+    // ★ ถ้าเป็นหน้า verify_email ต้องส่ง arguments ด้วย
+    if (route == '/verify_email') {
+      try {
+        final pending = await AuthService.getPendingEmailVerify();
+        final email = pending?['email'] ?? '';
+        final secondsLeft = pending?['secondsLeft'] ?? 0;
+
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          route,
+          (_) => false,
+          arguments: {
+            'email': email,
+            'startCooldown': secondsLeft > 0,
+          },
+        );
+        return;
+      } catch (_) {
+        // ถ้า error ให้กลับไปหน้า welcome
+        route = '/welcome';
+      }
+    }
+
     // ล้างสแต็กกันกดย้อนกลับมาที่ Splash
     Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
   }
