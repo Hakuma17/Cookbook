@@ -10,6 +10,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:flutter_keyboard_visibility/flutter_keyboard_visibility.dart';
 
 import 'package:cookbook/services/api_service.dart';
 import 'package:cookbook/services/auth_service.dart';
@@ -148,6 +149,9 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
   // เพิ่มลงชุด "ชื่อวัตถุดิบ" โดยลบออกจากฝั่งตรงข้ามให้อัตโนมัติ + กันซ้ำแบบ case-insensitive
   void _addNameTo(Set<String> target, Set<String> opposite, String raw) {
+    print(
+        '🔍 _addNameTo called with: "$raw" (โหมด: ${_groupMode ? "กลุ่ม" : "เดี่ยว"})');
+
     final names = raw
         .split(RegExp(r'[;,]')) // รองรับใส่หลายชื่อคั่นด้วย , ;
         .map((e) => e.trim())
@@ -157,6 +161,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
     for (final name in names) {
       final key = _norm(name);
+      print('   → เพิ่มชื่อวัตถุดิบ: "$name"');
 
       // เอาออกจากอีกฝั่ง ถ้ามีอยู่ (เทียบแบบไม่สนตัวพิมพ์)
       final toRemove = opposite.firstWhere(
@@ -164,6 +169,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         orElse: () => '',
       );
       if (toRemove.isNotEmpty) {
+        print('   → ลบออกจากฝั่งตรงข้าม: "$toRemove"');
         opposite.remove(toRemove);
         changed = true;
       }
@@ -173,14 +179,20 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
       if (!exists) {
         target.add(name);
         changed = true;
+        print('   ✅ เพิ่มแล้ว: "$name"');
+      } else {
+        print('   ⚠️ มีอยู่แล้ว: "$name"');
       }
     }
 
     if (changed) setState(() {});
   }
 
-  // เพิ่มลงชุด "กลุ่มวัตถุดิบ" (หลักการเดียวกับชื่อ)
+  // เพิ่มลงชุด "กลุ่มวัตถุดิบ" (แยกออกจากชื่อวัตถุดิบเดี่ยวอย่างชัดเจน)
   void _addGroupTo(Set<String> target, Set<String> opposite, String raw) {
+    print(
+        '🏷️ _addGroupTo called with: "$raw" (โหมด: ${_groupMode ? "กลุ่ม" : "เดี่ยว"})');
+
     final groups = raw
         .split(RegExp(r'[;,]'))
         .map((e) => e.trim())
@@ -190,6 +202,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
     for (final g in groups) {
       final key = _norm(g);
+      print('   → เพิ่มกลุ่ม: "$g"');
 
       // เอาออกจากชุดกลุ่มฝั่งตรงข้าม
       final toRemove = opposite.firstWhere(
@@ -197,25 +210,22 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
         orElse: () => '',
       );
       if (toRemove.isNotEmpty) {
+        print('   → ลบกลุ่มออกจากฝั่งตรงข้าม: "$toRemove"');
         opposite.remove(toRemove);
         changed = true;
       }
 
-      // ★ NEW: กันสับสนชื่อซ้ำ — ถ้าชื่อกลุ่มตรงกับ "ชื่อวัตถุดิบ" ที่มีอยู่ ให้ลบออก
-      final beforeHave = _haveSet.length;
-      _haveSet.removeWhere((e) => _norm(e) == key);
-      final removedName1 = beforeHave != _haveSet.length;
-
-      final beforeNotHave = _notHaveSet.length;
-      _notHaveSet.removeWhere((e) => _norm(e) == key);
-      final removedName2 = beforeNotHave != _notHaveSet.length;
-      if (removedName1 || removedName2) changed = true;
+      // ★ REMOVED: ไม่ลบชื่อวัตถุดิบเดี่ยวออกอีกต่อไป เพื่อให้ผู้ใช้เลือกได้ทั้ง 2 แบบ
+      // เดิม: ลบชื่อวัตถุดิบที่ซ้ำกับกลุ่ม -> ทำให้เกิดความสับสน
 
       // กันซ้ำใน target (เทียบแบบไม่สนตัวพิมพ์)
       final exists = target.any((e) => _norm(e) == key);
       if (!exists) {
         target.add(g);
         changed = true;
+        print('   ✅ เพิ่มกลุ่มแล้ว: "$g"');
+      } else {
+        print('   ⚠️ มีกลุ่มอยู่แล้ว: "$g"');
       }
     }
 
@@ -277,10 +287,14 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
   }
 
   void _dismissKb() {
+    // ปิด focus nodes ทั้งหมด
     _haveFocus.unfocus();
     _notHaveFocus.unfocus();
     _haveGroupFocus.unfocus();
     _notHaveGroupFocus.unfocus();
+
+    // ปิด keyboard ใน context ปัจจุบัน
+    FocusScope.of(context).unfocus();
   }
 
   /* ─────────────── Camera handlers (4 ช่อง) ─────────────── */
@@ -582,6 +596,9 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
       },
       child: Scaffold(
         backgroundColor: theme.colorScheme.surface,
+        resizeToAvoidBottomInset:
+            true, // เพิ่ม: ให้หน้าจอปรับขนาดเมื่อแป้นพิมพ์ขึ้น
+        extendBody: true, // ขยายพื้นที่ body ไปยัง bottom navigation
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
@@ -590,10 +607,21 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
           ),
           title: const Text('ค้นหาด้วยวัตถุดิบ'),
         ),
-        bottomNavigationBar: CustomBottomNav(
-          selectedIndex: 1,
-          onItemSelected: _onNavItemTapped,
-          isLoggedIn: _isLoggedIn,
+        bottomNavigationBar: KeyboardVisibilityBuilder(
+          builder: (context, isKeyboardVisible) {
+            // ซ่อน bottom navigation bar เมื่อแป้นพิมพ์ขึ้น
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              height: isKeyboardVisible ? 0 : null,
+              child: isKeyboardVisible
+                  ? const SizedBox()
+                  : CustomBottomNav(
+                      selectedIndex: 1,
+                      onItemSelected: _onNavItemTapped,
+                      isLoggedIn: _isLoggedIn,
+                    ),
+            );
+          },
         ),
         body: FutureBuilder(
           future: _initFuture,
@@ -609,7 +637,13 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                 child: SingleChildScrollView(
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.all(20.0),
+                  padding: EdgeInsets.only(
+                    left: 20.0,
+                    right: 20.0,
+                    top: 20.0,
+                    bottom: MediaQuery.of(context).viewInsets.bottom +
+                        80.0, // เพิ่ม padding bottom เยอะขึ้นเพื่อให้มีพื้นที่มากขึ้น
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -658,7 +692,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                           // กลุ่มวัตถุดิบ
                           controller: _haveGroupCtrl,
                           focusNode: _haveGroupFocus,
-                          hint: 'พิมพ์ชื่อกลุ่มวัตถุดิบ (เช่น กุ้งทะเล, นมวัว)',
+                          hint: 'พิมพ์กลุ่ม เช่น ผักใบเขียว อาหารทะเล ถั่ว',
                           // ใช้ suggest กลุ่ม
                           suggestionsCallback: ApiService.getGroupSuggestions,
                           onAdd: (g) => _addGroupTo(
@@ -677,7 +711,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                           controller: _haveCtrl,
                           focusNode: _haveFocus,
                           hint:
-                              'พิมพ์ชื่อวัตถุดิบที่มี (ใส่หลายชื่อคั่น , ; ได้)',
+                              'พิมพ์ชื่อวัตถุดิบเดี่ยว เช่น กบ หอมแดง มะเขือเทศ',
                           suggestionsCallback:
                               ApiService.getIngredientSuggestions,
                           onAdd: (n) => _addNameTo(_haveSet, _notHaveSet, n),
@@ -746,7 +780,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                           key: const ValueKey('exc-group'), // ★ NEW
                           controller: _notHaveGroupCtrl,
                           focusNode: _notHaveGroupFocus,
-                          hint: 'พิมพ์ชื่อกลุ่มวัตถุดิบที่ต้องการยกเว้น',
+                          hint: 'พิมพ์กลุ่มที่ไม่ต้องการ เช่น เนื้อสัตว์ นมวัว',
                           suggestionsCallback: ApiService.getGroupSuggestions,
                           onAdd: (g) => _addGroupTo(
                             _notHaveGroupSet,
@@ -762,7 +796,7 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
                           key: const ValueKey('exc-name'), // ★ NEW
                           controller: _notHaveCtrl,
                           focusNode: _notHaveFocus,
-                          hint: 'พิมพ์ชื่อวัตถุดิบเพื่อยกเว้น',
+                          hint: 'พิมพ์วัตถุดิบที่ไม่ต้องการ เช่น นม ไข่ กุ้ง',
                           suggestionsCallback:
                               ApiService.getIngredientSuggestions,
                           onAdd: (n) => _addNameTo(_notHaveSet, _haveSet, n),
@@ -851,31 +885,66 @@ class _IngredientFilterScreenState extends State<IngredientFilterScreen> {
 
   /// สวิตช์เลือกโหมดอินพุตของหน้าจอ
   Widget _buildModeSwitcher(ThemeData theme) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment<bool>(
-                value: false,
-                label: Text('ตามชื่อวัตถุดิบ'),
-                icon: Icon(Icons.label_outline),
+        Row(
+          children: [
+            Expanded(
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment<bool>(
+                    value: false,
+                    label: Text('ชื่อวัตถุดิบ'),
+                    icon: Icon(Icons.label_outline),
+                  ),
+                  ButtonSegment<bool>(
+                    value: true,
+                    label: Text('กลุ่มวัตถุดิบ'),
+                    icon: Icon(Icons.category_outlined),
+                  ),
+                ],
+                selected: {_groupMode},
+                onSelectionChanged: (set) {
+                  // ★ NEW: ปิดคีย์บอร์ด/overlay เดิมก่อนสลับโหมด (กัน state เก่าค้าง)
+                  if (_groupMode != set.first) {
+                    _dismissKb();
+                    setState(() => _groupMode = set.first);
+                  }
+                },
+                showSelectedIcon: false,
               ),
-              ButtonSegment<bool>(
-                value: true,
-                label: Text('ตามกลุ่มวัตถุดิบ'),
-                icon: Icon(Icons.category_outlined),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // เพิ่มคำอธิบายโหมดปัจจุบัน
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _groupMode ? Icons.info_outline : Icons.lightbulb_outline,
+                size: 16,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _groupMode
+                      ? 'โหมดกลุ่ม: เลือก "กบ" จะได้กลุ่มวัตถุดิบที่เกี่ยวข้องทั้งหมด'
+                      : 'โหมดเดี่ยว: เลือก "กบ" จะได้เฉพาะ "กบ" ตัวเดียว',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ],
-            selected: {_groupMode},
-            onSelectionChanged: (set) {
-              // ★ NEW: ปิดคีย์บอร์ด/overlay เดิมก่อนสลับโหมด (กัน state เก่าค้าง)
-              if (_groupMode != set.first) {
-                _dismissKb();
-                setState(() => _groupMode = set.first);
-              }
-            },
-            showSelectedIcon: false,
           ),
         ),
       ],
@@ -981,16 +1050,19 @@ class _TypeAheadBox extends StatelessWidget {
             suggestionsCallback: suggestionsCallback,
             debounceDuration: const Duration(milliseconds: 300),
 
-            // พฤติกรรมกล่อง suggestion
+            // พฤติกรรมกล่อง suggestion - ให้ปิดเมื่อไม่โฟกัสแต่ไม่หายไปง่าย
             hideOnUnfocus: true,
             hideOnEmpty: true,
             hideOnLoading: false,
+            retainOnLoading: true, // เก็บ suggestions ไว้ขณะโหลด
 
             // ช่องกรอก
             builder: (ctx, textController, fieldFocus) => TextField(
               controller: textController,
               focusNode: fieldFocus,
               textInputAction: TextInputAction.done,
+              enableSuggestions: true,
+              autocorrect: false,
               decoration: InputDecoration(
                 hintText: hint,
                 suffixIcon: (textController.text.isNotEmpty)
@@ -1007,11 +1079,10 @@ class _TypeAheadBox extends StatelessWidget {
                 final v = value.trim();
                 if (v.isNotEmpty) {
                   onAdd(v);
-                  // เก็บข้อความไว้ต่อ ไม่ clear เพื่อให้แก้ไข/กดค้นหาต่อได้
-                  // เลื่อน caret ไปท้ายข้อความ
-                  textController.selection = TextSelection.fromPosition(
-                    TextPosition(offset: textController.text.length),
-                  );
+                  // เคลียร์ข้อความหลังเพิ่มเสร็จแล้ว
+                  textController.clear();
+                  // คง focus เพื่อพิมพ์ต่อได้ทันที
+                  fieldFocus.requestFocus();
                 }
               },
             ),
@@ -1022,7 +1093,8 @@ class _TypeAheadBox extends StatelessWidget {
             // ★ NEW: เคลียร์ให้ชัวร์ และคงโฟกัสเพื่อพิมพ์ต่อได้ทันที
             onSelected: (s) {
               onAdd(s);
-              // คงข้อความไว้ และให้โฟกัสอยู่ต่อเพื่อพิมพ์คำถัดไปได้ทันที
+              // เคลียร์ controller และคงโฟกัสเพื่อพิมพ์ต่อได้
+              controller.clear();
               focusNode.requestFocus();
             },
 
